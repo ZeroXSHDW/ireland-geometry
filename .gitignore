@@ -11,3 +11,4 @@ output/
 *.part
 *.pyc
 .DS_Store
+*.egg-info/
