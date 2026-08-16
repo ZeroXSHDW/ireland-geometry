@@ -32,7 +32,7 @@ The build completed without network access. The exact input caches were:
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 16 passed
+.venv/bin/python -m pytest                 # 17 passed
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help

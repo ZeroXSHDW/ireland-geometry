@@ -102,3 +102,6 @@ then the roads, architect, and report stages were rerun successfully.
   schema version.
 - Added regression tests for custom-stage ordering, multipart hole alignment,
   p-value contracts, and the new verifier. The suite now has 16 tests.
+- Corrected manifest CSV counts to parse records rather than physical lines,
+  so quoted multiline architect evidence is counted accurately; added a
+  regression test. The suite now has 17 tests.

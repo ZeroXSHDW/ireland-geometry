@@ -127,9 +127,9 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         if not path.exists():
             continue
         try:
-            with path.open("rb") as fh:
-                counts[name] = max(0, sum(1 for _ in fh) - 1)
-        except OSError:
+            with path.open(newline="", encoding="utf-8") as fh:
+                counts[name] = max(0, sum(1 for _ in csv.reader(fh)) - 1)
+        except (OSError, UnicodeError, csv.Error):
             continue
     for name in ("ireland_buildings.geojson", "report.html", "verification.json", "combined.json"):
         path = out / name
