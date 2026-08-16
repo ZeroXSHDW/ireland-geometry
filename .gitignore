@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+data/*.json
+data/niah/
+data/raw/
+data/satellite/
+output/
+*.osm.pbf
+*.part
+*.pyc
+.DS_Store
