@@ -52,6 +52,7 @@ Useful commands:
 ```bash
 .venv/bin/python run_pipeline.py --help
 .venv/bin/python run_pipeline.py --stage analyze,niah,report --no-network
+.venv/bin/python run_pipeline.py --stage all --no-network --data-root /path/to/data --out-dir /path/to/output
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 ```
@@ -68,6 +69,7 @@ Useful commands:
 | `roads` | Compare road and river segment bearings with church-edge bearings. |
 | `architects` | Extract validated architect mentions and produce evidence-linked exploratory rates. |
 | `report` | Build a data-driven Leaflet dashboard with filters, map layers, downloads, and methods. |
+| `verify` | Validate all final artifacts, provenance hashes, statistical fields, report tokens, and report JavaScript syntax. |
 
 The optional `scripts/fetch_osm.py` Overpass channel and
 `scripts/fetch_satellite.py` Sentinel-2 channel remain available for separate
@@ -94,6 +96,7 @@ for visual reference; it does not silently bulk-scrape Yandex imagery.
 | `architects_evidence.csv` | Every accepted architect attribution with source registration number, evidence text, and confidence. |
 | `report.html` | Standalone interactive dashboard: search, filters, pagination, clustered markers, top outlines, OSM links, CSV/GeoJSON downloads, significance tables, and provenance. |
 | `manifest.json` | UTC build time, Git revision, parameters, source paths, SHA-256 hashes, byte sizes, and row counts. |
+| `verification.json` | Machine-readable result from the final `verify` stage. |
 
 ## Geometry and pattern measurement
 

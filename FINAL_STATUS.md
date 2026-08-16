@@ -1,6 +1,7 @@
 # Final status
 
-Status: complete for the current cached snapshot.
+Status: complete for the current cached snapshot; the follow-up verification
+hardening pass is included in the latest commit.
 
 ## Reproducible build
 
@@ -26,19 +27,22 @@ The build completed without network access. The exact input caches were:
 - 49 exploratory architect-rate rows and 1,114 evidence rows;
 - `output/report.html` interactive dashboard;
 - `output/manifest.json` provenance record with source hashes and counts.
+- `output/verification.json` automated artifact-contract result.
 
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 12 passed
+.venv/bin/python -m pytest                 # 16 passed
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help
+.venv/bin/python run_pipeline.py --stage verify --no-network
 ```
 
-Additional artifact assertions passed: manifest revision/counts, GeoJSON
-parsing, source-region completeness, positive p-values/adjusted p-values, and
-absence of unresolved report template tokens.
+Additional artifact assertions passed: manifest revision/counts and source
+hashes, GeoJSON parsing and ID alignment, source-region completeness, positive
+p-values/adjusted p-values, absence of unresolved report template tokens, and
+inline report JavaScript syntax.
 
 ## Interpretation
 

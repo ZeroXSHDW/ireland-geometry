@@ -27,8 +27,10 @@ vector footprint source for Ireland.
 Usage:
     python3 scripts/fetch_geofabrik.py                 # download if needed + extract
     python3 scripts/fetch_geofabrik.py --no-download   # extract only
-    python3 scripts/fetch_geofabrik.py --refresh       # re-extract over cache
+python3 scripts/fetch_geofabrik.py --refresh       # re-extract over cache
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -110,6 +112,29 @@ def ring_coords(ring) -> list:
     return [{"lat": n.location.lat, "lon": n.location.lon} for n in ring if n.location.valid()]
 
 
+def geometry_from_rings(rings: list[tuple[list, list]]) -> dict | None:
+    """Serialize valid outer rings while keeping each ring's holes attached.
+
+    Filtering invalid outers must happen together with their holes. The old
+    list-filtering approach could shift hole indexes when an invalid outer
+    appeared before a valid one.
+    """
+    pairs = []
+    for exterior, holes in rings:
+        if len(exterior) < 4:
+            continue
+        valid_holes = [hole for hole in holes if len(hole) >= 4]
+        pairs.append((exterior, valid_holes))
+    if not pairs:
+        return None
+    if len(pairs) == 1:
+        return {"exterior": pairs[0][0], "holes": pairs[0][1]}
+    return {
+        "exteriors": [exterior for exterior, _ in pairs],
+        "holes_by_exterior": [holes for _, holes in pairs],
+    }
+
+
 class ExtractHandler(osmium.SimpleHandler):
     def __init__(self, out: list):
         super().__init__()
@@ -138,18 +163,14 @@ class ExtractHandler(osmium.SimpleHandler):
         outers = list(a.outer_rings())
         if not outers:
             return
-        exteriors = [ring_coords(ring) for ring in outers]
-        exteriors = [ring for ring in exteriors if len(ring) >= 4]
-        if not exteriors:
+        ring_pairs = []
+        for outer in outers:
+            exterior = ring_coords(outer)
+            holes = [ring_coords(hole) for hole in a.inner_rings(outer)]
+            ring_pairs.append((exterior, holes))
+        geometry = geometry_from_rings(ring_pairs)
+        if geometry is None:
             return
-        holes_by_exterior = [
-            [rc for rc in (ring_coords(hole) for hole in a.inner_rings(outer)) if len(rc) >= 4]
-            for outer in outers
-        ]
-        if len(exteriors) == 1:
-            geometry = {"exterior": exteriors[0], "holes": holes_by_exterior[0]}
-        else:
-            geometry = {"exteriors": exteriors, "holes_by_exterior": holes_by_exterior}
         try:
             is_mp = a.is_multipolygon() if callable(a.is_multipolygon) else a.is_multipolygon
         except Exception:  # noqa: BLE001 - pyosmium exposes version-dependent exceptions

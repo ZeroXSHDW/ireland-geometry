@@ -2,7 +2,7 @@
 """Run the Ireland geometry pipeline from any working directory.
 
 The default order is fetch -> fetch-niah -> analyze -> niah -> point-pattern -> roads ->
-architects -> report. Use ``--stage`` to run one stage or a comma-separated
+architects -> report -> verify. Use ``--stage`` to run one stage or a comma-separated
 subset. All paths are resolved relative to this project unless absolute.
 """
 
@@ -24,6 +24,7 @@ STAGES = (
     "roads",
     "architects",
     "report",
+    "verify",
 )
 SCRIPTS = {
     "fetch": "fetch_geofabrik.py",
@@ -34,6 +35,7 @@ SCRIPTS = {
     "roads": "roads.py",
     "architects": "architects.py",
     "report": "report.py",
+    "verify": "verify.py",
 }
 
 
@@ -77,6 +79,8 @@ def selected_stages(value: str) -> list[str]:
     unknown = [name for name in names if name not in STAGES]
     if unknown:
         raise SystemExit(f"Unknown stage(s): {', '.join(unknown)}; choose from {', '.join(STAGES)}")
+    if "verify" in names and names[-1] != "verify":
+        raise SystemExit("The verify stage must be last so it checks the completed artifact set")
     return names
 
 
@@ -96,6 +100,7 @@ def run_stage(
         if args.no_network:
             command.append("--no-download")
     elif name == "fetch-niah":
+        command += ["--data-root", str(data_root)]
         if args.refresh:
             command.append("--refresh")
         if args.no_network:
@@ -110,6 +115,15 @@ def run_stage(
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir), "--pbf", str(pbf)]
     elif name == "report":
         command += ["--out-dir", str(out_dir)]
+    elif name == "verify":
+        command += [
+            "--data-root",
+            str(data_root),
+            "--out-dir",
+            str(out_dir),
+            "--manifest",
+            str(out_dir / "manifest.json"),
+        ]
     print(f"\n===== {name} =====", flush=True)
     subprocess.run(command, cwd=ROOT, env=env, check=True)
 
@@ -142,6 +156,14 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
                 "path": data_root / "niah" / "niah.json",
                 "url": "https://www.buildingsofireland.ie/niah-data-download/",
             },
+            *[
+                {
+                    "kind": "niah_archive",
+                    "path": data_root / "niah" / f"{region}.zip",
+                    "url": f"https://www.buildingsofireland.ie/niah/NIAHDataDownload/{region}.zip",
+                }
+                for region in ("Dublin", "Connacht", "Leinster", "Munster", "Ulster")
+            ],
         ],
     )
     atomic_write_json(out_dir / "manifest.json", manifest, indent=2)
@@ -161,9 +183,15 @@ def main(argv: list[str] | None = None) -> None:
     env["IRELAND_GEOMETRY_MC"] = str(args.mc)
     if args.no_network:
         env["IRELAND_GEOMETRY_NO_NETWORK"] = "1"
+    verify_requested = "verify" in stages
     for stage in stages:
+        if stage == "verify":
+            continue
         run_stage(stage, args, data_root, out_dir, pbf, env)
     write_manifest(args, data_root, out_dir, pbf)
+    if verify_requested:
+        run_stage("verify", args, data_root, out_dir, pbf, env)
+        write_manifest(args, data_root, out_dir, pbf)
     print("\nDone. Open output/report.html (or the served URL) to explore.")
 
 

@@ -114,8 +114,14 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         "top_patterns.csv",
         "niah_join.csv",
         "niah_significance.csv",
+        "niah_decades.csv",
+        "niah_golden_angles.csv",
         "point_pattern.csv",
+        "point_pattern_turns.csv",
+        "roads_compare.csv",
         "architects.csv",
+        "architects_binary.csv",
+        "architects_evidence.csv",
     ):
         path = out / name
         if not path.exists():
@@ -125,7 +131,7 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
                 counts[name] = max(0, sum(1 for _ in fh) - 1)
         except OSError:
             continue
-    for name in ("ireland_buildings.geojson", "combined.json"):
+    for name in ("ireland_buildings.geojson", "report.html", "verification.json", "combined.json"):
         path = out / name
         if path.exists():
             counts[f"{name}_bytes"] = path.stat().st_size
@@ -149,6 +155,7 @@ def build_manifest(
             row["bytes"] = p.stat().st_size if p.exists() else None
         source_rows.append(row)
     return {
+        "manifest_version": 1,
         "generated_at": utc_now(),
         "project_root": str(ROOT),
         "git_revision": git_revision(ROOT),

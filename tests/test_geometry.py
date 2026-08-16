@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from scripts.fetch_geofabrik import geometry_from_rings
 from scripts.geometry import (
     convexity_ratio,
     count_holes,
@@ -107,3 +108,23 @@ def test_invalid_geometry_is_repaired_and_recorded():
     assert was_repaired
     assert warning == "buffer0"
     assert geometry_quality(repaired, repaired=True, warning=warning)["valid"] == 1
+
+
+def test_filtered_outer_ring_keeps_its_holes_attached():
+    invalid_outer = [point(53.0, -8.0), point(53.0, -8.0), point(53.0, -8.0)]
+    valid_outer = [
+        point(53.0, -7.99),
+        point(53.0, -7.98),
+        point(53.01, -7.98),
+        point(53.01, -7.99),
+    ]
+    hole = [
+        point(53.002, -7.988),
+        point(53.002, -7.985),
+        point(53.005, -7.985),
+        point(53.005, -7.988),
+    ]
+    result = geometry_from_rings([(invalid_outer, [hole]), (valid_outer, [hole])])
+    assert result is not None
+    assert result["exterior"] == valid_outer
+    assert result["holes"] == [hole]

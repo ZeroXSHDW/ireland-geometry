@@ -31,12 +31,10 @@ import re
 import zipfile
 from pathlib import Path
 
-import requests
-
 try:
-    from .runtime import atomic_write_bytes, atomic_write_text
+    from .runtime import atomic_write_bytes, atomic_write_text, project_path
 except ImportError:
-    from runtime import atomic_write_bytes, atomic_write_text
+    from runtime import atomic_write_bytes, atomic_write_text, project_path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "niah"
@@ -140,9 +138,17 @@ def main() -> None:
         action="store_true",
         help="never download; require all regional archives to be cached",
     )
+    ap.add_argument(
+        "--data-root",
+        default=None,
+        help="data directory; defaults to the project data/ directory",
+    )
     args = ap.parse_args()
 
+    global DATA
+    DATA = project_path(args.data_root, "data") / "niah"
     DATA.mkdir(parents=True, exist_ok=True)
+    requests_module = None
 
     # ---- download --------------------------------------------------------
     for region, url in REGIONS.items():
@@ -153,7 +159,9 @@ def main() -> None:
         if args.no_network:
             raise SystemExit(f"[niah] missing cached archive for {region}: {zp}")
         print(f"[niah] downloading {region} ...", flush=True)
-        r = requests.get(url, timeout=120)
+        if requests_module is None:
+            import requests as requests_module
+        r = requests_module.get(url, timeout=120)
         r.raise_for_status()
         atomic_write_bytes(zp, r.content)
         print(f"[niah]   saved {len(r.content) / 1e6:.1f} MB", flush=True)
@@ -168,7 +176,7 @@ def main() -> None:
         with zipfile.ZipFile(zp) as z:
             for member in z.namelist():
                 if member.lower().endswith(".csv"):
-                    (out_dir / Path(member).name).write_bytes(z.read(member))
+                    atomic_write_bytes(out_dir / Path(member).name, z.read(member))
         print(f"[niah] extracted {region}", flush=True)
 
     # ---- parse -------------------------------------------------------------

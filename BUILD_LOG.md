@@ -85,3 +85,20 @@ rows, 49 architect rows, and the interactive report. An intermediate final
 verification exposed an accidental Python-3.10-only `itertools.pairwise` use
 in the existing Python 3.9 environment; it was replaced with an indexed loop,
 then the roads, architect, and report stages were rerun successfully.
+
+## Verification hardening pass — 2026-08-16
+
+- Added `--data-root` propagation to `fetch-niah`; no-network runs now avoid
+  importing the HTTP client and can build into a separate data directory.
+- Fixed multipart extraction so holes remain attached to the correct outer
+  ring when an earlier invalid outer is discarded.
+- Added `scripts/verify.py` and a final `verify` pipeline stage. It checks
+  analysis/target/control contracts, GeoJSON ID/count alignment, p-value
+  positivity and verdicts, NIAH source regions and match distances, manifest
+  revision/source hashes, report template substitution, and inline Node.js
+  syntax. It writes `output/verification.json`.
+- Expanded manifest counts to include NIAH tables, point-pattern turns, roads,
+  architect evidence, report bytes, verification bytes, and the manifest
+  schema version.
+- Added regression tests for custom-stage ordering, multipart hole alignment,
+  p-value contracts, and the new verifier. The suite now has 16 tests.
