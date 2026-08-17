@@ -1,0 +1,2 @@
+osm_id,version,timestamp,changeset,uid,geometry_changed,tags_changed,source
+way/123,1,2024-01-01T12:00:00Z,123456,reviewer_a,1,1,OSM history export

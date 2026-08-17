@@ -24,6 +24,7 @@ try:
         output_counts,
         project_path,
         sha256_file,
+        sha256_path,
         utc_now,
     )
 except ImportError:
@@ -33,6 +34,7 @@ except ImportError:
         output_counts,
         project_path,
         sha256_file,
+        sha256_path,
         utc_now,
     )
 
@@ -227,6 +229,44 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         if require_file(path, errors):
             check_probabilities(read_csv(path), name, errors)
 
+    strict_path = out_dir / "matched_controls_strict.csv"
+    if require_file(strict_path, errors):
+        strict = read_csv(strict_path)
+        check_columns(
+            strict,
+            {"target_osm_id", "control_osm_id", "replacement_allowed", "stratum"},
+            "matched_controls_strict.csv",
+            errors,
+        )
+        controls_used = [row.get("control_osm_id") for row in strict]
+        if len(controls_used) != len(set(controls_used)):
+            errors.append("matched_controls_strict.csv reuses a control despite no-replacement contract")
+        if any(row.get("replacement_allowed") != "0" for row in strict):
+            errors.append("matched_controls_strict.csv contains replacement_allowed != 0")
+    for name in ("matched_strict_summary.csv", "matched_strict_balance.csv"):
+        if require_file(out_dir / name, errors):
+            check_columns(read_csv(out_dir / name), {"method"}, name, errors)
+    if require_file(out_dir / "matched_strict_significance.csv", errors):
+        check_probabilities(read_csv(out_dir / "matched_strict_significance.csv"), "matched_strict_significance.csv", errors)
+
+    covariates_path = out_dir / "spatial_covariates.csv"
+    if require_file(covariates_path, errors):
+        covariates = read_csv(covariates_path)
+        check_columns(covariates, {"osm_id", "settlement_class", "mapping_density_bin", "boundary_status"}, "spatial_covariates.csv", errors)
+        if {row.get("osm_id") for row in covariates} != analysis_id_set:
+            errors.append("spatial_covariates.csv ids do not exactly match analysis_results.csv")
+    if require_file(out_dir / "spatial_covariates_summary.csv", errors):
+        check_columns(read_csv(out_dir / "spatial_covariates_summary.csv"), {"covariate", "status"}, "spatial_covariates_summary.csv", errors)
+
+    history_path = out_dir / "mapping_history.csv"
+    if require_file(history_path, errors):
+        history_rows = read_csv(history_path)
+        check_columns(history_rows, {"osm_id", "status", "version_count", "mapping_quality_proxy"}, "mapping_history.csv", errors)
+        if {row.get("osm_id") for row in history_rows} != analysis_id_set:
+            errors.append("mapping_history.csv ids do not exactly match analysis_results.csv")
+    if require_file(out_dir / "mapping_history_summary.csv", errors):
+        check_columns(read_csv(out_dir / "mapping_history_summary.csv"), {"status", "provided_rows"}, "mapping_history_summary.csv", errors)
+
     historical_path = out_dir / "historical_validation.csv"
     if require_file(historical_path, errors):
         history = read_csv(historical_path)
@@ -271,6 +311,8 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         "point_pattern_turns.csv",
         "roads_compare.csv",
         "road_proximity.csv",
+        "road_routing.csv",
+        "road_routing_pairs.csv",
         "architects.csv",
         "architects_binary.csv",
         "architects_evidence.csv",
@@ -280,6 +322,35 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         path = out_dir / name
         if require_file(path, errors):
             check_probabilities(read_csv(path), name, errors)
+    if require_file(out_dir / "road_routing.csv", errors):
+        check_columns(read_csv(out_dir / "road_routing.csv"), {"status", "method"}, "road_routing.csv", errors)
+    if require_file(out_dir / "road_routing_pairs.csv", errors):
+        check_columns(read_csv(out_dir / "road_routing_pairs.csv"), {"status", "reachable"}, "road_routing_pairs.csv", errors)
+    if require_file(out_dir / "holdout_assignments.csv", errors):
+        check_columns(read_csv(out_dir / "holdout_assignments.csv"), {"osm_id", "split", "seed"}, "holdout_assignments.csv", errors)
+    if require_file(out_dir / "holdout_results.csv", errors):
+        check_columns(read_csv(out_dir / "holdout_results.csv"), {"pre_registered", "plan_sha256", "status"}, "holdout_results.csv", errors)
+    if require_file(out_dir / "analysis_plan_used.json", errors):
+        try:
+            used_plan = json.loads((out_dir / "analysis_plan_used.json").read_text(encoding="utf-8"))
+            if not used_plan.get("plan_sha256"):
+                errors.append("analysis_plan_used.json has no plan hash")
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"analysis_plan_used.json is not valid JSON: {exc}")
+    for name in ("review_queue.csv", "review_calibration.csv", "review_confusion.csv"):
+        if require_file(out_dir / name, errors):
+            check_columns(read_csv(out_dir / name), {"status"} if name != "review_queue.csv" else {"osm_id", "label"}, name, errors)
+    require_file(out_dir / "review.html", errors)
+    if require_file(out_dir / "columnar_status.json", errors):
+        try:
+            columnar = json.loads((out_dir / "columnar_status.json").read_text(encoding="utf-8"))
+            if columnar.get("jsonl", {}).get("status") != "available":
+                errors.append("columnar_status.json does not advertise JSONL availability")
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"columnar_status.json is not valid JSON: {exc}")
+    require_file(out_dir / "analysis_results.jsonl", errors)
+    require_file(out_dir / "report_data.json", errors)
+    require_file(out_dir / "report_lazy.html", errors)
     if require_file(out_dir / "ripley.csv", errors):
         check_columns(read_csv(out_dir / "ripley.csv"), {"group", "radius_m", "l_minus_r_m"}, "ripley.csv", errors)
     check_report(out_dir / "report.html", errors, warnings)
@@ -297,17 +368,17 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
                 errors.append(
                     f"manifest Git revision {manifest.get('git_revision')} != {current_revision}"
                 )
-            if manifest.get("manifest_version", 0) < 2 or manifest.get("schema_version", 0) < 2:
-                errors.append("manifest does not advertise schema version 2")
+            if manifest.get("manifest_version", 0) < 2 or manifest.get("schema_version", 0) < 3:
+                errors.append("manifest does not advertise schema version 3")
             for source in manifest.get("sources", []):
                 source_path = Path(source.get("path", ""))
                 if source_path.exists():
-                    actual_hash = sha256_file(source_path)
+                    actual_hash = sha256_path(source_path)
                     if not source.get("sha256"):
                         errors.append(f"manifest source has no sha256: {source_path}")
                     elif source["sha256"] != actual_hash:
                         errors.append(f"manifest source hash mismatch: {source_path}")
-                    if source.get("bytes") != source_path.stat().st_size:
+                    if source_path.is_file() and source.get("bytes") != source_path.stat().st_size:
                         errors.append(f"manifest source byte-size mismatch: {source_path}")
             manifest_counts = manifest.get("counts", {})
             for artifact in manifest.get("artifacts", []):

@@ -9,7 +9,8 @@ reference CSV.  Missing historical sources are represented as missing rather
 than silently treated as negative evidence.
 
 Optional reference CSV columns: ``osm_id``, ``reg_no``, ``source``,
-``source_url``, ``verified``, ``year`` and ``notes``.
+``source_type``, ``source_url``, ``archive_ref``, ``verified``, ``independent``,
+``year``, ``evidence_text``, ``image_path``, ``plan_path`` and ``notes``.
 
 Reads:  data/combined.json, output/analysis_results.csv, output/niah_join.csv,
         output/architects_evidence.csv, optional historical reference CSV
@@ -59,9 +60,15 @@ def evidence_status(row: dict, tags: dict, references: list[dict], architect: di
     if tags.get("ref:IE:niah") or tags.get("heritage") or tags.get("wikidata"):
         sources.append("OSM heritage metadata")
     if references:
-        sources.append("curated historical reference")
+        source_types = sorted({ref.get("source_type", "curated historical reference") for ref in references})
+        sources.append("archival evidence: " + ", ".join(source_types))
+    independent = any(
+        ref.get("independent", "").strip().lower() in {"1", "true", "yes", "y"}
+        or ref.get("verified", "").strip().lower() in {"1", "true", "yes", "y"}
+        for ref in references
+    )
     if references or architect:
-        status = "independent_reference" if references else "inventory_and_architect_evidence"
+        status = "independent_reference" if references and independent else "curated_reference_unverified" if references else "inventory_and_architect_evidence"
     elif row.get("reg_no"):
         status = "inventory_matched"
     elif tags.get("ref:IE:niah") or tags.get("heritage") or tags.get("wikidata"):
@@ -151,6 +158,18 @@ def build_validation(
                 "wikidata": tags.get("wikidata", ""),
                 "reference_count": len(refs),
                 "reference_sources": "; ".join(sorted({ref.get("source", "") for ref in refs if ref.get("source")})),
+                "reference_types": "; ".join(sorted({ref.get("source_type", "") for ref in refs if ref.get("source_type")})),
+                "reference_urls": "; ".join(sorted({ref.get("source_url", "") for ref in refs if ref.get("source_url")})),
+                "archive_refs": "; ".join(sorted({ref.get("archive_ref", "") for ref in refs if ref.get("archive_ref")})),
+                "verified_reference_count": sum(
+                    ref.get("verified", "").strip().lower() in {"1", "true", "yes", "y"} for ref in refs
+                ),
+                "independent_reference_count": sum(
+                    ref.get("independent", "").strip().lower() in {"1", "true", "yes", "y"} for ref in refs
+                ),
+                "evidence_text": " | ".join(ref.get("evidence_text", "") for ref in refs if ref.get("evidence_text")),
+                "image_paths": "; ".join(ref.get("image_path", "") for ref in refs if ref.get("image_path")),
+                "plan_paths": "; ".join(ref.get("plan_path", "") for ref in refs if ref.get("plan_path")),
                 "validation_status": status,
                 "evidence_summary": evidence_summary,
                 "review_priority": priority,
@@ -207,6 +226,14 @@ def main(argv: list[str] | None = None) -> None:
         "architect_evidence",
         "reference_count",
         "reference_sources",
+        "reference_types",
+        "reference_urls",
+        "archive_refs",
+        "verified_reference_count",
+        "independent_reference_count",
+        "evidence_text",
+        "image_paths",
+        "plan_paths",
         "validation_status",
         "evidence_summary",
         "review_priority",
@@ -243,7 +270,7 @@ def main(argv: list[str] | None = None) -> None:
             "source": str(reference_path),
             "status": "available" if reference_path.exists() else "not_provided",
             "coverage": "user-supplied records only",
-            "notes": "add source URL, verification flag, year, and notes before treating as independent validation",
+            "notes": "supports historic maps, plans, archive records, and photographs; verification and independence are retained per row",
         },
     ]
     atomic_write_csv(out_dir / "historical_source_register.csv", list(register[0]), register)

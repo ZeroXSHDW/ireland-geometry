@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Aggregate OSM building-part geometry and an optional LiDAR contract.
+"""Aggregate OSM building-part geometry and optional LiDAR/DSM data.
 
 OSM building footprints are often a plan-view envelope.  ``building:part``
 features and height tags provide a limited vertical/complexity signal, while
 LiDAR can provide a much better roof-height and stepped-massing measurement.
 This stage keeps those sources separate and reports their coverage honestly.
 
-The optional LiDAR input is a normalized CSV or GeoJSON FeatureCollection with
-an ``osm_id`` column/property and any of ``roof_height_m``, ``elevation_m``,
-``coverage_m2``, ``source`` and ``quality``.  A missing input still produces a
-complete coverage table with ``lidar_available=0`` so downstream reports do
-not confuse unavailable data with zero height.
+The optional LiDAR input is a normalized CSV/GeoJSON FeatureCollection, a
+GeoTIFF DSM/DTM, or (when ``laspy`` is installed) LAS/LAZ.  A missing or
+unreadable input still produces a complete coverage table with
+``lidar_available=0`` so downstream reports do not confuse unavailable data
+with zero height.
 
 Reads:  data/combined.json, output/analysis_results.csv
 Writes: output/building_parts.csv
@@ -76,6 +76,154 @@ def parse_lidar(path: Path | None) -> dict[str, dict]:
     return out
 
 
+def parse_raster_lidar(path: Path, analysis_rows: list[dict]) -> tuple[dict[str, dict], dict[str, str]]:
+    """Sample a DSM/DTM around each footprint centroid when rasterio is present."""
+    try:
+        import rasterio
+        from rasterio.warp import transform
+    except ImportError:
+        return {}, {
+            "status": "provided_but_unreadable",
+            "quality": "missing_optional_dependency",
+            "method": "GeoTIFF centroid window; install rasterio",
+            "source_type": "GeoTIFF",
+        }
+    records: dict[str, dict] = {}
+    try:
+        with rasterio.open(path) as source:
+            for row in analysis_rows:
+                lon = number(row.get("lon"), float("nan"))
+                lat = number(row.get("lat"), float("nan"))
+                if not math.isfinite(lon) or not math.isfinite(lat):
+                    continue
+                x, y = lon, lat
+                if source.crs and source.crs.to_epsg() != 4326:
+                    try:
+                        x, y = transform("EPSG:4326", source.crs, [lon], [lat])
+                        x, y = x[0], y[0]
+                    except (TypeError, ValueError, RuntimeError):
+                        continue
+                try:
+                    pixel_row, pixel_col = source.index(x, y)
+                    window = rasterio.windows.Window(pixel_col - 1, pixel_row - 1, 3, 3)
+                    values = source.read(1, window=window, masked=True).compressed().tolist()
+                except (IndexError, ValueError, RuntimeError):
+                    continue
+                values = [number(value, float("nan")) for value in values]
+                values = [value for value in values if math.isfinite(value)]
+                if not values:
+                    continue
+                records[row["osm_id"]] = {
+                    "roof_height_m": round(max(values), 3),
+                    "elevation_m": round(sum(values) / len(values), 3),
+                    "coverage_m2": "",
+                    "point_n": len(values),
+                    "min_height_m": round(min(values), 3),
+                    "max_height_m": round(max(values), 3),
+                    "source": path.name,
+                    "quality": "provided",
+                    "source_type": "GeoTIFF",
+                    "method": "DSM/DTM 3x3 centroid window",
+                }
+    except (OSError, ValueError, RuntimeError) as exc:
+        return {}, {
+            "status": "provided_but_unreadable",
+            "quality": f"raster_error:{type(exc).__name__}",
+            "method": "GeoTIFF centroid window",
+            "source_type": "GeoTIFF",
+        }
+    return records, {
+        "status": "provided",
+        "quality": "provided",
+        "method": "DSM/DTM 3x3 centroid window",
+        "source_type": "GeoTIFF",
+    }
+
+
+def parse_las_lidar(
+    path: Path,
+    analysis_rows: list[dict],
+    elements: list[dict],
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Aggregate LAS/LAZ points into footprints for geographic-coordinate files."""
+    try:
+        import laspy
+        from shapely.geometry import Point
+        from shapely.strtree import STRtree
+    except ImportError:
+        return {}, {
+            "status": "provided_but_unreadable",
+            "quality": "missing_optional_dependency",
+            "method": "LAS/LAZ point-in-footprint aggregation; install laspy",
+            "source_type": "LAS/LAZ",
+        }
+    geometry_by_id = {}
+    for element in elements:
+        key = f"{element.get('osm_type', 'way')}/{element.get('id')}"
+        geometry, _repaired, _warning = repair_geometry(geometry_from_element(element))
+        if geometry is not None and not geometry.is_empty and geometry.is_valid:
+            geometry_by_id[key] = geometry
+    geometries = list(geometry_by_id.values())
+    if not geometries:
+        return {}, {
+            "status": "provided_but_unreadable",
+            "quality": "no_target_geometries",
+            "method": "LAS/LAZ point-in-footprint aggregation",
+            "source_type": "LAS/LAZ",
+        }
+    try:
+        cloud = laspy.read(path)
+        xs = list(cloud.x)
+        ys = list(cloud.y)
+        zs = list(cloud.z)
+        if not xs or max(abs(value) for value in xs) > 180 or max(abs(value) for value in ys) > 90:
+            return {}, {
+                "status": "provided_but_unreadable",
+                "quality": "projected_coordinates_require_normalized_export",
+                "method": "LAS/LAZ requires EPSG:4326 coordinates or pre-normalization",
+                "source_type": "LAS/LAZ",
+            }
+        tree = STRtree(geometries)
+        reverse = {id(geometry): osm_id for osm_id, geometry in geometry_by_id.items()}
+        values: dict[str, list[float]] = {}
+        for x, y, z in zip(xs, ys, zs):
+            point = Point(float(x), float(y))
+            for index in tree.query(point):
+                geometry = geometries[int(index)]
+                if geometry.covers(point):
+                    values.setdefault(reverse[id(geometry)], []).append(float(z))
+        records = {}
+        for row in analysis_rows:
+            numbers = values.get(row["osm_id"], [])
+            if not numbers:
+                continue
+            records[row["osm_id"]] = {
+                "roof_height_m": round(max(numbers), 3),
+                "elevation_m": round(sum(numbers) / len(numbers), 3),
+                "coverage_m2": "",
+                "point_n": len(numbers),
+                "min_height_m": round(min(numbers), 3),
+                "max_height_m": round(max(numbers), 3),
+                "source": path.name,
+                "quality": "provided",
+                "source_type": "LAS/LAZ",
+                "method": "LAS/LAZ point-in-footprint aggregation",
+            }
+    except (OSError, ValueError, RuntimeError) as exc:
+        return {}, {
+            "status": "provided_but_unreadable",
+            "quality": f"point_cloud_error:{type(exc).__name__}",
+            "method": "LAS/LAZ point-in-footprint aggregation",
+            "source_type": "LAS/LAZ",
+        }
+    return records, {
+        "status": "provided",
+        "quality": "provided",
+        "method": "LAS/LAZ point-in-footprint aggregation",
+        "source_type": "LAS/LAZ",
+    }
+
+
 def aggregate_parts(elements: list[dict], analysis_rows: list[dict]) -> list[dict]:
     by_id = {f"{el.get('osm_type', 'way')}/{el['id']}": el for el in elements}
     parts = []
@@ -127,12 +275,35 @@ def aggregate_parts(elements: list[dict], analysis_rows: list[dict]) -> list[dic
     return output
 
 
-def lidar_rows(analysis_rows: list[dict], lidar: dict[str, dict]) -> list[dict]:
+def lidar_rows(
+    analysis_rows: list[dict],
+    lidar: dict[str, dict],
+    source_info: dict[str, str] | None = None,
+) -> list[dict]:
+    source_info = source_info or {
+        "status": "not_provided",
+        "quality": "not_provided",
+        "method": "no LiDAR/DSM source supplied",
+        "source_type": "none",
+    }
     out = []
     for row in analysis_rows:
         record = lidar.get(row["osm_id"])
         if record:
-            out.append({"osm_id": row["osm_id"], "group": row.get("group", ""), "lidar_available": 1, **record})
+            out.append(
+                {
+                    "osm_id": row["osm_id"],
+                    "group": row.get("group", ""),
+                    "lidar_available": 1,
+                    "status": "provided",
+                    "point_n": record.get("point_n", ""),
+                    "min_height_m": record.get("min_height_m", ""),
+                    "max_height_m": record.get("max_height_m", record.get("roof_height_m", "")),
+                    "source_type": record.get("source_type", "normalized"),
+                    "method": record.get("method", "normalized per-building LiDAR records"),
+                    **record,
+                }
+            )
         else:
             out.append(
                 {
@@ -142,8 +313,14 @@ def lidar_rows(analysis_rows: list[dict], lidar: dict[str, dict]) -> list[dict]:
                     "roof_height_m": "",
                     "elevation_m": "",
                     "coverage_m2": "",
-                    "source": "unavailable",
-                    "quality": "not_provided",
+                    "point_n": "",
+                    "min_height_m": "",
+                    "max_height_m": "",
+                    "source": "unavailable" if source_info["status"] == "not_provided" else source_info.get("source_type", "provided"),
+                    "quality": source_info.get("quality", "not_provided"),
+                    "source_type": source_info.get("source_type", "none"),
+                    "method": source_info.get("method", ""),
+                    "status": source_info.get("status", "not_provided"),
                 }
             )
     return out
@@ -153,7 +330,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", default=None, help="data directory; defaults to project data/")
     parser.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
-    parser.add_argument("--lidar", default=None, help="optional normalized LiDAR CSV/GeoJSON")
+    parser.add_argument("--lidar", default=None, help="optional normalized LiDAR CSV/GeoJSON, GeoTIFF DSM, or LAS/LAZ")
     args = parser.parse_args(argv)
     data = project_path(args.data_root, "data")
     out = project_path(args.out_dir, "output")
@@ -184,7 +361,26 @@ def main(argv: list[str] | None = None) -> None:
         parts,
     )
     lidar_path = project_path(args.lidar, str(data / "lidar" / "building_heights.csv")) if args.lidar else data / "lidar" / "building_heights.csv"
-    coverage = lidar_rows(analysis_rows, parse_lidar(lidar_path if lidar_path.exists() else None))
+    source_info = {
+        "status": "not_provided",
+        "quality": "not_provided",
+        "method": "no LiDAR/DSM source supplied",
+        "source_type": "none",
+    }
+    lidar_records: dict[str, dict] = {}
+    if lidar_path.exists() and lidar_path.suffix.lower() in {".tif", ".tiff"}:
+        lidar_records, source_info = parse_raster_lidar(lidar_path, analysis_rows)
+    elif lidar_path.exists() and lidar_path.suffix.lower() in {".las", ".laz"}:
+        lidar_records, source_info = parse_las_lidar(lidar_path, analysis_rows, elements)
+    elif lidar_path.exists():
+        lidar_records = parse_lidar(lidar_path)
+        source_info = {
+            "status": "provided" if lidar_records else "provided_but_unreadable",
+            "quality": "provided" if lidar_records else "empty_or_invalid",
+            "method": "normalized per-building LiDAR records",
+            "source_type": lidar_path.suffix.lower().lstrip(".") or "normalized",
+        }
+    coverage = lidar_rows(analysis_rows, lidar_records, source_info)
     atomic_write_csv(
         out / "lidar_coverage.csv",
         [
@@ -194,8 +390,14 @@ def main(argv: list[str] | None = None) -> None:
             "roof_height_m",
             "elevation_m",
             "coverage_m2",
+            "point_n",
+            "min_height_m",
+            "max_height_m",
             "source",
             "quality",
+            "source_type",
+            "method",
+            "status",
         ],
         coverage,
     )

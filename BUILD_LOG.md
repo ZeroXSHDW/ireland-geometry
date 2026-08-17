@@ -144,3 +144,34 @@ The final artifact contract passed for 123,810 analysis rows, 33,416 targets,
 90,394 controls, 100,212 matched pairs, 33,416 historical-validation rows,
 and the schema-version-2 manifest. LiDAR remained explicitly unavailable in
 the local input snapshot.
+
+## Validation and scale tranche — 2026-08-17
+
+Added the remaining validation and production extensions:
+
+- `spatial-covariates.py` adds optional administrative/settlement GeoJSON
+  joins plus deterministic mapping-density cells and explicit fallback status;
+- `osm_history.py` accepts normalized OSM version histories and records edit
+  age, editors, changesets, geometry/tag edits, and missing-source status;
+- `validation.py` performs deterministic no-replacement matching within
+  observed settlement/density strata, with county and era comparability rules;
+- `building_parts.py` now has optional GeoTIFF DSM/DTM and geographic LAS/LAZ
+  adapters in addition to normalized LiDAR records;
+- `historical_validation.py` now carries source type, archive references,
+  verification/independence, evidence text, images, and plan paths;
+- `review.py` creates an HTML annotation queue, downloadable labels, binary
+  calibration metrics, and confusion tables;
+- `road_routing.py` provides a portable graph contract, Dijkstra distances, and
+  an opt-in PBF graph adapter; no graph was supplied in this snapshot;
+- `holdout.py` runs the tracked `analysis_plan.json` split and plan-hashed
+  holdout effects;
+- `columnar.py` always writes JSONL and optionally writes Parquet/DuckDB, while
+  the report also has a separate data pack and lazy-loading HTML variant;
+- CI, stable-artifact hashing, source templates, schema-version-3 manifest
+  coverage, and verifier contracts were added.
+
+Integration outputs from the cached no-network run: 50,468 strict pairs,
+37,422 holdout rows, 1,000 review rows, 123,810 history/covariate rows, and
+explicit `not_provided` LiDAR/history/routing records. Final checks: 25 tests,
+Ruff, compileall, report JavaScript syntax, repro check, and the independent
+artifact verifier all passed.

@@ -1,0 +1,2 @@
+osm_id,label,reviewer,reviewed_at,confidence,evidence_source,notes
+way/123,supportive,reviewer_a,2026-08-17,0.8,archive reference,Describe the independent evidence.

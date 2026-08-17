@@ -2,8 +2,9 @@
 """Run the Ireland geometry pipeline from any working directory.
 
 The default order is fetch -> fetch-niah -> analyze -> niah -> architects -> sensitivity ->
-building-parts -> historical -> point-pattern -> spatial-stats -> roads -> road-proximity ->
-report -> verify. Use ``--stage`` to run one stage or a comma-separated
+spatial-covariates -> osm-history -> validation -> building-parts -> historical -> review ->
+point-pattern -> spatial-stats -> roads -> road-proximity -> road-routing -> holdout ->
+columnar -> report -> repro-check -> verify. Use ``--stage`` to run one stage or a comma-separated
 subset. All paths are resolved relative to this project unless absolute.
 """
 
@@ -23,13 +24,21 @@ STAGES = (
     "niah",
     "architects",
     "sensitivity",
+    "spatial-covariates",
+    "osm-history",
+    "validation",
     "building-parts",
     "historical",
+    "review",
     "point-pattern",
     "spatial-stats",
     "roads",
     "road-proximity",
+    "road-routing",
+    "holdout",
+    "columnar",
     "report",
+    "repro-check",
     "verify",
 )
 SCRIPTS = {
@@ -39,13 +48,21 @@ SCRIPTS = {
     "niah": "niah.py",
     "architects": "architects.py",
     "sensitivity": "sensitivity.py",
+    "spatial-covariates": "spatial_covariates.py",
+    "osm-history": "osm_history.py",
+    "validation": "validation.py",
     "building-parts": "building_parts.py",
     "historical": "historical_validation.py",
+    "review": "review.py",
     "point-pattern": "point_pattern.py",
     "spatial-stats": "spatial_stats.py",
     "roads": "roads.py",
     "road-proximity": "road_proximity.py",
+    "road-routing": "road_routing.py",
+    "holdout": "holdout.py",
+    "columnar": "columnar.py",
     "report": "report.py",
+    "repro-check": "repro_check.py",
     "verify": "verify.py",
 }
 
@@ -90,6 +107,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="optional curated historical reference CSV for the historical stage",
     )
+    parser.add_argument("--osm-history", default=None, help="optional normalized OSM history CSV/JSON")
+    parser.add_argument("--boundaries", default=None, help="optional administrative boundary GeoJSON")
+    parser.add_argument("--settlements", default=None, help="optional settlement GeoJSON")
+    parser.add_argument("--road-graph", default=None, help="optional road graph directory or JSON")
+    parser.add_argument("--road-from-pbf", action="store_true", help="opt in to building a routing graph from the PBF")
+    parser.add_argument("--review-labels", default=None, help="optional expert review labels CSV")
+    parser.add_argument("--analysis-plan", default=None, help="preregistered analysis plan JSON")
+    parser.add_argument("--holdout-fraction", type=float, default=None)
     return parser.parse_args(argv)
 
 
@@ -130,6 +155,18 @@ def run_stage(
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
     elif name == "sensitivity":
         command += ["--out-dir", str(out_dir)]
+    elif name == "spatial-covariates":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.boundaries:
+            command += ["--boundaries", str(project_path(args.boundaries, str(data_root / "boundaries" / "admin.geojson")))]
+        if args.settlements:
+            command += ["--settlements", str(project_path(args.settlements, str(data_root / "boundaries" / "settlements.geojson")))]
+    elif name == "osm-history":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.osm_history:
+            command += ["--history", str(project_path(args.osm_history, str(data_root / "history" / "osm_history.csv")))]
+    elif name == "validation":
+        command += ["--out-dir", str(out_dir)]
     elif name == "building-parts":
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
         if args.lidar:
@@ -141,6 +178,10 @@ def run_stage(
                 "--references",
                 str(project_path(args.historical_references, str(data_root / "historical" / "references.csv"))),
             ]
+    elif name == "review":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.review_labels:
+            command += ["--labels", str(project_path(args.review_labels, str(data_root / "review" / "labels.csv")))]
     elif name == "point-pattern" or name == "spatial-stats":
         command += ["--out-dir", str(out_dir), "--seed", str(args.seed), "--mc", str(args.mc)]
     elif name == "roads":
@@ -156,7 +197,19 @@ def run_stage(
             "--seed",
             str(args.seed),
         ]
-    elif name == "report":
+    elif name == "road-routing":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.road_graph:
+            command += ["--road-graph", str(project_path(args.road_graph, str(data_root / "roads")))]
+        if args.road_from_pbf:
+            command += ["--from-pbf", "--pbf", str(pbf)]
+    elif name == "holdout":
+        command += ["--out-dir", str(out_dir), "--seed", str(args.seed)]
+        if args.analysis_plan:
+            command += ["--plan", str(project_path(args.analysis_plan, "analysis_plan.json"))]
+        if args.holdout_fraction is not None:
+            command += ["--fraction", str(args.holdout_fraction)]
+    elif name in {"columnar", "report", "repro-check"}:
         command += ["--out-dir", str(out_dir)]
     elif name == "verify":
         command += [
@@ -186,6 +239,14 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
             "skip_satellite": args.skip_satellite,
             "lidar": args.lidar,
             "historical_references": args.historical_references,
+            "osm_history": args.osm_history,
+            "boundaries": args.boundaries,
+            "settlements": args.settlements,
+            "road_graph": args.road_graph,
+            "road_from_pbf": args.road_from_pbf,
+            "review_labels": args.review_labels,
+            "analysis_plan": args.analysis_plan,
+            "holdout_fraction": args.holdout_fraction,
             "seed": args.seed,
             "mc": args.mc,
         },
@@ -221,6 +282,30 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
                     args.historical_references,
                     str(data_root / "historical" / "references.csv"),
                 ),
+            },
+            {
+                "kind": "optional_osm_history",
+                "path": project_path(args.osm_history, str(data_root / "history" / "osm_history.csv")),
+            },
+            {
+                "kind": "optional_admin_boundaries",
+                "path": project_path(args.boundaries, str(data_root / "boundaries" / "admin.geojson")),
+            },
+            {
+                "kind": "optional_settlements",
+                "path": project_path(args.settlements, str(data_root / "boundaries" / "settlements.geojson")),
+            },
+            {
+                "kind": "optional_road_graph",
+                "path": project_path(args.road_graph, str(data_root / "roads" / "road_nodes.csv")),
+            },
+            {
+                "kind": "analysis_plan",
+                "path": project_path(args.analysis_plan, "analysis_plan.json"),
+            },
+            {
+                "kind": "optional_review_labels",
+                "path": project_path(args.review_labels, str(data_root / "review" / "labels.csv")),
             },
         ],
     )

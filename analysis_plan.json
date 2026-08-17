@@ -1,0 +1,16 @@
+{
+  "plan_id": "ireland-geometry-v1",
+  "version": 1,
+  "primary_signals": ["golden_angle", "golden_ratio"],
+  "primary_outcome": "building-level target/control difference in precomputed footprint signal rates",
+  "holdout_fraction": 0.3,
+  "alpha": 0.05,
+  "holdout_rule": "sha256(seed:osm_id) < holdout_fraction; split is assigned before reading outcome summaries",
+  "matching": {
+    "strict_sensitivity": "controls used at most once; hard strata are observed settlement and mapping-density bins, plus county only when an external boundary layer is supplied",
+    "distance_limit_m": 15000,
+    "area_cost": "absolute log-area gap"
+  },
+  "interpretation": "All outputs are observational diagnostics. A significant association is not evidence of intentional design or causality.",
+  "data_sources": ["OpenStreetMap geometry/tags", "NIAH inventory when available", "optional OSM history", "optional boundaries", "optional LiDAR/DSM", "optional archival references"]
+}

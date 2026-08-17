@@ -12,10 +12,10 @@ from pathlib import Path
 
 try:
     from geometry import geometry_from_geojson, iter_polygons
-    from runtime import atomic_write_text, project_path
+    from runtime import atomic_write_json, atomic_write_text, project_path
 except ImportError:
     from scripts.geometry import geometry_from_geojson, iter_polygons
-    from scripts.runtime import atomic_write_text, project_path
+    from scripts.runtime import atomic_write_json, atomic_write_text, project_path
 
 
 TOP_N_MARKERS = 800
@@ -63,11 +63,17 @@ def normalize_row(
     parts_by_id: dict[str, dict] | None = None,
     history_by_id: dict[str, dict] | None = None,
     lidar_by_id: dict[str, dict] | None = None,
+    mapping_history_by_id: dict[str, dict] | None = None,
+    covariates_by_id: dict[str, dict] | None = None,
+    review_by_id: dict[str, dict] | None = None,
 ) -> dict:
     niah = niah_by_id.get(row["osm_id"], {})
     parts = (parts_by_id or {}).get(row["osm_id"], {})
     history = (history_by_id or {}).get(row["osm_id"], {})
     lidar = (lidar_by_id or {}).get(row["osm_id"], {})
+    mapping_history = (mapping_history_by_id or {}).get(row["osm_id"], {})
+    covariates = (covariates_by_id or {}).get(row["osm_id"], {})
+    review = (review_by_id or {}).get(row["osm_id"], {})
     flags = [flag for flag in row.get("flags", "").split(",") if flag]
     return {
         "osm_id": row["osm_id"],
@@ -140,6 +146,24 @@ def normalize_row(
             "reference_count": integer(history.get("reference_count")),
             "warnings": history.get("review_warnings", ""),
         },
+        "mapping_history": {
+            "status": mapping_history.get("status", ""),
+            "version_count": integer(mapping_history.get("version_count")),
+            "first_edit_at": mapping_history.get("first_edit_at", ""),
+            "last_edit_at": mapping_history.get("last_edit_at", ""),
+            "quality": mapping_history.get("mapping_quality_proxy", ""),
+        },
+        "spatial": {
+            "county": covariates.get("county", ""),
+            "settlement_name": covariates.get("settlement_name", ""),
+            "settlement_class": covariates.get("settlement_class", ""),
+            "mapping_density_bin": covariates.get("mapping_density_bin", ""),
+            "boundary_status": covariates.get("boundary_status", ""),
+        },
+        "review": {
+            "label": review.get("label", "not_reviewed"),
+            "reviewer": review.get("reviewer", ""),
+        },
         "osm_url": f"https://www.openstreetmap.org/{html.escape(row['osm_id'])}",
     }
 
@@ -154,7 +178,7 @@ def load_manifest(out: Path) -> dict:
         return {}
 
 
-def build_report(out: Path) -> str:
+def build_report_data(out: Path) -> dict:
     rows = read_csv(out / "analysis_results.csv")
     if not rows:
         raise SystemExit(f"Missing {out / 'analysis_results.csv'}. Run analyze.py first.")
@@ -163,8 +187,20 @@ def build_report(out: Path) -> str:
     parts_by_id = {row["osm_id"]: row for row in read_csv(out / "building_parts.csv")}
     history_by_id = {row["osm_id"]: row for row in read_csv(out / "historical_validation.csv")}
     lidar_by_id = {row["osm_id"]: row for row in read_csv(out / "lidar_coverage.csv")}
+    mapping_history_by_id = {row["osm_id"]: row for row in read_csv(out / "mapping_history.csv")}
+    covariates_by_id = {row["osm_id"]: row for row in read_csv(out / "spatial_covariates.csv")}
+    review_by_id = {row["osm_id"]: row for row in read_csv(out / "review_queue.csv")}
     targets = [
-        normalize_row(row, niah_by_id, parts_by_id, history_by_id, lidar_by_id)
+        normalize_row(
+            row,
+            niah_by_id,
+            parts_by_id,
+            history_by_id,
+            lidar_by_id,
+            mapping_history_by_id,
+            covariates_by_id,
+            review_by_id,
+        )
         for row in rows
         if row.get("group") != "control"
     ]
@@ -215,6 +251,9 @@ def build_report(out: Path) -> str:
         "part_mapped": sum(row["parts"]["count"] > 0 for row in targets),
         "lidar_available": sum(row["lidar"]["available"] > 0 for row in targets),
         "history_review": sum(row["history"]["priority"] in {"high", "medium"} for row in targets),
+        "mapping_history_available": sum(row["mapping_history"]["status"] == "provided" for row in targets),
+        "spatial_covariates": sum(bool(row["spatial"]["mapping_density_bin"]) for row in targets),
+        "reviewed": sum(row["review"]["label"] != "not_reviewed" for row in targets),
         "generated_at": manifest.get("generated_at", ""),
     }
     data = {
@@ -227,11 +266,18 @@ def build_report(out: Path) -> str:
         "matched_significance": read_csv(out / "matched_significance.csv"),
         "hierarchical_model": read_csv(out / "hierarchical_model.csv"),
         "matched_control_summary": read_csv(out / "matched_control_summary.csv"),
+        "strict_matched_significance": read_csv(out / "matched_strict_significance.csv"),
+        "strict_match_summary": read_csv(out / "matched_strict_summary.csv"),
         "point_pattern": read_csv(out / "point_pattern.csv"),
         "ripley": read_csv(out / "ripley.csv"),
         "moran": read_csv(out / "moran.csv"),
         "county_permutation": read_csv(out / "county_permutation.csv"),
         "road_proximity": read_csv(out / "road_proximity.csv"),
+        "road_routing": read_csv(out / "road_routing.csv"),
+        "holdout": read_csv(out / "holdout_results.csv"),
+        "review_calibration": read_csv(out / "review_calibration.csv"),
+        "mapping_history_summary": read_csv(out / "mapping_history_summary.csv"),
+        "spatial_covariates_summary": read_csv(out / "spatial_covariates_summary.csv"),
         "architects": read_csv(out / "architects.csv"),
         "architects_binary": read_csv(out / "architects_binary.csv"),
         "candidate_dossiers": read_csv(out / "candidate_dossiers.csv"),
@@ -239,9 +285,33 @@ def build_report(out: Path) -> str:
         "manifest": manifest,
         "geojson": geojson,
     }
+    return data
+
+
+def build_report(out: Path) -> str:
+    data = build_report_data(out)
     return TEMPLATE.replace("__MARKER_LIMIT__", str(TOP_N_MARKERS)).replace(
         "__DATA__", json_safe(data)
     )
+
+
+def build_lazy_report(out: Path) -> str:
+    """Return the same dashboard with the data pack fetched at runtime."""
+    template = TEMPLATE.replace("__MARKER_LIMIT__", str(TOP_N_MARKERS)).replace("__DATA__", "null")
+    marker = "<script>\nconst PACK = null;\n"
+    start = template.index(marker) + len(marker)
+    end = template.index("\n</script>", start)
+    body = template[start:end]
+    body = body.rsplit("init();", 1)[0]
+    script = """<script>
+async function loadPack() {
+  const response = await fetch('report_data.json');
+  if (!response.ok) throw new Error(`Could not load report_data.json (${response.status})`);
+  boot(await response.json());
+}
+function boot(PACK) {
+""" + body + "\ninit();\n}\nloadPack().catch(error => { document.body.innerHTML = `<pre style=\"padding:20px\">${error}</pre>`; });\n</script>"
+    return template[: start - len(marker)] + script + template[end + len("\n</script>") :]
 
 
 TEMPLATE = r"""<!doctype html>
@@ -457,6 +527,8 @@ def main() -> None:
     html_text = build_report(out)
     report_path = out / "report.html"
     atomic_write_text(report_path, html_text)
+    atomic_write_json(out / "report_data.json", build_report_data(out), indent=2)
+    atomic_write_text(out / "report_lazy.html", build_lazy_report(out))
     print(f"[report] wrote {report_path} ({len(html_text):,} bytes)")
 
 

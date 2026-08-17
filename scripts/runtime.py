@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def project_path(value: str | Path | None, default: str | Path) -> Path:
@@ -36,6 +36,22 @@ def sha256_file(path: str | Path, chunk_size: int = 1 << 20) -> str | None:
     with p.open("rb") as fh:
         while chunk := fh.read(chunk_size):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256_path(path: str | Path) -> str | None:
+    """Hash a file or a directory tree with relative filenames included."""
+    candidate = Path(path)
+    if candidate.is_file():
+        return sha256_file(candidate)
+    if not candidate.is_dir():
+        return None
+    digest = hashlib.sha256()
+    for child in sorted(item for item in candidate.rglob("*") if item.is_file()):
+        digest.update(str(child.relative_to(candidate)).encode("utf-8"))
+        file_hash = sha256_file(child)
+        if file_hash:
+            digest.update(file_hash.encode("ascii"))
     return digest.hexdigest()
 
 
@@ -136,6 +152,21 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         "moran.csv",
         "county_permutation.csv",
         "road_proximity.csv",
+        "spatial_covariates.csv",
+        "spatial_covariates_summary.csv",
+        "mapping_history.csv",
+        "mapping_history_summary.csv",
+        "matched_controls_strict.csv",
+        "matched_strict_summary.csv",
+        "matched_strict_significance.csv",
+        "matched_strict_balance.csv",
+        "road_routing.csv",
+        "road_routing_pairs.csv",
+        "holdout_assignments.csv",
+        "holdout_results.csv",
+        "review_queue.csv",
+        "review_calibration.csv",
+        "review_confusion.csv",
     ):
         path = out / name
         if not path.exists():
@@ -145,7 +176,19 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
                 counts[name] = max(0, sum(1 for _ in csv.reader(fh)) - 1)
         except (OSError, UnicodeError, csv.Error):
             continue
-    for name in ("ireland_buildings.geojson", "report.html", "verification.json", "combined.json"):
+    for name in (
+        "ireland_buildings.geojson",
+        "report.html",
+        "report_lazy.html",
+        "report_data.json",
+        "verification.json",
+        "reproducibility.json",
+        "analysis_results.jsonl",
+        "analysis_results.parquet",
+        "analysis.duckdb",
+        "columnar_status.json",
+        "combined.json",
+    ):
         path = out / name
         if path.exists():
             counts[f"{name}_bytes"] = path.stat().st_size
@@ -165,8 +208,9 @@ def build_manifest(
         if row.get("path"):
             p = Path(row["path"])
             row["path"] = str(p)
-            row["sha256"] = sha256_file(p)
-            row["bytes"] = p.stat().st_size if p.exists() else None
+            row["sha256"] = sha256_path(p)
+            row["bytes"] = p.stat().st_size if p.exists() and p.is_file() else None
+            row["kind"] = "directory" if p.is_dir() else "file"
         source_rows.append(row)
     artifacts = []
     counts = output_counts(out_dir)

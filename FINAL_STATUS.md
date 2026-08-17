@@ -1,8 +1,7 @@
 # Final status
 
-Status: complete for the current cached snapshot; the matched-control,
-shape-descriptor, historical-validation, spatial-statistics, and production
-hardening pass is included.
+Status: complete for the current cached snapshot; the validation, 3-D/evidence,
+holdout, routing, scalability, review, and reproducibility tranche is included.
 
 ## Reproducible build
 
@@ -32,15 +31,21 @@ The build completed without network access. The exact input caches were:
   LiDAR not provided in this snapshot);
 - 33,416 historical-validation rows, 1,000 candidate dossiers, 30 Ripley rows,
   5 Moran rows, 8 county permutations, and 5 road-proximity summaries;
+- 123,810 spatial-covariate rows and mapping-history rows (history source not
+  supplied locally);
+- 50,468 strict no-replacement pairs, 12 strict significance rows, 37,422
+  holdout assignments, 8 holdout results, and a 1,000-row review queue;
+- explicit `not_provided` routed-road outputs; JSONL scale export, lazy report
+  data pack, optional Parquet/DuckDB adapters, and CI/reproducibility checks;
 - `output/report.html` interactive dashboard;
-- `output/manifest.json` schema-version-2 provenance record with input/output
+- `output/manifest.json` schema-version-3 provenance record with input/output
   hashes, byte sizes, and row counts.
 - `output/verification.json` automated artifact-contract result.
 
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 20 passed
+.venv/bin/python -m pytest                 # 25 passed
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help
@@ -51,7 +56,8 @@ Additional artifact assertions passed: manifest revision/counts and source
 hashes, GeoJSON parsing and ID alignment, source-region completeness, matched
 ID alignment, positive p-values/adjusted p-values, shape/context schema,
 historical and LiDAR coverage contracts, absence of unresolved report template
-tokens, and inline report JavaScript syntax.
+tokens, and inline report JavaScript syntax. The new history, routing, holdout,
+review, columnar, and strict-match contracts also passed.
 
 ## Interpretation
 
@@ -65,17 +71,21 @@ the broad peak is near 44°, spiral turns do not support the hypothesis, and
 architect attribution is non-significant. The local size/geography-matched
 worship comparison remains elevated for the golden-angle flag (+4.97 percentage
 points; Holm-adjusted signal), while matched golden-ratio aspect matching is
-background. County-preserving golden-angle permutations are suggestive for
-worship, but Moran's I is not significant for worship after correction. Road
-proximity is reported as a sampled nearest-road diagnostic, not a route model.
+background. The strict no-replacement match is a separate sensitivity result,
+with reduced coverage recorded by group; it is not an independent sample.
+County-preserving golden-angle permutations are suggestive for worship, but
+Moran's I is not significant for worship after correction. Road proximity is
+reported as a sampled nearest-road diagnostic; actual routing remains
+`not_provided` until a routable graph is supplied.
 
 ## Remaining limitations
 
 OSM geometry is community-mapped and is not an architectural plan. NIAH is a
 heritage inventory for the Republic of Ireland rather than a complete census,
 so Northern Ireland coverage is sparse. Only 246 analyzed footprints have
-mapped `building:part` associations and no LiDAR file was supplied. Candidate
-thresholds were chosen for screening, and a confirmatory study should
-preregister hypotheses, use authoritative boundaries and mapping-age/settlement
-covariates, validate against independent plan or LiDAR data, and manually check
-the candidate dossiers.
+mapped `building:part` associations and no LiDAR or OSM history file was
+supplied. Boundary, settlement, road graph, and expert labels are also optional
+and absent in this snapshot. Candidate thresholds were chosen for screening,
+and a confirmatory study should populate those source contracts, review the
+holdout plan, validate against independent plan or LiDAR data, and manually
+check the candidate dossiers.

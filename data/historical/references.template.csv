@@ -1,1 +1,1 @@
-osm_id,reg_no,source,source_url,verified,year,notes
+osm_id,reg_no,source,source_type,source_url,archive_ref,verified,independent,year,evidence_text,image_path,plan_path,notes
