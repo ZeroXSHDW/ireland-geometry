@@ -13,7 +13,7 @@ pre-specified or independently replicated analysis.
 
 ## Current cached build
 
-The checked local snapshot was regenerated on 2026-08-16 with seed `20260816`
+The checked local snapshot was regenerated on 2026-08-17 with seed `20260816`
 and 300 Monte Carlo iterations:
 
 - 135,173 OSM area elements ingested;
@@ -21,6 +21,11 @@ and 300 Monte Carlo iterations:
 - 33,416 target buildings and 90,394 empirical controls;
 - 9,455 OSM→NIAH spatial joins (8,884 analyzed rows);
 - 41 NIAH significance tests, 2 point-pattern groups, 1,114 architect-evidence rows;
+- 100,212 local target-control pairs, 12 matched tests, and 12 hierarchical tests;
+- 246 footprints with mapped OSM building parts, 30 Ripley rows, 5 Moran rows,
+  8 county permutations, and 5 road-proximity summaries;
+- LiDAR is explicitly `not_provided` for this snapshot; the ingestion contract
+  is ready for a normalized height file;
 - an interactive report at `output/report.html` and a provenance manifest at
   `output/manifest.json`.
 
@@ -53,9 +58,16 @@ Useful commands:
 .venv/bin/python run_pipeline.py --help
 .venv/bin/python run_pipeline.py --stage analyze,niah,report --no-network
 .venv/bin/python run_pipeline.py --stage all --no-network --data-root /path/to/data --out-dir /path/to/output
+.venv/bin/python run_pipeline.py --stage all --no-network --lidar data/lidar/building_heights.csv
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 ```
+
+Every stage is independently runnable, so an interrupted build can resume at
+the last completed stage. `--lidar` accepts a normalized CSV or GeoJSON input;
+`--historical-references` accepts a curated CSV of independently checked
+historical sources. Both are optional and their coverage is reported rather
+than imputed.
 
 ## Pipeline stages
 
@@ -65,9 +77,14 @@ Useful commands:
 | `fetch-niah` | Cache and normalize the five official NIAH regional archives. |
 | `analyze` | Compute footprint metrics, pattern flags, scores, and control comparisons. |
 | `niah` | Spatially join NIAH records, run era/rating/type tests, and audit the angle band. |
-| `point-pattern` | Test inter-building bearings, turns, and nearest-neighbour spacing against nulls. |
-| `roads` | Compare road and river segment bearings with church-edge bearings. |
 | `architects` | Extract validated architect mentions and produce evidence-linked exploratory rates. |
+| `sensitivity` | Match local size-aware controls and fit matched-set plus random-effects stratified sensitivity models. |
+| `building-parts` | Aggregate OSM `building:part` geometry and produce a coverage-aware optional LiDAR table. |
+| `historical` | Build NIAH/architect/heritage evidence records and review-ready candidate dossiers. |
+| `point-pattern` | Test inter-building bearings, turns, and nearest-neighbour spacing against nulls. |
+| `spatial-stats` | Produce Ripley K/L, Moran's I, and county-preserving permutation diagnostics. |
+| `roads` | Compare road and river segment bearings with church-edge bearings. |
+| `road-proximity` | Compare sampled target/control centroid proximity to mapped drivable roads. |
 | `report` | Build a data-driven Leaflet dashboard with filters, map layers, downloads, and methods. |
 | `verify` | Validate all final artifacts, provenance hashes, statistical fields, report tokens, and report JavaScript syntax. |
 
@@ -84,16 +101,29 @@ for visual reference; it does not silently bulk-scrape Yandex imagery.
 | `top_patterns.csv` | Target rows with score ≥ 55, ranked for inspection. |
 | `ireland_buildings.geojson` | Target geometries and report properties. |
 | `significance.csv` | Building-level target/control comparisons with Wilson intervals, risk differences, odds ratios, raw p, Holm-adjusted p, method, and verdict. |
+| `matched_controls.csv` | Deterministic local target-to-control pairs matched on geography and log footprint area. |
+| `matched_control_summary.csv` | Per-group match distance, area-ratio, same-cell, and control-reuse diagnostics. |
+| `matched_significance.csv` | Matched-set effects and Holm-adjusted sensitivity tests. |
+| `hierarchical_model.csv` | Random-effects stratified log-odds estimates with between-stratum variance (`tau2`) and confidence intervals. |
 | `niah_join.csv` | OSM→NIAH matches, region, date, rating, type, match mode, and distance. |
 | `niah_significance.csv` | NIAH era, rating, and original-type tests. |
 | `niah_decades.csv` | Decade-resolution era-matched tests with their own Holm family. |
 | `niah_golden_angles.csv` | Matched vertex-angle records split into octagon-ish, golden-core, and high-side bands. |
 | `point_pattern.csv` | Deterministic point-pattern statistics and Monte Carlo null summaries. |
 | `point_pattern_turns.csv` | Inter-building turn-angle observations. |
+| `ripley.csv` | Translation-edge-corrected K/L clustering summaries at multiple radii. |
+| `moran.csv` | k-nearest-neighbour Moran's I for golden-angle flag clustering with label permutations. |
+| `county_permutation.csv` | NIAH-county-preserving target/control permutations for geometry signals. |
 | `roads_compare.csv` | Road/river bearing histograms and correlation/verdict rows. |
+| `road_proximity.csv` | Sampled centroid distance to the nearest mapped drivable-road geometry. |
+| `building_parts.csv` | OSM building-part counts, coverage, height/level tags, and repair status. |
+| `lidar_coverage.csv` | Per-footprint optional LiDAR heights, provenance, and availability status. |
 | `architects.csv` | Exploratory per-architect rates with Wilson intervals. |
 | `architects_binary.csv` | Named-versus-anonymous comparisons by class. |
 | `architects_evidence.csv` | Every accepted architect attribution with source registration number, evidence text, and confidence. |
+| `historical_validation.csv` | Per-target evidence status, NIAH/architect/heritage links, warnings, and review priority. |
+| `candidate_dossiers.csv` | Top candidate records ready for manual plan, imagery, and archive review. |
+| `historical_source_register.csv` | Coverage and status of each historical evidence channel. |
 | `report.html` | Standalone interactive dashboard: search, filters, pagination, clustered markers, top outlines, OSM links, CSV/GeoJSON downloads, significance tables, and provenance. |
 | `manifest.json` | UTC build time, Git revision, parameters, source paths, SHA-256 hashes, byte sizes, and row counts. |
 | `verification.json` | Machine-readable result from the final `verify` stage. |
@@ -118,10 +148,23 @@ so a valid polygon is at most 1.0, rather than the inverted ratio used by the
 original prototype. The composite score is a prioritisation heuristic, not a
 probability or a model of design quality.
 
+It also records rectangularity, normalized angle entropy, radial variability,
+four low-order radial Fourier descriptors, vertex density, hole-area fraction,
+OSM building/height/levels tags, address context, and mapping-quality flags.
+These descriptors are scale-aware and descriptive; they are not a learned
+classifier and should not be interpreted as architectural authorship.
+
 ## Statistical design
 
 - Ordinary buildings are sampled deterministically by the extractor and are
   retained as an empirical control population.
+- Matched sensitivity controls use local KD-tree nearest neighbours within
+  nearby log-area bands. Matching is with replacement; distance, area ratio,
+  same-cell coverage, and reuse are written to diagnostics.
+- The hierarchical sensitivity output is a random-effects meta-analysis of
+  local cell/area strata, with a reported between-stratum variance (`tau2`).
+  It is a dependency-free multilevel sensitivity model, not a claim that all
+  OSM rows are independent.
 - Primary rates use building-level two-proportion z-tests, Wilson confidence
   intervals, risk differences, and continuity-corrected odds ratios.
 - Holm–Bonferroni adjustment is applied within named test families. Reports
@@ -134,6 +177,9 @@ probability or a model of design quality.
   the angle grid. The control sample and seed are written to the output.
 - Road/river and per-architect analyses are exploratory diagnostics, not
   independent confirmation of architectural intent.
+- Ripley, Moran, and county-permutation outputs are spatial sensitivity
+  diagnostics. County tests are limited to NIAH-matched rows; road proximity
+  is nearest mapped-road distance, not a routed travel distance.
 
 P-values are retained at full floating-point precision in CSV outputs and are
 formatted for humans without printing `p=0`; very small values mean “below
@@ -161,6 +207,14 @@ These statements describe the cached artifacts above, not universal claims:
   do not support the hypothesis, and Fibonacci nearest-neighbour matches do
   not exceed the sham comparison. Architect-designed versus anonymous worship
   is also non-significant in the current evidence set.
+- The local size/geography-matched worship comparison remains elevated for the
+  golden-angle flag (+4.97 percentage points; Holm-adjusted signal), while
+  matched golden-ratio aspect matching is background. This is a sensitivity
+  result with control reuse, not an independent sample.
+- County-preserving golden-angle permutations are suggestive for worship;
+  worship Moran's I is background after correction. Ripley K/L is descriptive
+  clustering evidence and has no causal interpretation. Nearest-road distance
+  is reported as a sampled proximity diagnostic, not a route model.
 - Road and river segment histograms have near-zero correlation with the
   church-edge histogram, so those two tested network confounds do not explain
   the broad 44° peak. This remains an exploratory siting result.
@@ -169,6 +223,9 @@ These statements describe the cached artifacts above, not universal claims:
 
 - OSM is community-mapped. A footprint can be simplified, incomplete, tagged
   inconsistently, or represent only one part of a larger building complex.
+- `building:part` is sparse and does not reconstruct a complete 3-D model.
+  LiDAR outputs remain `not_provided` until a normalized height file is
+  supplied; blank height is not interpreted as zero.
 - NIAH is a Republic-of-Ireland heritage inventory and is not a complete
   census of every building; Northern Ireland target rows generally have no
   NIAH match. The join is centroid containment first, then nearest within
@@ -180,6 +237,28 @@ These statements describe the cached artifacts above, not universal claims:
   matching, model mapping quality, and validate against independent plan data.
 - Sentinel-2 is optional and requires Copernicus credentials. The report's
   satellite layer is a live visual basemap, not a downloaded analytical input.
+
+## Optional LiDAR and historical references
+
+LiDAR can be supplied as a CSV with `osm_id`, `roof_height_m`,
+`elevation_m`, `coverage_m2`, `source`, and `quality`, or as a GeoJSON
+FeatureCollection with those properties. The normalized output preserves
+which footprints were covered and where the values came from.
+
+The historical-reference CSV is intentionally manual. It accepts
+`osm_id` and/or `reg_no`, plus `source`, `source_url`, `verified`, `year`, and
+`notes`. Add only sources that a researcher has independently checked. The
+pipeline combines those records with NIAH matching, OSM heritage metadata,
+and architect evidence to create a review queue; it does not turn a source
+link into proof of design intent.
+
+## Artifact contracts and provenance
+
+The manifest is schema version 2. It records input hashes, output hashes,
+byte sizes, CSV row counts, seed, Monte Carlo setting, optional-source paths,
+and the Git revision. `verify` checks the new analytical tables, ID alignment,
+probability ranges, report JavaScript, and artifact hashes. Atomic writes make
+each stage safe to rerun after interruption.
 
 ## Licensing and attribution
 

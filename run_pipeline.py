@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run the Ireland geometry pipeline from any working directory.
 
-The default order is fetch -> fetch-niah -> analyze -> niah -> point-pattern -> roads ->
-architects -> report -> verify. Use ``--stage`` to run one stage or a comma-separated
+The default order is fetch -> fetch-niah -> analyze -> niah -> architects -> sensitivity ->
+building-parts -> historical -> point-pattern -> spatial-stats -> roads -> road-proximity ->
+report -> verify. Use ``--stage`` to run one stage or a comma-separated
 subset. All paths are resolved relative to this project unless absolute.
 """
 
@@ -20,9 +21,14 @@ STAGES = (
     "fetch-niah",
     "analyze",
     "niah",
-    "point-pattern",
-    "roads",
     "architects",
+    "sensitivity",
+    "building-parts",
+    "historical",
+    "point-pattern",
+    "spatial-stats",
+    "roads",
+    "road-proximity",
     "report",
     "verify",
 )
@@ -31,9 +37,14 @@ SCRIPTS = {
     "fetch-niah": "fetch_niah.py",
     "analyze": "analyze.py",
     "niah": "niah.py",
-    "point-pattern": "point_pattern.py",
-    "roads": "roads.py",
     "architects": "architects.py",
+    "sensitivity": "sensitivity.py",
+    "building-parts": "building_parts.py",
+    "historical": "historical_validation.py",
+    "point-pattern": "point_pattern.py",
+    "spatial-stats": "spatial_stats.py",
+    "roads": "roads.py",
+    "road-proximity": "road_proximity.py",
     "report": "report.py",
     "verify": "verify.py",
 }
@@ -70,6 +81,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--skip-satellite",
         action="store_true",
         help="accepted for automation compatibility; satellite is optional",
+    )
+    parser.add_argument(
+        "--lidar", default=None, help="optional normalized LiDAR CSV/GeoJSON for building-part stage"
+    )
+    parser.add_argument(
+        "--historical-references",
+        default=None,
+        help="optional curated historical reference CSV for the historical stage",
     )
     return parser.parse_args(argv)
 
@@ -109,10 +128,34 @@ def run_stage(
         command += ["--data", str(data_root / "combined.json"), "--out", str(out_dir)]
     elif name in {"niah", "architects"}:
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
-    elif name == "point-pattern":
+    elif name == "sensitivity":
+        command += ["--out-dir", str(out_dir)]
+    elif name == "building-parts":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.lidar:
+            command += ["--lidar", str(project_path(args.lidar, str(data_root / "lidar" / "building_heights.csv")))]
+    elif name == "historical":
+        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        if args.historical_references:
+            command += [
+                "--references",
+                str(project_path(args.historical_references, str(data_root / "historical" / "references.csv"))),
+            ]
+    elif name == "point-pattern" or name == "spatial-stats":
         command += ["--out-dir", str(out_dir), "--seed", str(args.seed), "--mc", str(args.mc)]
     elif name == "roads":
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir), "--pbf", str(pbf)]
+    elif name == "road-proximity":
+        command += [
+            "--data-root",
+            str(data_root),
+            "--out-dir",
+            str(out_dir),
+            "--pbf",
+            str(pbf),
+            "--seed",
+            str(args.seed),
+        ]
     elif name == "report":
         command += ["--out-dir", str(out_dir)]
     elif name == "verify":
@@ -141,6 +184,8 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
             "refresh": args.refresh,
             "no_network": args.no_network,
             "skip_satellite": args.skip_satellite,
+            "lidar": args.lidar,
+            "historical_references": args.historical_references,
             "seed": args.seed,
             "mc": args.mc,
         },
@@ -164,6 +209,19 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
                 }
                 for region in ("Dublin", "Connacht", "Leinster", "Munster", "Ulster")
             ],
+            {
+                "kind": "optional_lidar_normalized",
+                "path": project_path(
+                    args.lidar, str(data_root / "lidar" / "building_heights.csv")
+                ),
+            },
+            {
+                "kind": "optional_historical_references",
+                "path": project_path(
+                    args.historical_references,
+                    str(data_root / "historical" / "references.csv"),
+                ),
+            },
         ],
     )
     atomic_write_json(out_dir / "manifest.json", manifest, indent=2)

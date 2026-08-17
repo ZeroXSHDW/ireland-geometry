@@ -28,5 +28,11 @@ def test_pipeline_help_exits_without_running_work():
 
 def test_verify_must_be_last_stage():
     assert selected_stages("analyze,verify") == ["analyze", "verify"]
+    assert selected_stages("analyze,sensitivity,building-parts,verify") == [
+        "analyze",
+        "sensitivity",
+        "building-parts",
+        "verify",
+    ]
     with pytest.raises(SystemExit, match="must be last"):
         selected_stages("verify,analyze")

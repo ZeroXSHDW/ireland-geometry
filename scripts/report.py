@@ -57,8 +57,17 @@ def polygon_rings(feature: dict) -> list[list[list[float]]]:
     return rings
 
 
-def normalize_row(row: dict, niah_by_id: dict[str, dict]) -> dict:
+def normalize_row(
+    row: dict,
+    niah_by_id: dict[str, dict],
+    parts_by_id: dict[str, dict] | None = None,
+    history_by_id: dict[str, dict] | None = None,
+    lidar_by_id: dict[str, dict] | None = None,
+) -> dict:
     niah = niah_by_id.get(row["osm_id"], {})
+    parts = (parts_by_id or {}).get(row["osm_id"], {})
+    history = (history_by_id or {}).get(row["osm_id"], {})
+    lidar = (lidar_by_id or {}).get(row["osm_id"], {})
     flags = [flag for flag in row.get("flags", "").split(",") if flag]
     return {
         "osm_id": row["osm_id"],
@@ -76,6 +85,18 @@ def normalize_row(row: dict, niah_by_id: dict[str, dict]) -> dict:
         "n_vertices": integer(row.get("n_vertices")),
         "convexity": number(row.get("convexity")),
         "circularity": number(row.get("circularity")),
+        "rectangularity": number(row.get("rectangularity")),
+        "angle_entropy": number(row.get("angle_entropy")),
+        "radial_cv": number(row.get("radial_cv")),
+        "fourier_1": number(row.get("fourier_1")),
+        "fourier_2": number(row.get("fourier_2")),
+        "fourier_3": number(row.get("fourier_3")),
+        "fourier_4": number(row.get("fourier_4")),
+        "vertex_density": number(row.get("vertex_density")),
+        "height_m": number(row.get("height_m")),
+        "building_levels": number(row.get("building_levels")),
+        "building_tag": row.get("building_tag", ""),
+        "address_city": row.get("address_city", ""),
         "has_golden_angle": integer(row.get("has_golden_angle")),
         "has_golden_ratio": int(number(row.get("golden_ratio_err_pct"), 999) <= 3),
         "golden_ratio_err_pct": number(row.get("golden_ratio_err_pct"), 999),
@@ -99,6 +120,26 @@ def normalize_row(row: dict, niah_by_id: dict[str, dict]) -> dict:
             "match_mode": niah.get("match_mode", ""),
             "dist_m": number(niah.get("dist_m"), 0),
         },
+        "parts": {
+            "count": integer(parts.get("part_count")),
+            "coverage_pct": number(parts.get("part_coverage_pct")),
+            "max_height_m": number(parts.get("max_part_height_m")),
+            "max_levels": number(parts.get("max_part_levels")),
+            "status": parts.get("part_geometry_status", ""),
+        },
+        "lidar": {
+            "available": integer(lidar.get("lidar_available")),
+            "roof_height_m": number(lidar.get("roof_height_m")),
+            "source": lidar.get("source", ""),
+            "quality": lidar.get("quality", ""),
+        },
+        "history": {
+            "status": history.get("validation_status", ""),
+            "priority": history.get("review_priority", ""),
+            "architect": history.get("architect", ""),
+            "reference_count": integer(history.get("reference_count")),
+            "warnings": history.get("review_warnings", ""),
+        },
         "osm_url": f"https://www.openstreetmap.org/{html.escape(row['osm_id'])}",
     }
 
@@ -119,7 +160,14 @@ def build_report(out: Path) -> str:
         raise SystemExit(f"Missing {out / 'analysis_results.csv'}. Run analyze.py first.")
     niah_rows = read_csv(out / "niah_join.csv")
     niah_by_id = {row["osm_id"]: row for row in niah_rows}
-    targets = [normalize_row(row, niah_by_id) for row in rows if row.get("group") != "control"]
+    parts_by_id = {row["osm_id"]: row for row in read_csv(out / "building_parts.csv")}
+    history_by_id = {row["osm_id"]: row for row in read_csv(out / "historical_validation.csv")}
+    lidar_by_id = {row["osm_id"]: row for row in read_csv(out / "lidar_coverage.csv")}
+    targets = [
+        normalize_row(row, niah_by_id, parts_by_id, history_by_id, lidar_by_id)
+        for row in rows
+        if row.get("group") != "control"
+    ]
     controls = [row for row in rows if row.get("group") == "control"]
     targets.sort(key=lambda row: (-row["score"], row["osm_id"]))
 
@@ -164,6 +212,9 @@ def build_report(out: Path) -> str:
         "niah_contained": modes.get("contained", 0),
         "niah_near": modes.get("near", 0),
         "groups": dict(Counter(row["group"] for row in targets)),
+        "part_mapped": sum(row["parts"]["count"] > 0 for row in targets),
+        "lidar_available": sum(row["lidar"]["available"] > 0 for row in targets),
+        "history_review": sum(row["history"]["priority"] in {"high", "medium"} for row in targets),
         "generated_at": manifest.get("generated_at", ""),
     }
     data = {
@@ -173,9 +224,18 @@ def build_report(out: Path) -> str:
         "significance": read_csv(out / "significance.csv"),
         "niah_significance": read_csv(out / "niah_significance.csv"),
         "decades": read_csv(out / "niah_decades.csv"),
+        "matched_significance": read_csv(out / "matched_significance.csv"),
+        "hierarchical_model": read_csv(out / "hierarchical_model.csv"),
+        "matched_control_summary": read_csv(out / "matched_control_summary.csv"),
         "point_pattern": read_csv(out / "point_pattern.csv"),
+        "ripley": read_csv(out / "ripley.csv"),
+        "moran": read_csv(out / "moran.csv"),
+        "county_permutation": read_csv(out / "county_permutation.csv"),
+        "road_proximity": read_csv(out / "road_proximity.csv"),
         "architects": read_csv(out / "architects.csv"),
         "architects_binary": read_csv(out / "architects_binary.csv"),
+        "candidate_dossiers": read_csv(out / "candidate_dossiers.csv"),
+        "historical_source_register": read_csv(out / "historical_source_register.csv"),
         "manifest": manifest,
         "geojson": geojson,
     }
@@ -299,6 +359,10 @@ const SUMMARY = PACK.summary || {};
 const SIG = PACK.significance || [];
 const NIAH_SIG = PACK.niah_significance || [];
 const DECADES = PACK.decades || [];
+const MATCHED = PACK.matched_significance || [];
+const HIER = PACK.hierarchical_model || [];
+const MORAN = PACK.moran || [];
+const COUNTY_PERM = PACK.county_permutation || [];
 const GEOJSON = PACK.geojson || {type:'FeatureCollection',features:[]};
 const PAGE_SIZE = 50;
 let filtered = DATA.slice();
@@ -326,7 +390,7 @@ fillSelect('niahType', unique(row=>row.niah.type));
 function color(score) { return score >= 60 ? '#b42318' : score >= 35 ? '#d97706' : score >= 15 ? '#2563eb' : '#3f8f65'; }
 function matches(row) {
   const q=$('query').value.trim().toLowerCase();
-  const hay=[row.name,row.osm_id,row.group,row.subtype,flagsText(row),row.niah.name,row.niah.county,row.niah.type].join(' ').toLowerCase();
+  const hay=[row.name,row.osm_id,row.group,row.subtype,row.address_city,flagsText(row),row.niah.name,row.niah.county,row.niah.type,row.history.status,row.history.architect].join(' ').toLowerCase();
   return (!q || hay.includes(q)) && (!$('group').value || row.group===$('group').value) &&
     (!$('century').value || row.niah.century===$('century').value) && (!$('rating').value || row.niah.rating===$('rating').value) &&
     (!$('niahType').value || row.niah.type===$('niahType').value) && row.score >= Number($('score').value) &&
@@ -353,7 +417,7 @@ function renderTable() {
   const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)); $('page').textContent=`${Math.min(page,pages)} / ${pages}`; $('prev').disabled=page<=1; $('next').disabled=page>=pages;
   document.querySelectorAll('#tbody tr[data-id]').forEach(tr=>tr.addEventListener('click',()=>focusRow(tr.dataset.id)));
 }
-function popup(row) { return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a>`; }
+function popup(row) { return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a>`; }
 function renderMap() {
   if (!map || !markerLayer) return;
   markerLayer.clearLayers(); markerById.clear();
@@ -367,14 +431,16 @@ function renderBars() {
   $('eraBars').innerHTML=eras.length?eras.map(row=>`<div class="bar-row"><span>${esc(row.stratum)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Number(row.observed_rate)||0)}%"></div></div><span>${fmt(row.observed_rate,2)}% · H ${pFmt(row.p_adjusted)}</span></div>`).join(''):'<span class="footnote">No NIAH era results available.</span>';
 }
 function renderStats() {
-  const rows=[...SIG.map(row=>({...row,family:'global'})),...NIAH_SIG.slice(0,30).map(row=>({...row,family:'NIAH'}))];
-  $('statsTable').innerHTML=rows.length?`<table><thead><tr><th>Test</th><th>Observed</th><th>Reference</th><th>p / Holm</th><th>Result</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.signal)} · ${esc(row.group||row.stratum||'')}</td><td>${esc(row.observed_rate||'—')}%</td><td>${esc(row.control_rate||row.reference_rate||'—')}%</td><td>${pFmt(row.p_value)} / ${pFmt(row.p_adjusted)}</td><td class="verdict-${esc(row.verdict)}">${esc(row.verdict||'—')}</td></tr>`).join('')}</tbody></table>`:'<span class="footnote">No statistical results available.</span>';
+  const rows=[...SIG.map(row=>({...row,family:'global'})),...NIAH_SIG.slice(0,30).map(row=>({...row,family:'NIAH'})),...MATCHED.map(row=>({...row,family:'matched'})),...HIER.map(row=>({...row,family:'hierarchical'})),...MORAN.map(row=>({...row,family:'Moran'})),...COUNTY_PERM.map(row=>({...row,family:'county'}))];
+  const observed=row=>row.observed_rate??row.target_rate??row.golden_angle_rate??row.observed_difference_pp;
+  const reference=row=>row.control_rate??row.reference_rate??row.matched_control_rate??'—';
+  $('statsTable').innerHTML=rows.length?`<table><thead><tr><th>Test</th><th>Observed</th><th>Reference</th><th>p / Holm</th><th>Result</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.family)} · ${esc(row.signal||row.group||row.stratum||'')}</td><td>${esc(observed(row)??'—')}${row.family==='Moran'?' I':''}</td><td>${esc(reference(row))}${reference(row)!=='—'?'%':''}</td><td>${pFmt(row.p_value)} / ${pFmt(row.p_adjusted)}</td><td class="verdict-${esc(row.verdict)}">${esc(row.verdict||'diagnostic')}</td></tr>`).join('')}</tbody></table>`:'<span class="footnote">No statistical results available.</span>';
 }
 function download(name, content, type) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),500); }
 function downloadCsv() { const cols=['osm_id','name','group','lat','lon','score','area_m2','aspect_ratio','convexity','circularity','flags','niah_name','niah_rating','niah_century']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(',')]; filtered.forEach(row=>lines.push(cols.map(key=>{ if(key==='flags')return escCsv(flagsText(row)); if(key.startsWith('niah_'))return escCsv(row.niah[key.slice(5)]); return escCsv(row[key]); }).join(','))); download('ireland-geometry-filtered.csv',lines.join('\n'),'text/csv'); }
 function downloadGeo() { const ids=new Set(filtered.map(row=>row.osm_id)); const copy={...GEOJSON,features:(GEOJSON.features||[]).filter(feature=>ids.has(feature.properties?.osm_id))}; download('ireland-geometry-filtered.geojson',JSON.stringify(copy),'application/geo+json'); }
 function initMap() { if(typeof L==='undefined'){ $('map').innerHTML='<div style="padding:20px">Map libraries could not be loaded. The table and exports remain available.</div>'; return; } map=L.map('map').setView([53.35,-8.05],7); const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map); const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri World Imagery',maxZoom:18}); markerLayer=(L.markerClusterGroup?L.markerClusterGroup({maxClusterRadius:45,disableClusteringAtZoom:14}):L.layerGroup()).addTo(map); const outlineLayer=L.layerGroup().addTo(map); OUTLINES.forEach(item=>{ const shapes=item.rings.length===1?item.rings[0]:item.rings; L.polygon(shapes,{color:'#1f2937',weight:2,fillColor:color(item.score),fillOpacity:.2}).bindPopup(`<b>${esc(item.name||'Unnamed')}</b><br>${esc(item.group)} · score ${fmt(item.score)}<br>${flagHtml({flags:item.flags||[]})}`).addTo(outlineLayer); }); L.control.layers({'OSM':osm,'Satellite':esri},{'Top outlines':outlineLayer,'Markers':markerLayer}).addTo(map); renderMap(); }
-function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value;applyFilters();}); ['query','group','century','rating','niahType','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',applyFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--;renderTable();}}); $('next').addEventListener('click',()=>{if(page<Math.ceil(filtered.length/PAGE_SIZE)){page++;renderTable();}}); document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click',()=>{const key=th.dataset.sort; sortDesc=sortKey===key?!sortDesc:key==='score';sortKey=key;applyFilters();})); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Pattern scores are prioritisation heuristics. Primary rates use building-level target/control comparisons with confidence intervals and Holm-adjusted p-values. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), and Esri World Imagery for visual reference.</p>`; renderSummary();renderTable();renderBars();renderStats();initMap(); }
+function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value;applyFilters();}); ['query','group','century','rating','niahType','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',applyFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--;renderTable();}}); $('next').addEventListener('click',()=>{if(page<Math.ceil(filtered.length/PAGE_SIZE)){page++;renderTable();}}); document.querySelectorAll('th[data-sort]').forEach(th=>th.addEventListener('click',()=>{const key=th.dataset.sort; sortDesc=sortKey===key?!sortDesc:key==='score';sortKey=key;applyFilters();})); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level target/control comparisons; matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries are sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), and Esri World Imagery for visual reference.</p>`; renderSummary();renderTable();renderBars();renderStats();initMap(); }
 init();
 </script>
 </body></html>"""

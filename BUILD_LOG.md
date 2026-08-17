@@ -105,3 +105,42 @@ then the roads, architect, and report stages were rerun successfully.
 - Corrected manifest CSV counts to parse records rather than physical lines,
   so quoted multiline architect evidence is counted accurately; added a
   regression test. The suite now has 17 tests.
+
+## Enhancement pass — 2026-08-17
+
+Implemented the complete follow-up scope against the cached Ireland snapshot:
+
+- Added shape descriptors to the canonical analyzer: rectangularity, angle
+  entropy, radial variability, four radial Fourier coefficients, vertex
+  density, hole-area fraction, and OSM building/address/height context.
+- Added deterministic KD-tree spatial matching with replacement, match-quality
+  diagnostics, matched-set effects, and a dependency-free random-effects
+  stratified log-odds sensitivity model.
+- Added OSM `building:part` aggregation and a normalized CSV/GeoJSON LiDAR
+  coverage contract that reports `not_provided` rather than treating missing
+  heights as zeros.
+- Added historical-validation rows, candidate dossiers, a source register,
+  optional curated historical-reference input, and explicit manual-review
+  warnings.
+- Added Ripley K/L, Moran's I, county-preserving permutations, and sampled
+  nearest-road proximity diagnostics alongside the existing point-pattern and
+  road-bearing analyses.
+- Extended the report data pack and popups, expanded the manifest to schema
+  version 2 with output hashes, and expanded the verifier to cover every new
+  artifact contract.
+- Added the stage-resume workflow, optional-source CLI flags, a historical
+  reference template, and regression tests. The suite now has 20 tests.
+
+Final cached enhancement build:
+
+```text
+.venv/bin/python run_pipeline.py --stage all --no-network --seed 20260816 --mc 300
+.venv/bin/python -m pytest                 # 20 passed
+.venv/bin/ruff check scripts tests run_pipeline.py
+.venv/bin/python -m compileall -q scripts run_pipeline.py
+```
+
+The final artifact contract passed for 123,810 analysis rows, 33,416 targets,
+90,394 controls, 100,212 matched pairs, 33,416 historical-validation rows,
+and the schema-version-2 manifest. LiDAR remained explicitly unavailable in
+the local input snapshot.

@@ -12,7 +12,7 @@ import math
 from collections.abc import Iterator
 
 from shapely import affinity
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, shape
+from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon, shape
 from shapely.ops import unary_union
 
 
@@ -191,6 +191,88 @@ def convexity_ratio(geom) -> float:
     area = float(geom.area) if geom is not None else 0.0
     hull_area = float(geom.convex_hull.area) if geom is not None else 0.0
     return area / hull_area if hull_area > 0 else 0.0
+
+
+def _resample_ring(points: list[tuple[float, float]], n: int = 64) -> list[tuple[float, float]]:
+    """Sample a closed ring at equal perimeter intervals."""
+    if len(points) < 4 or n < 4:
+        return []
+    line = LineString(points)
+    if line.length <= 0:
+        return []
+    samples = []
+    for index in range(n):
+        point = line.interpolate(line.length * index / n)
+        samples.append((point.x, point.y))
+    return samples
+
+
+def _radial_fourier(points: list[tuple[float, float]], centroid: tuple[float, float]) -> dict:
+    """Rotation/scale-stable low-order radial Fourier descriptors."""
+    if not points:
+        return {f"fourier_{index}": 0.0 for index in range(1, 5)} | {"radial_cv": 0.0}
+    cx, cy = centroid
+    radii = [math.hypot(x - cx, y - cy) for x, y in points]
+    mean = sum(radii) / len(radii)
+    if mean <= 0:
+        return {f"fourier_{index}": 0.0 for index in range(1, 5)} | {"radial_cv": 0.0}
+    variance = sum((radius - mean) ** 2 for radius in radii) / len(radii)
+    out = {"radial_cv": math.sqrt(variance) / mean}
+    for harmonic in range(1, 5):
+        real = sum(radius * math.cos(2.0 * math.pi * harmonic * i / len(radii)) for i, radius in enumerate(radii))
+        imag = sum(radius * math.sin(2.0 * math.pi * harmonic * i / len(radii)) for i, radius in enumerate(radii))
+        out[f"fourier_{harmonic}"] = math.hypot(real, imag) * 2.0 / (len(radii) * mean)
+    return out
+
+
+def shape_descriptors(geom) -> dict:
+    """Return scale-aware, orientation-stable descriptors for a footprint.
+
+    These are intentionally descriptive rather than learned features.  The
+    Fourier values summarize radial irregularity at four low harmonics; they
+    are useful for matching and sensitivity checks, not as evidence of a
+    particular design tradition.
+    """
+    parts = list(iter_polygons(geom)) if geom is not None else []
+    if not parts:
+        return {
+            "rectangularity": 0.0,
+            "angle_entropy": 0.0,
+            "radial_cv": 0.0,
+            "fourier_1": 0.0,
+            "fourier_2": 0.0,
+            "fourier_3": 0.0,
+            "fourier_4": 0.0,
+            "vertex_density": 0.0,
+            "hole_area_fraction": 0.0,
+        }
+    polygon = max(parts, key=lambda item: item.area)
+    mrr = polygon.minimum_rotated_rectangle
+    rectangularity = polygon.area / mrr.area if mrr is not None and mrr.area > 0 else 0.0
+    angles = interior_angles(polygon)
+    bins = [0] * 18
+    for angle in angles:
+        bins[min(17, max(0, int(angle // 10.0)))] += 1
+    total = sum(bins)
+    entropy = 0.0
+    if total:
+        for count in bins:
+            if count:
+                p = count / total
+                entropy -= p * math.log(p)
+        entropy /= math.log(len(bins))
+    ring = _resample_ring(list(polygon.exterior.coords))
+    fourier = _radial_fourier(ring, (polygon.centroid.x, polygon.centroid.y))
+    outer_area = sum(Polygon(part.exterior).area for part in parts)
+    holes_area = sum(Polygon(interior).area for part in parts for interior in part.interiors)
+    area = sum(part.area for part in parts)
+    return {
+        "rectangularity": rectangularity,
+        "angle_entropy": entropy,
+        **fourier,
+        "vertex_density": len(polygon.exterior.coords[:-1]) / math.sqrt(max(area, 1e-9)),
+        "hole_area_fraction": holes_area / outer_area if outer_area > 0 else 0.0,
+    }
 
 
 def exterior_rings(geom) -> list[list[tuple[float, float]]]:

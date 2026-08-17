@@ -105,3 +105,4 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "filtered.slice(0,800)" in html
     assert "Test Chapel" in html
     assert "const PACK =" in html
+    assert "const MATCHED =" in html

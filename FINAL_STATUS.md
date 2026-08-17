@@ -1,7 +1,8 @@
 # Final status
 
-Status: complete for the current cached snapshot; the follow-up verification
-hardening pass is included in the latest commit.
+Status: complete for the current cached snapshot; the matched-control,
+shape-descriptor, historical-validation, spatial-statistics, and production
+hardening pass is included.
 
 ## Reproducible build
 
@@ -25,14 +26,21 @@ The build completed without network access. The exact input caches were:
 - deterministic point-pattern output using seed `20260816` and 300 simulations;
 - road/river confound comparison;
 - 49 exploratory architect-rate rows and 1,114 evidence rows;
+- 100,212 spatially matched target-control pairs, 12 matched sensitivity tests,
+  and 12 random-effects hierarchical tests;
+- 123,810 building-part/LiDAR coverage rows (246 mapped-part associations;
+  LiDAR not provided in this snapshot);
+- 33,416 historical-validation rows, 1,000 candidate dossiers, 30 Ripley rows,
+  5 Moran rows, 8 county permutations, and 5 road-proximity summaries;
 - `output/report.html` interactive dashboard;
-- `output/manifest.json` provenance record with source hashes and counts.
+- `output/manifest.json` schema-version-2 provenance record with input/output
+  hashes, byte sizes, and row counts.
 - `output/verification.json` automated artifact-contract result.
 
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 17 passed
+.venv/bin/python -m pytest                 # 20 passed
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help
@@ -40,9 +48,10 @@ The build completed without network access. The exact input caches were:
 ```
 
 Additional artifact assertions passed: manifest revision/counts and source
-hashes, GeoJSON parsing and ID alignment, source-region completeness, positive
-p-values/adjusted p-values, absence of unresolved report template tokens, and
-inline report JavaScript syntax.
+hashes, GeoJSON parsing and ID alignment, source-region completeness, matched
+ID alignment, positive p-values/adjusted p-values, shape/context schema,
+historical and LiDAR coverage contracts, absence of unresolved report template
+tokens, and inline report JavaScript syntax.
 
 ## Interpretation
 
@@ -53,13 +62,20 @@ geometry and cannot establish design intent. NIAH era-matched tests show the
 strongest worship differences in the 19th and 20th centuries after family
 correction. Between-building tests do not support a golden-specific alignment;
 the broad peak is near 44°, spiral turns do not support the hypothesis, and
-architect attribution is non-significant.
+architect attribution is non-significant. The local size/geography-matched
+worship comparison remains elevated for the golden-angle flag (+4.97 percentage
+points; Holm-adjusted signal), while matched golden-ratio aspect matching is
+background. County-preserving golden-angle permutations are suggestive for
+worship, but Moran's I is not significant for worship after correction. Road
+proximity is reported as a sampled nearest-road diagnostic, not a route model.
 
 ## Remaining limitations
 
 OSM geometry is community-mapped and is not an architectural plan. NIAH is a
 heritage inventory for the Republic of Ireland rather than a complete census,
-so Northern Ireland coverage is sparse. Candidate thresholds were chosen for
-screening, and a confirmatory study should preregister hypotheses, spatially
-and temporally match controls, account for mapping quality, and validate against
-independent plan data.
+so Northern Ireland coverage is sparse. Only 246 analyzed footprints have
+mapped `building:part` associations and no LiDAR file was supplied. Candidate
+thresholds were chosen for screening, and a confirmatory study should
+preregister hypotheses, use authoritative boundaries and mapping-age/settlement
+covariates, validate against independent plan or LiDAR data, and manually check
+the candidate dossiers.

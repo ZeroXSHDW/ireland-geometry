@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+SCHEMA_VERSION = 2
 
 
 def project_path(value: str | Path | None, default: str | Path) -> Path:
@@ -122,6 +123,19 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         "architects.csv",
         "architects_binary.csv",
         "architects_evidence.csv",
+        "matched_controls.csv",
+        "matched_control_summary.csv",
+        "matched_significance.csv",
+        "hierarchical_model.csv",
+        "building_parts.csv",
+        "lidar_coverage.csv",
+        "historical_validation.csv",
+        "candidate_dossiers.csv",
+        "historical_source_register.csv",
+        "ripley.csv",
+        "moran.csv",
+        "county_permutation.csv",
+        "road_proximity.csv",
     ):
         path = out / name
         if not path.exists():
@@ -154,8 +168,23 @@ def build_manifest(
             row["sha256"] = sha256_file(p)
             row["bytes"] = p.stat().st_size if p.exists() else None
         source_rows.append(row)
+    artifacts = []
+    counts = output_counts(out_dir)
+    artifact_paths = sorted(out_dir.iterdir()) if out_dir.exists() else []
+    for path in artifact_paths:
+        if not path.is_file() or path.name == "manifest.json":
+            continue
+        artifacts.append(
+            {
+                "path": str(path),
+                "sha256": sha256_file(path),
+                "bytes": path.stat().st_size,
+                "rows": counts.get(path.name),
+            }
+        )
     return {
-        "manifest_version": 1,
+        "manifest_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "generated_at": utc_now(),
         "project_root": str(ROOT),
         "git_revision": git_revision(ROOT),
@@ -163,5 +192,6 @@ def build_manifest(
         "output_dir": str(out_dir),
         "parameters": parameters,
         "sources": source_rows,
-        "counts": output_counts(out_dir),
+        "counts": counts,
+        "artifacts": artifacts,
     }

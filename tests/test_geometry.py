@@ -11,6 +11,7 @@ from scripts.geometry import (
     interior_angles,
     iter_polygons,
     repair_geometry,
+    shape_descriptors,
     to_local_meters,
 )
 
@@ -128,3 +129,22 @@ def test_filtered_outer_ring_keeps_its_holes_attached():
     assert result is not None
     assert result["exterior"] == valid_outer
     assert result["holes"] == [hole]
+
+
+def test_shape_descriptors_are_finite_and_scale_normalized():
+    element = {
+        "geometry": {
+            "exterior": [
+                point(53.0, -8.0),
+                point(53.0, -7.999),
+                point(53.001, -7.999),
+                point(53.001, -8.0),
+            ]
+        }
+    }
+    geom = geometry_from_element(element)
+    local = to_local_meters(geom, geom.centroid.y, geom.centroid.x)
+    descriptors = shape_descriptors(local)
+    assert 0 < descriptors["rectangularity"] <= 1
+    assert 0 <= descriptors["angle_entropy"] <= 1
+    assert all(math.isfinite(descriptors[f"fourier_{i}"]) for i in range(1, 5))

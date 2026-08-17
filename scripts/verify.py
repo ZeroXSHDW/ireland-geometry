@@ -47,6 +47,12 @@ ANALYSIS_REQUIRED = {
     "repaired",
     "multipart",
     "hole_count",
+    "rectangularity",
+    "angle_entropy",
+    "fourier_1",
+    "fourier_4",
+    "building_tag",
+    "height_m",
 }
 SIGNIFICANCE_REQUIRED = {"p_adjusted", "method", "verdict"}
 VERDICTS = {"SIGNAL", "suggestive", "background"}
@@ -142,6 +148,7 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
     analysis = read_csv(analysis_path) if require_file(analysis_path, errors) else []
     check_columns(analysis, ANALYSIS_REQUIRED, "analysis_results.csv", errors)
     analysis_ids = [row.get("osm_id", "") for row in analysis]
+    analysis_id_set = set(analysis_ids)
     if len(analysis_ids) != len(set(analysis_ids)):
         errors.append("analysis_results.csv contains duplicate osm_id values")
     targets = []
@@ -187,6 +194,50 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
     if require_file(significance, errors):
         check_probabilities(read_csv(significance), "significance.csv", errors)
 
+    matched_path = out_dir / "matched_controls.csv"
+    if require_file(matched_path, errors):
+        matches = read_csv(matched_path)
+        check_columns(
+            matches,
+            {"target_osm_id", "control_osm_id", "distance_m", "area_ratio", "rank"},
+            "matched_controls.csv",
+            errors,
+        )
+        ids = analysis_id_set
+        for index, row in enumerate(matches, 2):
+            if row.get("target_osm_id") not in ids or row.get("control_osm_id") not in ids:
+                errors.append(f"matched_controls.csv row {index} references an unknown analysis id")
+            try:
+                if float(row.get("distance_m", "")) < 0 or float(row.get("area_ratio", "")) < 1:
+                    errors.append(f"matched_controls.csv row {index} has invalid match geometry")
+            except ValueError:
+                errors.append(f"matched_controls.csv row {index} has invalid match numeric field")
+    for name in ("matched_control_summary.csv", "building_parts.csv", "lidar_coverage.csv"):
+        path = out_dir / name
+        if require_file(path, errors):
+            rows = read_csv(path)
+            if name == "building_parts.csv":
+                check_columns(rows, {"osm_id", "part_count", "part_geometry_status"}, name, errors)
+            elif name == "lidar_coverage.csv":
+                check_columns(rows, {"osm_id", "lidar_available", "source", "quality"}, name, errors)
+            else:
+                check_columns(rows, {"target_group", "target_n", "matched_pair_n"}, name, errors)
+    for name in ("matched_significance.csv", "hierarchical_model.csv"):
+        path = out_dir / name
+        if require_file(path, errors):
+            check_probabilities(read_csv(path), name, errors)
+
+    historical_path = out_dir / "historical_validation.csv"
+    if require_file(historical_path, errors):
+        history = read_csv(historical_path)
+        check_columns(history, {"osm_id", "validation_status", "review_priority"}, "historical_validation.csv", errors)
+        if any(row.get("osm_id") not in analysis_id_set for row in history):
+            errors.append("historical_validation.csv contains an unknown analysis id")
+    for name in ("candidate_dossiers.csv", "historical_source_register.csv"):
+        path = out_dir / name
+        if require_file(path, errors):
+            check_columns(read_csv(path), {"source_type"} if name.endswith("register.csv") else {"osm_id", "review_priority"}, name, errors)
+
     join_path = out_dir / "niah_join.csv"
     if require_file(join_path, errors):
         joins = read_csv(join_path)
@@ -219,11 +270,18 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         "point_pattern.csv",
         "point_pattern_turns.csv",
         "roads_compare.csv",
+        "road_proximity.csv",
         "architects.csv",
         "architects_binary.csv",
         "architects_evidence.csv",
     ):
         require_file(out_dir / name, errors)
+    for name in ("moran.csv", "county_permutation.csv"):
+        path = out_dir / name
+        if require_file(path, errors):
+            check_probabilities(read_csv(path), name, errors)
+    if require_file(out_dir / "ripley.csv", errors):
+        check_columns(read_csv(out_dir / "ripley.csv"), {"group", "radius_m", "l_minus_r_m"}, "ripley.csv", errors)
     check_report(out_dir / "report.html", errors, warnings)
 
     manifest_path = manifest_path or out_dir / "manifest.json"
@@ -239,6 +297,8 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
                 errors.append(
                     f"manifest Git revision {manifest.get('git_revision')} != {current_revision}"
                 )
+            if manifest.get("manifest_version", 0) < 2 or manifest.get("schema_version", 0) < 2:
+                errors.append("manifest does not advertise schema version 2")
             for source in manifest.get("sources", []):
                 source_path = Path(source.get("path", ""))
                 if source_path.exists():
@@ -249,16 +309,36 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
                         errors.append(f"manifest source hash mismatch: {source_path}")
                     if source.get("bytes") != source_path.stat().st_size:
                         errors.append(f"manifest source byte-size mismatch: {source_path}")
+            manifest_counts = manifest.get("counts", {})
+            for artifact in manifest.get("artifacts", []):
+                artifact_path = Path(artifact.get("path", ""))
+                if artifact_path.name == "verification.json":
+                    continue
+                if not artifact_path.exists():
+                    errors.append(f"manifest artifact missing: {artifact_path}")
+                    continue
+                if artifact.get("sha256") != sha256_file(artifact_path):
+                    errors.append(f"manifest artifact hash mismatch: {artifact_path}")
+                if artifact.get("bytes") != artifact_path.stat().st_size:
+                    errors.append(f"manifest artifact byte-size mismatch: {artifact_path}")
+                expected_rows = manifest_counts.get(artifact_path.name)
+                if expected_rows is not None and artifact.get("rows") != expected_rows:
+                    errors.append(f"manifest artifact row count mismatch: {artifact_path}")
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"manifest is not valid JSON: {exc}")
 
+    counts = output_counts(out_dir)
+    # A file cannot contain an exact byte count for itself without a
+    # self-referential serialization loop. Keep the verifier's own size out
+    # of its embedded counts; the final manifest records it after the write.
+    counts.pop("verification.json_bytes", None)
     result = {
         "verified_at": utc_now(),
         "passed": not errors,
         "errors": errors,
         "warnings": warnings,
         "git_revision": git_revision(),
-        "counts": output_counts(out_dir),
+        "counts": counts,
         "analysis_rows": len(analysis),
         "target_rows": len(targets),
         "control_rows": len(controls),

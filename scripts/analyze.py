@@ -47,6 +47,7 @@ try:  # direct script execution
         iter_polygons,
         polygon_from_element,
         repair_geometry,
+        shape_descriptors,
         to_local_meters,
     )
     from runtime import atomic_write_csv, atomic_write_text
@@ -59,6 +60,7 @@ except ImportError:  # package/test execution
         iter_polygons,
         polygon_from_element,
         repair_geometry,
+        shape_descriptors,
         to_local_meters,
     )
     from scripts.runtime import atomic_write_csv, atomic_write_text
@@ -126,6 +128,23 @@ FIELDNAMES = [
     "multipart",
     "hole_count",
     "perimeter_m",
+    "rectangularity",
+    "angle_entropy",
+    "radial_cv",
+    "fourier_1",
+    "fourier_2",
+    "fourier_3",
+    "fourier_4",
+    "vertex_density",
+    "hole_area_fraction",
+    "building_tag",
+    "address_city",
+    "postcode_area",
+    "has_name",
+    "building_part",
+    "height_m",
+    "building_levels",
+    "roof_levels",
     "geometry_warning",
 ]
 
@@ -186,6 +205,18 @@ def fib_dim(dim: float) -> float:
     return 0.0
 
 
+def tag_float(tags: dict, *keys: str) -> float:
+    for key in keys:
+        raw = tags.get(key, "")
+        try:
+            value = float(str(raw).replace("m", "").strip())
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value >= 0:
+            return value
+    return 0.0
+
+
 # --------------------------------------------------------------------------
 # per-building analysis
 # --------------------------------------------------------------------------
@@ -238,6 +269,7 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
     convexity = convexity_ratio(local)
     perimeter = local.length
     circularity = 4.0 * math.pi * local.area / (perimeter * perimeter) if perimeter > 0 else 0.0
+    descriptors = shape_descriptors(local)
     iou_reflect = reflect_iou(local, theta)
     iou_rot180 = rotate_iou(local, 180.0)
     iou_rot90 = rotate_iou(local, 90.0)
@@ -354,6 +386,23 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
         "multipart": quality["multipart"],
         "hole_count": quality["hole_count"],
         "perimeter_m": round(perimeter, 2),
+        "rectangularity": round(descriptors["rectangularity"], 4),
+        "angle_entropy": round(descriptors["angle_entropy"], 4),
+        "radial_cv": round(descriptors["radial_cv"], 4),
+        "fourier_1": round(descriptors["fourier_1"], 4),
+        "fourier_2": round(descriptors["fourier_2"], 4),
+        "fourier_3": round(descriptors["fourier_3"], 4),
+        "fourier_4": round(descriptors["fourier_4"], 4),
+        "vertex_density": round(descriptors["vertex_density"], 4),
+        "hole_area_fraction": round(descriptors["hole_area_fraction"], 4),
+        "building_tag": tags.get("building", ""),
+        "address_city": tags.get("addr:city", ""),
+        "postcode_area": str(tags.get("addr:postcode", "")).split(" ")[0],
+        "has_name": int(bool(tags.get("name"))),
+        "building_part": tags.get("building:part", ""),
+        "height_m": round(tag_float(tags, "height"), 2),
+        "building_levels": round(tag_float(tags, "building:levels"), 2),
+        "roof_levels": round(tag_float(tags, "roof:levels"), 2),
         "geometry_warning": quality["geometry_warning"],
     }
     return row, poly, tags
