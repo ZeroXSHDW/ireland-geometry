@@ -156,12 +156,14 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         "spatial_covariates_summary.csv",
         "mapping_history.csv",
         "mapping_history_summary.csv",
+        "data_quality.csv",
         "matched_controls_strict.csv",
         "matched_strict_summary.csv",
         "matched_strict_significance.csv",
         "matched_strict_balance.csv",
         "road_routing.csv",
         "road_routing_pairs.csv",
+        "spatial_bootstrap.csv",
         "holdout_assignments.csv",
         "holdout_results.csv",
         "review_queue.csv",
@@ -187,6 +189,7 @@ def output_counts(out_dir: str | Path) -> dict[str, int]:
         "analysis_results.parquet",
         "analysis.duckdb",
         "columnar_status.json",
+        "data_quality_summary.json",
         "combined.json",
     ):
         path = out / name

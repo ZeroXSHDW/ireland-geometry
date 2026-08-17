@@ -190,6 +190,13 @@ def build_report_data(out: Path) -> dict:
     mapping_history_by_id = {row["osm_id"]: row for row in read_csv(out / "mapping_history.csv")}
     covariates_by_id = {row["osm_id"]: row for row in read_csv(out / "spatial_covariates.csv")}
     review_by_id = {row["osm_id"]: row for row in read_csv(out / "review_queue.csv")}
+    quality_summary = {}
+    quality_path = out / "data_quality_summary.json"
+    if quality_path.exists():
+        try:
+            quality_summary = json.loads(quality_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            quality_summary = {}
     targets = [
         normalize_row(
             row,
@@ -254,6 +261,9 @@ def build_report_data(out: Path) -> dict:
         "mapping_history_available": sum(row["mapping_history"]["status"] == "provided" for row in targets),
         "spatial_covariates": sum(bool(row["spatial"]["mapping_density_bin"]) for row in targets),
         "reviewed": sum(row["review"]["label"] != "not_reviewed" for row in targets),
+        "quality_status": quality_summary.get("quality_status", ""),
+        "valid_geometry_pct": number(quality_summary.get("valid_geometry_pct"), 0),
+        "duplicate_centroid_n": integer(quality_summary.get("duplicate_centroid_n")),
         "generated_at": manifest.get("generated_at", ""),
     }
     data = {
@@ -276,6 +286,9 @@ def build_report_data(out: Path) -> dict:
         "road_routing": read_csv(out / "road_routing.csv"),
         "holdout": read_csv(out / "holdout_results.csv"),
         "review_calibration": read_csv(out / "review_calibration.csv"),
+        "spatial_bootstrap": read_csv(out / "spatial_bootstrap.csv"),
+        "data_quality": read_csv(out / "data_quality.csv"),
+        "data_quality_summary": quality_summary,
         "mapping_history_summary": read_csv(out / "mapping_history_summary.csv"),
         "spatial_covariates_summary": read_csv(out / "spatial_covariates_summary.csv"),
         "architects": read_csv(out / "architects.csv"),
@@ -433,6 +446,7 @@ const MATCHED = PACK.matched_significance || [];
 const HIER = PACK.hierarchical_model || [];
 const MORAN = PACK.moran || [];
 const COUNTY_PERM = PACK.county_permutation || [];
+const BOOT = PACK.spatial_bootstrap || [];
 const GEOJSON = PACK.geojson || {type:'FeatureCollection',features:[]};
 const PAGE_SIZE = 50;
 let filtered = DATA.slice();
@@ -501,10 +515,11 @@ function renderBars() {
   $('eraBars').innerHTML=eras.length?eras.map(row=>`<div class="bar-row"><span>${esc(row.stratum)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Number(row.observed_rate)||0)}%"></div></div><span>${fmt(row.observed_rate,2)}% · H ${pFmt(row.p_adjusted)}</span></div>`).join(''):'<span class="footnote">No NIAH era results available.</span>';
 }
 function renderStats() {
-  const rows=[...SIG.map(row=>({...row,family:'global'})),...NIAH_SIG.slice(0,30).map(row=>({...row,family:'NIAH'})),...MATCHED.map(row=>({...row,family:'matched'})),...HIER.map(row=>({...row,family:'hierarchical'})),...MORAN.map(row=>({...row,family:'Moran'})),...COUNTY_PERM.map(row=>({...row,family:'county'}))];
+  const rows=[...SIG.map(row=>({...row,family:'global'})),...NIAH_SIG.slice(0,30).map(row=>({...row,family:'NIAH'})),...MATCHED.map(row=>({...row,family:'matched'})),...HIER.map(row=>({...row,family:'hierarchical'})),...MORAN.map(row=>({...row,family:'Moran'})),...COUNTY_PERM.map(row=>({...row,family:'county'})),...BOOT.map(row=>({...row,family:'block-bootstrap'}))];
   const observed=row=>row.observed_rate??row.target_rate??row.golden_angle_rate??row.observed_difference_pp;
-  const reference=row=>row.control_rate??row.reference_rate??row.matched_control_rate??'—';
-  $('statsTable').innerHTML=rows.length?`<table><thead><tr><th>Test</th><th>Observed</th><th>Reference</th><th>p / Holm</th><th>Result</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.family)} · ${esc(row.signal||row.group||row.stratum||'')}</td><td>${esc(observed(row)??'—')}${row.family==='Moran'?' I':''}</td><td>${esc(reference(row))}${reference(row)!=='—'?'%':''}</td><td>${pFmt(row.p_value)} / ${pFmt(row.p_adjusted)}</td><td class="verdict-${esc(row.verdict)}">${esc(row.verdict||'diagnostic')}</td></tr>`).join('')}</tbody></table>`:'<span class="footnote">No statistical results available.</span>';
+  const reference=row=>row.control_rate??row.reference_rate??row.matched_control_rate??row.ci_low_pp??'—';
+  const result=row=>row.family==='block-bootstrap'?`95% CI ${fmt(row.ci_low_pp,2)} to ${fmt(row.ci_high_pp,2)} pp · P+ ${fmt(row.prob_positive,2)}`:(row.verdict||'diagnostic');
+  $('statsTable').innerHTML=rows.length?`<table><thead><tr><th>Test</th><th>Observed</th><th>Reference</th><th>p / Holm</th><th>Result</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.family)} · ${esc(row.signal||row.group||row.stratum||'')}</td><td>${esc(observed(row)??'—')}${row.family==='Moran'?' I':''}</td><td>${esc(reference(row))}${reference(row)!=='—'?'%':''}</td><td>${pFmt(row.p_value)} / ${pFmt(row.p_adjusted)}</td><td class="verdict-${esc(row.verdict)}">${esc(result(row))}</td></tr>`).join('')}</tbody></table>`:'<span class="footnote">No statistical results available.</span>';
 }
 function download(name, content, type) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),500); }
 function downloadCsv() { const cols=['osm_id','name','group','lat','lon','score','area_m2','aspect_ratio','convexity','circularity','flags','niah_name','niah_rating','niah_century']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(',')]; filtered.forEach(row=>lines.push(cols.map(key=>{ if(key==='flags')return escCsv(flagsText(row)); if(key.startsWith('niah_'))return escCsv(row.niah[key.slice(5)]); return escCsv(row[key]); }).join(','))); download('ireland-geometry-filtered.csv',lines.join('\n'),'text/csv'); }

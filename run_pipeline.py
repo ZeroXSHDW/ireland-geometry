@@ -3,7 +3,7 @@
 
 The default order is fetch -> fetch-niah -> analyze -> niah -> architects -> sensitivity ->
 spatial-covariates -> osm-history -> validation -> building-parts -> historical -> review ->
-point-pattern -> spatial-stats -> roads -> road-proximity -> road-routing -> holdout ->
+quality-audit -> point-pattern -> spatial-stats -> spatial-bootstrap -> roads -> road-proximity -> road-routing -> holdout ->
 columnar -> report -> repro-check -> verify. Use ``--stage`` to run one stage or a comma-separated
 subset. All paths are resolved relative to this project unless absolute.
 """
@@ -30,8 +30,10 @@ STAGES = (
     "building-parts",
     "historical",
     "review",
+    "quality-audit",
     "point-pattern",
     "spatial-stats",
+    "spatial-bootstrap",
     "roads",
     "road-proximity",
     "road-routing",
@@ -54,8 +56,10 @@ SCRIPTS = {
     "building-parts": "building_parts.py",
     "historical": "historical_validation.py",
     "review": "review.py",
+    "quality-audit": "data_quality.py",
     "point-pattern": "point_pattern.py",
     "spatial-stats": "spatial_stats.py",
+    "spatial-bootstrap": "spatial_bootstrap.py",
     "roads": "roads.py",
     "road-proximity": "road_proximity.py",
     "road-routing": "road_routing.py",
@@ -115,6 +119,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--review-labels", default=None, help="optional expert review labels CSV")
     parser.add_argument("--analysis-plan", default=None, help="preregistered analysis plan JSON")
     parser.add_argument("--holdout-fraction", type=float, default=None)
+    parser.add_argument("--bootstrap-iterations", type=int, default=200, help="spatial block-bootstrap iterations")
     return parser.parse_args(argv)
 
 
@@ -182,8 +187,15 @@ def run_stage(
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
         if args.review_labels:
             command += ["--labels", str(project_path(args.review_labels, str(data_root / "review" / "labels.csv")))]
-    elif name == "point-pattern" or name == "spatial-stats":
+    elif name == "quality-audit":
+        command += ["--out-dir", str(out_dir)]
+    elif name in {"point-pattern", "spatial-stats"}:
         command += ["--out-dir", str(out_dir), "--seed", str(args.seed), "--mc", str(args.mc)]
+    elif name == "spatial-bootstrap":
+        command += [
+            "--out-dir", str(out_dir), "--seed", str(args.seed),
+            "--iterations", str(args.bootstrap_iterations),
+        ]
     elif name == "roads":
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir), "--pbf", str(pbf)]
     elif name == "road-proximity":
@@ -247,6 +259,7 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
             "review_labels": args.review_labels,
             "analysis_plan": args.analysis_plan,
             "holdout_fraction": args.holdout_fraction,
+            "bootstrap_iterations": args.bootstrap_iterations,
             "seed": args.seed,
             "mc": args.mc,
         },

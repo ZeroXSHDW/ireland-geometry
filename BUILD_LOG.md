@@ -175,3 +175,20 @@ Integration outputs from the cached no-network run: 50,468 strict pairs,
 explicit `not_provided` LiDAR/history/routing records. Final checks: 25 tests,
 Ruff, compileall, report JavaScript syntax, repro check, and the independent
 artifact verifier all passed.
+
+## Quality and uncertainty tranche — 2026-08-17
+
+- Added `data_quality.py`, which audits grouped missingness, numeric ranges,
+  duplicate IDs/centroids, geometry repair/multipart rates, and optional-source
+  coverage without silently altering rows.
+- Added `spatial_bootstrap.py`, a deterministic 0.1-degree block bootstrap for
+  golden-angle, golden-ratio, and Fibonacci-ratio target/control differences.
+  It reports spatial intervals and direction probabilities rather than
+  pretending individual buildings are independent.
+- Extended the report data pack and statistical table with bootstrap results,
+  and extended the verifier to check the quality summary, bootstrap bounds, and
+  lazy/review page JavaScript syntax.
+
+The current cached snapshot reports zero duplicate OSM IDs, 23 duplicate
+centroid locations flagged for inspection, 100% valid geometry, and 12
+available block-bootstrap rows. The expanded suite now has 27 tests.

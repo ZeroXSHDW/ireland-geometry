@@ -27,6 +27,8 @@ and 300 Monte Carlo iterations:
 - 123,810 mapping-history and spatial-covariate rows, 50,468 globally unique
   no-replacement validation pairs, 37,422 deterministic holdout rows, and a
   1,000-record expert-review queue;
+- a 123,810-row data-quality audit and 12 spatial block-bootstrap uncertainty
+  rows;
 - LiDAR is explicitly `not_provided` for this snapshot; the ingestion contract
   is ready for normalized heights, GeoTIFF DSMs, or geographic LAS/LAZ;
 - a standalone report at `output/report.html`, a hosted lazy-data version at
@@ -91,8 +93,10 @@ and `--review-labels` activate the corresponding external-source adapters.
 | `building-parts` | Aggregate OSM `building:part` geometry and produce a coverage-aware optional LiDAR table. |
 | `historical` | Build NIAH/architect/heritage evidence records and review-ready candidate dossiers. |
 | `review` | Build an annotatable expert queue and calibration/confusion artifacts. |
+| `quality-audit` | Audit missingness, numeric validity, duplicates, geometry quality, and source coverage. |
 | `point-pattern` | Test inter-building bearings, turns, and nearest-neighbour spacing against nulls. |
 | `spatial-stats` | Produce Ripley K/L, Moran's I, and county-preserving permutation diagnostics. |
+| `spatial-bootstrap` | Estimate spatial block-bootstrap intervals and direction probabilities for primary signals. |
 | `roads` | Compare road and river segment bearings with church-edge bearings. |
 | `road-proximity` | Compare sampled target/control centroid proximity to mapped drivable roads. |
 | `road-routing` | Compute Dijkstra shortest-path distances on a supplied graph or opt-in PBF conversion. |
@@ -121,6 +125,8 @@ for visual reference; it does not silently bulk-scrape Yandex imagery.
 | `hierarchical_model.csv` | Random-effects stratified log-odds estimates with between-stratum variance (`tau2`) and confidence intervals. |
 | `spatial_covariates.csv` | County/admin fallback, settlement, mapping cell/count, and density-bin covariates. |
 | `mapping_history.csv` | Per-footprint OSM version/edit-age summary, with explicit missing-source status. |
+| `data_quality.csv` / `data_quality_summary.json` | Grouped missingness, range checks, duplicate geometry diagnostics, and source coverage. |
+| `spatial_bootstrap.csv` | Spatial block-bootstrap intervals and probabilities of a positive/negative target-control difference. |
 | `matched_controls_strict.csv` | Globally unique-control pairs with no replacement and observed strata fields. |
 | `matched_strict_significance.csv` | No-replacement matched effects and Holm-adjusted validation tests. |
 | `niah_join.csv` | OSM→NIAH matches, region, date, rating, type, match mode, and distance. |
@@ -211,6 +217,9 @@ classifier and should not be interpreted as architectural authorship.
   age, architectural authorship, or evidence of intent.
 - The holdout split is deterministic and plan-hashed; it does not convert a
   search-stage footprint score into a confirmatory causal estimate.
+- Spatial block-bootstrap intervals resample 0.1-degree cells rather than
+  individual buildings, giving a dependence-aware uncertainty diagnostic for
+  the three primary geometry signals.
 
 P-values are retained at full floating-point precision in CSV outputs and are
 formatted for humans without printing `p=0`; very small values mean “below

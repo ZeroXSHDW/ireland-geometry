@@ -133,6 +133,25 @@ def check_report(path: Path, errors: list[str], warnings: list[str]) -> None:
         errors.append("report inline JavaScript failed syntax check: " + " ".join(detail[:3]))
 
 
+def check_html_scripts(path: Path, label: str, errors: list[str], warnings: list[str]) -> None:
+    if not require_file(path, errors):
+        return
+    node = shutil.which("node")
+    if not node:
+        warnings.append(f"Node.js unavailable; skipped {label} JavaScript syntax check")
+        return
+    text = path.read_text(encoding="utf-8", errors="replace")
+    blocks = re.findall(
+        r"<script(?:\s[^>]*)?>(.*?)</script>", text, flags=re.IGNORECASE | re.DOTALL
+    )
+    result = subprocess.run(
+        [node, "--check"], input="\n".join(blocks), capture_output=True, text=True, check=False
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        errors.append(f"{label} inline JavaScript failed syntax check: " + " ".join(detail[:3]))
+
+
 def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = None) -> dict:
     errors: list[str] = []
     warnings: list[str] = []
@@ -258,6 +277,26 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
     if require_file(out_dir / "spatial_covariates_summary.csv", errors):
         check_columns(read_csv(out_dir / "spatial_covariates_summary.csv"), {"covariate", "status"}, "spatial_covariates_summary.csv", errors)
 
+    quality_path = out_dir / "data_quality.csv"
+    if require_file(quality_path, errors):
+        check_columns(
+            read_csv(quality_path),
+            {"scope", "field", "missing_pct", "invalid_n", "quality_status"},
+            "data_quality.csv",
+            errors,
+        )
+    quality_summary_path = out_dir / "data_quality_summary.json"
+    if require_file(quality_summary_path, errors):
+        try:
+            quality_summary = json.loads(quality_summary_path.read_text(encoding="utf-8"))
+            for field in ("analysis_rows", "valid_geometry_pct", "duplicate_osm_id_n", "quality_status"):
+                if field not in quality_summary:
+                    errors.append(f"data_quality_summary.json missing key: {field}")
+            if not 0.0 <= float(quality_summary.get("valid_geometry_pct", -1)) <= 100.0:
+                errors.append("data_quality_summary.json has invalid valid_geometry_pct")
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors.append(f"data_quality_summary.json is not valid JSON: {exc}")
+
     history_path = out_dir / "mapping_history.csv"
     if require_file(history_path, errors):
         history_rows = read_csv(history_path)
@@ -326,6 +365,26 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         check_columns(read_csv(out_dir / "road_routing.csv"), {"status", "method"}, "road_routing.csv", errors)
     if require_file(out_dir / "road_routing_pairs.csv", errors):
         check_columns(read_csv(out_dir / "road_routing_pairs.csv"), {"status", "reachable"}, "road_routing_pairs.csv", errors)
+    bootstrap_path = out_dir / "spatial_bootstrap.csv"
+    if require_file(bootstrap_path, errors):
+        bootstrap = read_csv(bootstrap_path)
+        check_columns(
+            bootstrap,
+            {"signal", "target_group", "ci_low_pp", "ci_high_pp", "prob_positive", "prob_negative", "status"},
+            "spatial_bootstrap.csv",
+            errors,
+        )
+        for index, row in enumerate(bootstrap, 2):
+            for field in ("prob_positive", "prob_negative"):
+                if row.get(field, "") == "":
+                    continue
+                try:
+                    value = float(row[field])
+                except ValueError:
+                    errors.append(f"spatial_bootstrap.csv row {index} has non-numeric {field}")
+                    continue
+                if not 0.0 <= value <= 1.0:
+                    errors.append(f"spatial_bootstrap.csv row {index} has invalid {field}: {value}")
     if require_file(out_dir / "holdout_assignments.csv", errors):
         check_columns(read_csv(out_dir / "holdout_assignments.csv"), {"osm_id", "split", "seed"}, "holdout_assignments.csv", errors)
     if require_file(out_dir / "holdout_results.csv", errors):
@@ -341,6 +400,7 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         if require_file(out_dir / name, errors):
             check_columns(read_csv(out_dir / name), {"status"} if name != "review_queue.csv" else {"osm_id", "label"}, name, errors)
     require_file(out_dir / "review.html", errors)
+    check_html_scripts(out_dir / "review.html", "review", errors, warnings)
     if require_file(out_dir / "columnar_status.json", errors):
         try:
             columnar = json.loads((out_dir / "columnar_status.json").read_text(encoding="utf-8"))
@@ -351,6 +411,7 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
     require_file(out_dir / "analysis_results.jsonl", errors)
     require_file(out_dir / "report_data.json", errors)
     require_file(out_dir / "report_lazy.html", errors)
+    check_html_scripts(out_dir / "report_lazy.html", "lazy report", errors, warnings)
     if require_file(out_dir / "ripley.csv", errors):
         check_columns(read_csv(out_dir / "ripley.csv"), {"group", "radius_m", "l_minus_r_m"}, "ripley.csv", errors)
     check_report(out_dir / "report.html", errors, warnings)

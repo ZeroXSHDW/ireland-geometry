@@ -1,7 +1,8 @@
 # Final status
 
 Status: complete for the current cached snapshot; the validation, 3-D/evidence,
-holdout, routing, scalability, review, and reproducibility tranche is included.
+holdout, routing, scalability, review, data-quality, spatial-bootstrap, and
+reproducibility tranches are included.
 
 ## Reproducible build
 
@@ -37,6 +38,9 @@ The build completed without network access. The exact input caches were:
   holdout assignments, 8 holdout results, and a 1,000-row review queue;
 - explicit `not_provided` routed-road outputs; JSONL scale export, lazy report
   data pack, optional Parquet/DuckDB adapters, and CI/reproducibility checks;
+- a 123,810-row data-quality audit with zero duplicate OSM IDs, 23 duplicate
+  centroid locations flagged for review, 100% valid geometry, and 12 spatial
+  block-bootstrap uncertainty rows;
 - `output/report.html` interactive dashboard;
 - `output/manifest.json` schema-version-3 provenance record with input/output
   hashes, byte sizes, and row counts.
@@ -45,7 +49,7 @@ The build completed without network access. The exact input caches were:
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 25 passed
+.venv/bin/python -m pytest                 # 27 passed
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help
@@ -57,7 +61,8 @@ hashes, GeoJSON parsing and ID alignment, source-region completeness, matched
 ID alignment, positive p-values/adjusted p-values, shape/context schema,
 historical and LiDAR coverage contracts, absence of unresolved report template
 tokens, and inline report JavaScript syntax. The new history, routing, holdout,
-review, columnar, and strict-match contracts also passed.
+review, columnar, quality-audit, spatial-bootstrap, and strict-match contracts
+also passed.
 
 ## Interpretation
 
@@ -77,6 +82,10 @@ County-preserving golden-angle permutations are suggestive for worship, but
 Moran's I is not significant for worship after correction. Road proximity is
 reported as a sampled nearest-road diagnostic; actual routing remains
 `not_provided` until a routable graph is supplied.
+
+The spatial block bootstrap remains directionally consistent with the main
+golden-angle elevation, while making the spatial unit of resampling explicit;
+it is an uncertainty diagnostic, not a causal estimate.
 
 ## Remaining limitations
 

@@ -1,7 +1,11 @@
+import csv
+
+from scripts.data_quality import build_audit
 from scripts.holdout import holdout
 from scripts.osm_history import build_history
 from scripts.review import calibration
 from scripts.road_routing import graph_from_rows, shortest_path
+from scripts.spatial_bootstrap import bootstrap_rows
 from scripts.validation import build_strict_matches
 
 
@@ -84,3 +88,36 @@ def test_review_calibration_keeps_ambiguous_labels_out_of_binary_metrics():
     assert result[0]["labelled_n"] == 2
     assert result[0]["ambiguous_n"] == 1
     assert result[0]["status"] == "provided"
+
+
+def test_quality_audit_reports_geometry_and_source_missingness(tmp_path):
+    rows = [analysis_row("way/1", 53, -8), analysis_row("way/2", 53, -8, True)]
+    rows[0]["valid"] = "1"
+    rows[0]["repaired"] = "0"
+    rows[0]["multipart"] = "0"
+    rows[1]["valid"] = "1"
+    rows[1]["repaired"] = "0"
+    rows[1]["multipart"] = "0"
+    fields = sorted({key for row in rows for key in row})
+    with (tmp_path / "analysis_results.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+    audit, summary = build_audit(tmp_path)
+    assert audit
+    assert summary["analysis_rows"] == 2
+    assert summary["duplicate_osm_id_n"] == 0
+    assert summary["valid_geometry_pct"] == 100.0
+
+
+def test_spatial_bootstrap_is_deterministic_and_bounded():
+    rows = [
+        analysis_row("way/t1", 53.0, -8.0),
+        analysis_row("way/t2", 53.1, -8.1),
+        analysis_row("way/c1", 53.0, -8.0, True),
+        analysis_row("way/c2", 53.1, -8.1, True),
+    ]
+    result = bootstrap_rows(rows, seed=7, iterations=20, grid_deg=0.1)
+    assert len(result) == 3
+    assert result == bootstrap_rows(rows, seed=7, iterations=20, grid_deg=0.1)
+    assert all(0 <= float(row["prob_positive"]) <= 1 for row in result)
