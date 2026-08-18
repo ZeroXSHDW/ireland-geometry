@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "description": "Required columns and lightweight type contracts for key Ireland geometry artifacts.",
+  "artifacts": {
+    "analysis_results.csv": {
+      "required_columns": ["osm_id", "group", "is_control", "lat", "lon", "area_m2", "convexity", "valid"],
+      "numeric_columns": ["lat", "lon", "area_m2", "convexity"],
+      "unique_id": "osm_id"
+    },
+    "significance.csv": {
+      "required_columns": ["method", "p_adjusted", "verdict"],
+      "required_any_columns": [["p_value", "p"]],
+      "numeric_columns": ["p_value", "p", "p_adjusted"]
+    },
+    "negative_controls.csv": {
+      "required_columns": ["signal", "group", "p_value", "p_adjusted", "method", "verdict"],
+      "numeric_columns": ["p_value", "p_adjusted", "observed_rate", "control_rate", "risk_difference"]
+    },
+    "matched_controls.csv": {
+      "required_columns": ["target_osm_id", "control_osm_id", "distance_m", "area_ratio", "rank"],
+      "numeric_columns": ["distance_m", "area_ratio", "rank"]
+    },
+    "matched_controls_strict.csv": {
+      "required_columns": ["target_osm_id", "control_osm_id", "replacement_allowed", "stratum"],
+      "unique_id": "control_osm_id"
+    },
+    "spatial_covariates.csv": {
+      "required_columns": ["osm_id", "settlement_class", "mapping_density_bin", "boundary_status"],
+      "unique_id": "osm_id"
+    },
+    "mapping_history.csv": {
+      "required_columns": ["osm_id", "status", "version_count", "mapping_quality_proxy"],
+      "unique_id": "osm_id",
+      "numeric_columns": ["version_count", "mapping_quality_proxy"]
+    },
+    "data_quality.csv": {
+      "required_columns": ["scope", "group", "field", "row_n", "missing_pct", "invalid_n", "quality_status"],
+      "numeric_columns": ["row_n", "missing_pct", "invalid_n"]
+    },
+    "data_quality_duplicates.csv": {
+      "required_columns": ["lat", "lon", "row_n", "duplicate_n", "osm_ids", "groups", "target_n", "control_n", "review_status"],
+      "numeric_columns": ["lat", "lon", "row_n", "duplicate_n", "target_n", "control_n"],
+      "allow_empty": true
+    },
+    "spatial_bootstrap.csv": {
+      "required_columns": ["signal", "target_group", "ci_low_pp", "ci_high_pp", "prob_positive", "prob_negative", "status"],
+      "numeric_columns": ["ci_low_pp", "ci_high_pp", "prob_positive", "prob_negative"]
+    },
+    "holdout_assignments.csv": {
+      "required_columns": ["osm_id", "split", "seed"],
+      "unique_id": "osm_id",
+      "numeric_columns": ["seed"]
+    },
+    "holdout_results.csv": {
+      "required_columns": ["pre_registered", "plan_sha256", "status"]
+    }
+  }
+}

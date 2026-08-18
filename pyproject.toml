@@ -11,8 +11,18 @@ dependencies = [
   "numpy>=1.24",
   "shapely>=2.0",
   "requests>=2.31",
-  "pyosmium>=3.6",
+  "osmium>=3.6",
 ]
+
+[project.scripts]
+ireland-geometry = "run_pipeline:main"
+ireland-geometry-doctor = "scripts.doctor:main"
+ireland-geometry-serve = "scripts.serve_report:main"
+ireland-geometry-route = "scripts.route_query:main"
+ireland-geometry-query = "scripts.query_data:main"
+ireland-geometry-bundle = "scripts.bundle:main"
+ireland-geometry-schema-audit = "scripts.schema_audit:main"
+ireland-geometry-repro = "scripts.repro_check:main"
 
 [project.optional-dependencies]
 dev = [
@@ -37,4 +47,8 @@ line-length = 100
 target-version = "py310"
 
 [tool.setuptools]
-packages = ["scripts"]
+packages = ["scripts", "schemas"]
+py-modules = ["run_pipeline"]
+
+[tool.setuptools.package-data]
+schemas = ["*.json"]

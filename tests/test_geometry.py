@@ -11,6 +11,7 @@ from scripts.geometry import (
     interior_angles,
     iter_polygons,
     repair_geometry,
+    safe_minimum_rotated_rectangle,
     shape_descriptors,
     to_local_meters,
 )
@@ -148,3 +149,22 @@ def test_shape_descriptors_are_finite_and_scale_normalized():
     assert 0 < descriptors["rectangularity"] <= 1
     assert 0 <= descriptors["angle_entropy"] <= 1
     assert all(math.isfinite(descriptors[f"fourier_{i}"]) for i in range(1, 5))
+
+
+def test_safe_rotated_rectangle_and_descriptors_handle_narrow_footprints():
+    element = {
+        "geometry": {
+            "exterior": [
+                point(53.0, -8.0),
+                point(53.0001, -7.9999),
+                point(53.0002, -8.0),
+                point(53.0001, -8.0001),
+            ]
+        }
+    }
+    geom = geometry_from_element(element)
+    local = to_local_meters(geom, geom.centroid.y, geom.centroid.x)
+    rectangle = safe_minimum_rotated_rectangle(local)
+    assert rectangle is not None
+    assert rectangle.area > 0
+    assert all(math.isfinite(value) for value in shape_descriptors(local).values())

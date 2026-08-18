@@ -11,9 +11,21 @@ import math
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, atomic_write_json, project_path, sha256_file
+    from runtime import (
+        atomic_write_csv,
+        atomic_write_json,
+        default_analysis_plan_path,
+        project_path,
+        sha256_file,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_csv, atomic_write_json, project_path, sha256_file
+    from scripts.runtime import (
+        atomic_write_csv,
+        atomic_write_json,
+        default_analysis_plan_path,
+        project_path,
+        sha256_file,
+    )
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -63,7 +75,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--fraction", type=float, default=None)
     args = parser.parse_args(argv)
     out = project_path(args.out_dir, "output")
-    plan_path = project_path(args.plan, "analysis_plan.json") if args.plan else project_path(None, "analysis_plan.json")
+    plan_path = (
+        project_path(args.plan, "analysis_plan.json")
+        if args.plan
+        else default_analysis_plan_path()
+    )
     if not plan_path.exists():
         raise SystemExit(f"Missing preregistered plan: {plan_path}")
     plan = json.loads(plan_path.read_text(encoding="utf-8"))

@@ -7,8 +7,17 @@ data/niah/
 data/raw/
 data/satellite/
 output/
+*.bundle.zip
+data/roads/road_nodes.csv
+data/roads/road_edges.csv
+data/roads/road_graph.sqlite
+data/roads/road_graph_metadata.json
 *.osm.pbf
 *.part
 *.pyc
 .DS_Store
 *.egg-info/
+build/
+dist/
+sdist/
+wheelhouse/

@@ -1,26 +1,51 @@
 #!/usr/bin/env python3
 """Run the Ireland geometry pipeline from any working directory.
 
-The default order is fetch -> fetch-niah -> analyze -> niah -> architects -> sensitivity ->
+The default order is fetch -> fetch-niah -> analyze -> negative-controls -> niah -> architects -> sensitivity ->
 spatial-covariates -> osm-history -> validation -> building-parts -> historical -> review ->
-quality-audit -> point-pattern -> spatial-stats -> spatial-bootstrap -> roads -> road-proximity -> road-routing -> holdout ->
-columnar -> report -> repro-check -> verify. Use ``--stage`` to run one stage or a comma-separated
-subset. All paths are resolved relative to this project unless absolute.
+point-pattern -> spatial-stats -> spatial-bootstrap -> roads -> road-proximity -> road-routing -> quality-audit -> holdout ->
+columnar -> schema-audit -> report -> repro-check -> verify. When both
+``report`` and ``verify`` are selected, the report is refreshed once more
+after the final validation pass so its data pack and compact interpretation
+sidecar reflect the completed build. Use ``--stage`` to run one stage or a
+comma-separated subset. All paths are resolved relative to this project unless
+absolute.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _default_project_root() -> Path:
+    configured = os.environ.get("IRELAND_GEOMETRY_PROJECT_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    if (ROOT / "pyproject.toml").is_file():
+        return ROOT
+    return Path.cwd().resolve()
+
+
+PROJECT_ROOT = _default_project_root()
+
+try:
+    from scripts.runtime import default_analysis_plan_path, package_version
+except ImportError:
+    from runtime import default_analysis_plan_path, package_version
+
 STAGES = (
     "fetch",
     "fetch-niah",
     "analyze",
+    "negative-controls",
     "niah",
     "architects",
     "sensitivity",
@@ -30,15 +55,16 @@ STAGES = (
     "building-parts",
     "historical",
     "review",
-    "quality-audit",
     "point-pattern",
     "spatial-stats",
     "spatial-bootstrap",
     "roads",
     "road-proximity",
     "road-routing",
+    "quality-audit",
     "holdout",
     "columnar",
+    "schema-audit",
     "report",
     "repro-check",
     "verify",
@@ -47,6 +73,7 @@ SCRIPTS = {
     "fetch": "fetch_geofabrik.py",
     "fetch-niah": "fetch_niah.py",
     "analyze": "analyze.py",
+    "negative-controls": "negative_controls.py",
     "niah": "niah.py",
     "architects": "architects.py",
     "sensitivity": "sensitivity.py",
@@ -65,23 +92,38 @@ SCRIPTS = {
     "road-routing": "road_routing.py",
     "holdout": "holdout.py",
     "columnar": "columnar.py",
+    "schema-audit": "schema_audit.py",
     "report": "report.py",
     "repro-check": "repro_check.py",
     "verify": "verify.py",
 }
+DIAGNOSTIC_ONLY_STAGES = frozenset({"report", "repro-check", "schema-audit", "verify"})
 
 
 def project_path(value: str | None, default: str) -> Path:
     candidate = Path(value) if value else Path(default)
-    return candidate if candidate.is_absolute() else ROOT / candidate
+    return candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {package_version()}",
+    )
     parser.add_argument(
         "--refresh", action="store_true", help="re-extract/download the primary cached input"
     )
     parser.add_argument("--stage", default="all", help="all, one stage, or comma-separated stages")
+    parser.add_argument(
+        "--project-root",
+        default=None,
+        help="project directory for relative data/output paths (default: checkout root or current directory)",
+    )
     parser.add_argument("--data-root", default=None, help="data directory (default: project data/)")
     parser.add_argument(
         "--out-dir", default=None, help="output directory (default: project output/)"
@@ -104,7 +146,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="accepted for automation compatibility; satellite is optional",
     )
     parser.add_argument(
-        "--lidar", default=None, help="optional normalized LiDAR CSV/GeoJSON for building-part stage"
+        "--lidar", default=None, help="optional normalized LiDAR CSV/JSON/GeoJSON for building-part stage"
     )
     parser.add_argument(
         "--historical-references",
@@ -116,15 +158,82 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--settlements", default=None, help="optional settlement GeoJSON")
     parser.add_argument("--road-graph", default=None, help="optional road graph directory or JSON")
     parser.add_argument("--road-from-pbf", action="store_true", help="opt in to building a routing graph from the PBF")
+    parser.add_argument(
+        "--routing-include-restricted",
+        action="store_true",
+        help="retain OSM private/restricted/no-access ways during PBF routing extraction",
+    )
+    parser.add_argument(
+        "--routing-include-ferries",
+        action="store_true",
+        help="include persisted ferry geometry in routing; ferry schedules are not modeled",
+    )
+    parser.add_argument(
+        "--routing-max-ways",
+        type=int,
+        default=100_000,
+        help="maximum highway ways to scan for --road-from-pbf",
+    )
+    parser.add_argument(
+        "--routing-max-pairs",
+        type=int,
+        default=5_000,
+        help="maximum target/control pairs to route",
+    )
+    parser.add_argument(
+        "--routing-departure",
+        default=None,
+        help="optional ISO-8601 local departure time for conditional turn restrictions",
+    )
+    parser.add_argument(
+        "--routing-speed-kmh",
+        type=float,
+        default=50.0,
+        help="assumed routing speed for conditional turn windows",
+    )
     parser.add_argument("--review-labels", default=None, help="optional expert review labels CSV")
     parser.add_argument("--analysis-plan", default=None, help="preregistered analysis plan JSON")
     parser.add_argument("--holdout-fraction", type=float, default=None)
     parser.add_argument("--bootstrap-iterations", type=int, default=200, help="spatial block-bootstrap iterations")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="reuse a stage only when its code, inputs, parameters, and output hashes still match",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show the stage plan and cache decisions without running stages or writing files",
+    )
+    parser.add_argument(
+        "--dry-run-json",
+        action="store_true",
+        help="emit the dry-run plan as machine-readable JSON (implies --dry-run)",
+    )
+    args = parser.parse_args(argv)
+    if args.dry_run_json:
+        args.dry_run = True
+    if args.mc < 1:
+        parser.error("--mc must be positive")
+    if args.bootstrap_iterations < 1:
+        parser.error("--bootstrap-iterations must be positive")
+    if args.holdout_fraction is not None and (
+        not math.isfinite(args.holdout_fraction) or not 0.0 < args.holdout_fraction < 1.0
+    ):
+        parser.error("--holdout-fraction must be finite and strictly between 0 and 1")
+    if args.routing_max_ways < 1:
+        parser.error("--routing-max-ways must be positive")
+    if args.routing_max_pairs < 0:
+        parser.error("--routing-max-pairs must be non-negative")
+    if not math.isfinite(args.routing_speed_kmh) or args.routing_speed_kmh <= 0:
+        parser.error("--routing-speed-kmh must be a finite positive number")
+    return args
 
 
 def selected_stages(value: str) -> list[str]:
     names = list(STAGES) if value == "all" else [x.strip() for x in value.split(",") if x.strip()]
+    if not names:
+        raise SystemExit("At least one pipeline stage must be selected")
     unknown = [name for name in names if name not in STAGES]
     if unknown:
         raise SystemExit(f"Unknown stage(s): {', '.join(unknown)}; choose from {', '.join(STAGES)}")
@@ -133,14 +242,13 @@ def selected_stages(value: str) -> list[str]:
     return names
 
 
-def run_stage(
+def build_stage_command(
     name: str,
     args: argparse.Namespace,
     data_root: Path,
     out_dir: Path,
     pbf: Path,
-    env: dict[str, str],
-) -> None:
+) -> list[str]:
     command = [sys.executable, str(ROOT / "scripts" / SCRIPTS[name])]
     if name == "fetch":
         command += ["--pbf", str(pbf), "--out", str(data_root / "combined.json")]
@@ -156,6 +264,8 @@ def run_stage(
             command.append("--no-network")
     elif name == "analyze":
         command += ["--data", str(data_root / "combined.json"), "--out", str(out_dir)]
+    elif name == "negative-controls":
+        command += ["--out-dir", str(out_dir)]
     elif name in {"niah", "architects"}:
         command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
     elif name == "sensitivity":
@@ -210,18 +320,45 @@ def run_stage(
             str(args.seed),
         ]
     elif name == "road-routing":
-        command += ["--data-root", str(data_root), "--out-dir", str(out_dir)]
+        command += [
+            "--data-root",
+            str(data_root),
+            "--out-dir",
+            str(out_dir),
+            "--max-pairs",
+            str(args.routing_max_pairs),
+            "--speed-kmh",
+            str(args.routing_speed_kmh),
+        ]
+        if args.routing_departure:
+            command += ["--departure", args.routing_departure]
         if args.road_graph:
             command += ["--road-graph", str(project_path(args.road_graph, str(data_root / "roads")))]
         if args.road_from_pbf:
-            command += ["--from-pbf", "--pbf", str(pbf)]
+            command += [
+                "--from-pbf",
+                "--pbf",
+                str(pbf),
+                "--max-ways",
+                str(args.routing_max_ways),
+            ]
+            if args.routing_include_restricted:
+                command.append("--include-restricted")
+            if args.routing_include_ferries:
+                command.append("--include-ferries")
+        elif args.routing_include_ferries:
+            command.append("--include-ferries")
     elif name == "holdout":
         command += ["--out-dir", str(out_dir), "--seed", str(args.seed)]
-        if args.analysis_plan:
-            command += ["--plan", str(project_path(args.analysis_plan, "analysis_plan.json"))]
+        plan_path = (
+            project_path(args.analysis_plan, "analysis_plan.json")
+            if args.analysis_plan
+            else default_analysis_plan_path(PROJECT_ROOT, package_root=ROOT)
+        )
+        command += ["--plan", str(plan_path)]
         if args.holdout_fraction is not None:
             command += ["--fraction", str(args.holdout_fraction)]
-    elif name in {"columnar", "report", "repro-check"}:
+    elif name in {"columnar", "report", "repro-check"} or name == "schema-audit":
         command += ["--out-dir", str(out_dir)]
     elif name == "verify":
         command += [
@@ -232,37 +369,71 @@ def run_stage(
             "--manifest",
             str(out_dir / "manifest.json"),
         ]
+    return command
+
+
+def run_stage(
+    name: str,
+    args: argparse.Namespace,
+    data_root: Path,
+    out_dir: Path,
+    pbf: Path,
+    env: dict[str, str],
+    command: list[str] | None = None,
+) -> None:
+    command = command or build_stage_command(name, args, data_root, out_dir, pbf)
     print(f"\n===== {name} =====", flush=True)
-    subprocess.run(command, cwd=ROOT, env=env, check=True)
+    subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=True)
 
 
-def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf: Path) -> None:
+def manifest_parameters(args: argparse.Namespace) -> dict[str, object]:
+    """Return the invocation parameters that define an analytical build."""
+    return {
+        "stage": args.stage,
+        "refresh": args.refresh,
+        "no_network": args.no_network,
+        "skip_satellite": args.skip_satellite,
+        "lidar": args.lidar,
+        "historical_references": args.historical_references,
+        "osm_history": args.osm_history,
+        "boundaries": args.boundaries,
+        "settlements": args.settlements,
+        "road_graph": args.road_graph,
+        "road_from_pbf": args.road_from_pbf,
+        "routing_include_restricted": args.routing_include_restricted,
+        "routing_include_ferries": args.routing_include_ferries,
+        "routing_max_ways": args.routing_max_ways,
+        "routing_max_pairs": args.routing_max_pairs,
+        "routing_departure": args.routing_departure,
+        "routing_speed_kmh": args.routing_speed_kmh,
+        "review_labels": args.review_labels,
+        "analysis_plan": args.analysis_plan,
+        "holdout_fraction": args.holdout_fraction,
+        "bootstrap_iterations": args.bootstrap_iterations,
+        "seed": args.seed,
+        "mc": args.mc,
+        "incremental": args.incremental,
+    }
+
+
+def write_manifest(
+    args: argparse.Namespace,
+    data_root: Path,
+    out_dir: Path,
+    pbf: Path,
+    *,
+    preserve_context: bool = False,
+) -> None:
     try:
         from scripts.runtime import atomic_write_json, build_manifest
     except ImportError:
         from runtime import atomic_write_json, build_manifest
+    current_parameters = manifest_parameters(args)
     manifest = build_manifest(
         data_root=data_root,
         out_dir=out_dir,
-        parameters={
-            "stage": args.stage,
-            "refresh": args.refresh,
-            "no_network": args.no_network,
-            "skip_satellite": args.skip_satellite,
-            "lidar": args.lidar,
-            "historical_references": args.historical_references,
-            "osm_history": args.osm_history,
-            "boundaries": args.boundaries,
-            "settlements": args.settlements,
-            "road_graph": args.road_graph,
-            "road_from_pbf": args.road_from_pbf,
-            "review_labels": args.review_labels,
-            "analysis_plan": args.analysis_plan,
-            "holdout_fraction": args.holdout_fraction,
-            "bootstrap_iterations": args.bootstrap_iterations,
-            "seed": args.seed,
-            "mc": args.mc,
-        },
+        parameters=current_parameters,
+        project_root=PROJECT_ROOT,
         sources=[
             {
                 "kind": "geofabrik_osm_pbf",
@@ -310,11 +481,15 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
             },
             {
                 "kind": "optional_road_graph",
-                "path": project_path(args.road_graph, str(data_root / "roads" / "road_nodes.csv")),
+                "path": project_path(args.road_graph, str(data_root / "roads")),
             },
             {
                 "kind": "analysis_plan",
-                "path": project_path(args.analysis_plan, "analysis_plan.json"),
+                "path": (
+                    project_path(args.analysis_plan, "analysis_plan.json")
+                    if args.analysis_plan
+                    else default_analysis_plan_path(PROJECT_ROOT, package_root=ROOT)
+                ),
             },
             {
                 "kind": "optional_review_labels",
@@ -322,32 +497,316 @@ def write_manifest(args: argparse.Namespace, data_root: Path, out_dir: Path, pbf
             },
         ],
     )
+    existing_path = out_dir / "manifest.json"
+    if preserve_context and existing_path.is_file():
+        try:
+            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            existing = None
+        if isinstance(existing, dict) and isinstance(existing.get("parameters"), dict):
+            manifest["parameters"] = existing["parameters"]
+            if isinstance(existing.get("sources"), list):
+                manifest["sources"] = existing["sources"]
+            manifest["provenance_context_preserved"] = True
+            manifest["last_invocation"] = current_parameters
     atomic_write_json(out_dir / "manifest.json", manifest, indent=2)
     print(f"[pipeline] wrote {out_dir / 'manifest.json'}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    global PROJECT_ROOT
+    if args.project_root:
+        candidate = Path(args.project_root).expanduser()
+        PROJECT_ROOT = (candidate if candidate.is_absolute() else Path.cwd() / candidate).resolve()
     stages = selected_stages(args.stage)
     data_root = project_path(args.data_root, "data")
     out_dir = project_path(args.out_dir, "output")
     pbf = project_path(args.pbf, "data/raw/ireland-latest.osm.pbf")
-    data_root.mkdir(parents=True, exist_ok=True)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        data_root.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
+    env["IRELAND_GEOMETRY_PROJECT_ROOT"] = str(PROJECT_ROOT)
     env["IRELAND_GEOMETRY_SEED"] = str(args.seed)
     env["IRELAND_GEOMETRY_MC"] = str(args.mc)
     if args.no_network:
         env["IRELAND_GEOMETRY_NO_NETWORK"] = "1"
     verify_requested = "verify" in stages
+    post_validation_refresh = verify_requested and "report" in stages
+    preserve_manifest_context = bool(
+        set(stages).issubset(DIAGNOSTIC_ONLY_STAGES)
+        and (out_dir / "manifest.json").is_file()
+    )
+    try:
+        from scripts.runtime import atomic_write_json, sha256_path
+        from scripts.stage_cache import (
+            CACHE_NAME,
+            CACHE_VERSION,
+            NON_CACHEABLE,
+            fingerprint_from_payload,
+            fingerprint_payload,
+            input_paths,
+            load_cache,
+            record_output_hashes,
+            reuse_diagnostics,
+            save_record,
+            stage_outputs,
+        )
+    except ImportError:
+        from runtime import atomic_write_json, sha256_path
+        from stage_cache import (
+            CACHE_NAME,
+            CACHE_VERSION,
+            NON_CACHEABLE,
+            fingerprint_from_payload,
+            fingerprint_payload,
+            input_paths,
+            load_cache,
+            record_output_hashes,
+            reuse_diagnostics,
+            save_record,
+            stage_outputs,
+        )
+    cache_path = out_dir / CACHE_NAME
+    cache = load_cache(cache_path)
+    input_signature_cache: dict[str, str | None] = {}
+    plan_rows: list[dict[str, object]] = []
     for stage in stages:
         if stage == "verify":
             continue
-        run_stage(stage, args, data_root, out_dir, pbf, env)
-    write_manifest(args, data_root, out_dir, pbf)
+        command = build_stage_command(stage, args, data_root, out_dir, pbf)
+        cache_inputs = input_paths(
+            stage,
+            data_root=data_root,
+            out_dir=out_dir,
+            pbf=pbf,
+            args=args,
+            schema_path=ROOT / "schemas" / "artifacts.json",
+            root=PROJECT_ROOT,
+        )
+        signatures = {}
+        for path in cache_inputs:
+            key = str(path)
+            if key not in input_signature_cache:
+                input_signature_cache[key] = sha256_path(path)
+            signatures[key] = input_signature_cache[key]
+        stage_fingerprint_inputs = fingerprint_payload(
+            stage,
+            command=command,
+            script_path=ROOT / "scripts" / SCRIPTS[stage],
+            controller_path=ROOT / "run_pipeline.py",
+            input_signatures=signatures,
+        )
+        stage_fingerprint = fingerprint_from_payload(stage_fingerprint_inputs)
+        outputs = stage_outputs(stage, data_root, out_dir)
+        if stage in NON_CACHEABLE:
+            cache_info = {
+                "cacheable": False,
+                "reusable": False,
+                "reason": "always_run",
+                "fingerprint": stage_fingerprint,
+            }
+        elif args.refresh:
+            cache_info = {
+                "cacheable": True,
+                "reusable": False,
+                "reason": "refresh_requested",
+                "fingerprint": stage_fingerprint,
+            }
+        elif not args.incremental:
+            cache_info = {
+                "cacheable": True,
+                "reusable": False,
+                "reason": "incremental_disabled",
+                "fingerprint": stage_fingerprint,
+            }
+        else:
+            cache_info = reuse_diagnostics(cache, stage, stage_fingerprint, outputs)
+        reusable = bool(cache_info["reusable"])
+        if args.dry_run:
+            status = "cached" if reusable else "run"
+            if stage in NON_CACHEABLE:
+                status = "always-run"
+            plan_rows.append(
+                {
+                    "name": stage,
+                    "status": status,
+                    "cacheable": stage not in NON_CACHEABLE,
+                    "fingerprint": stage_fingerprint,
+                    "cache": cache_info,
+                    "command": command,
+                    "inputs": [str(path) for path in cache_inputs],
+                    "outputs": [str(path) for path in outputs],
+                }
+            )
+            if not args.dry_run_json:
+                print(f"[dry-run] {stage}: {status} ({cache_info['reason']})", flush=True)
+                print(f"[dry-run]   command: {' '.join(command)}", flush=True)
+            continue
+        if reusable:
+            print(f"\n===== {stage} (cached) =====", flush=True)
+            continue
+        if stage == "repro-check":
+            # Reproducibility comparison consumes the manifest context. Write
+            # the current pre-check manifest before the stage, then write the
+            # final manifest again below after the reproducibility artifact is
+            # produced.
+            write_manifest(
+                args,
+                data_root,
+                out_dir,
+                pbf,
+                preserve_context=preserve_manifest_context,
+            )
+        run_stage(stage, args, data_root, out_dir, pbf, env, command=command)
+        if stage not in NON_CACHEABLE:
+            # Re-read dynamic output declarations after the stage runs.  The
+            # columnar stage may remove unavailable optional backends, so a
+            # pre-run declaration can otherwise leave stale missing paths in
+            # the cache record.
+            save_record(
+                cache,
+                stage,
+                stage_fingerprint,
+                record_output_hashes(stage_outputs(stage, data_root, out_dir)),
+                fingerprint_inputs=stage_fingerprint_inputs,
+            )
+            atomic_write_json(cache_path, cache, indent=2)
+    if args.dry_run:
+        post_validation_operations: list[dict[str, object]] = []
+        if verify_requested:
+            verify_command = build_stage_command("verify", args, data_root, out_dir, pbf)
+            plan_rows.append(
+                {
+                    "name": "verify",
+                    "status": "always-run",
+                    "cacheable": False,
+                    "cache": {
+                        "cacheable": False,
+                        "reusable": False,
+                        "reason": "always_run",
+                    },
+                    "command": verify_command,
+                    "inputs": [str(data_root), str(out_dir / "manifest.json")],
+                    "outputs": [str(out_dir / "verification.json")],
+                }
+            )
+            if not args.dry_run_json:
+                print("[dry-run] verify: always-run", flush=True)
+                print(f"[dry-run]   command: {' '.join(verify_command)}", flush=True)
+        if post_validation_refresh:
+            report_command = build_stage_command("report", args, data_root, out_dir, pbf)
+            post_validation_operations = [
+                {
+                    "name": "report",
+                    "phase": "post_validation_refresh",
+                    "status": "always-run",
+                    "cacheable": False,
+                    "cache": {
+                        "cacheable": False,
+                        "reusable": False,
+                        "reason": "post_validation_refresh",
+                    },
+                    "command": report_command,
+                    "inputs": [str(out_dir)],
+                    "outputs": [
+                        str(out_dir / "report.html"),
+                        str(out_dir / "report_lazy.html"),
+                        str(out_dir / "report_data.json"),
+                        str(out_dir / "interpretation.json"),
+                    ],
+                },
+                {
+                    "name": "verify",
+                    "phase": "post_validation_refresh",
+                    "status": "always-run",
+                    "cacheable": False,
+                    "cache": {
+                        "cacheable": False,
+                        "reusable": False,
+                        "reason": "post_validation_refresh",
+                    },
+                    "command": verify_command,
+                    "inputs": [str(data_root), str(out_dir / "manifest.json")],
+                    "outputs": [str(out_dir / "verification.json")],
+                },
+            ]
+            plan_rows.extend(post_validation_operations)
+            if not args.dry_run_json:
+                print("[dry-run] report (post-validation refresh): always-run", flush=True)
+                print(f"[dry-run]   command: {' '.join(report_command)}", flush=True)
+                print("[dry-run] verify (post-validation refresh): always-run", flush=True)
+                print(f"[dry-run]   command: {' '.join(verify_command)}", flush=True)
+        if args.dry_run_json:
+            print(
+                json.dumps(
+                    {
+                        "contract": "ireland-geometry.dry-run.v1",
+                        "package_version": package_version(),
+                        "dry_run": True,
+                        "no_files_written": True,
+                        "requested_stage": args.stage,
+                        "project_root": str(PROJECT_ROOT),
+                        "data_root": str(data_root),
+                        "out_dir": str(out_dir),
+                        "pbf": str(pbf),
+                        "no_network": args.no_network,
+                        "incremental": args.incremental,
+                        "cache_version": CACHE_VERSION,
+                        "cache_explanations": True,
+                        "post_validation_refresh": {
+                            "enabled": post_validation_refresh,
+                            "operations": post_validation_operations,
+                        },
+                        "stage_count": len(plan_rows),
+                        "stages": plan_rows,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print("[dry-run] no files written", flush=True)
+        return
+    write_manifest(
+        args,
+        data_root,
+        out_dir,
+        pbf,
+        preserve_context=preserve_manifest_context,
+    )
     if verify_requested:
         run_stage("verify", args, data_root, out_dir, pbf, env)
-        write_manifest(args, data_root, out_dir, pbf)
+        write_manifest(
+            args,
+            data_root,
+            out_dir,
+            pbf,
+            preserve_context=preserve_manifest_context,
+        )
+        if post_validation_refresh:
+            # The first report is needed before verification so the verifier
+            # can inspect it. Refresh it after the validation records exist so
+            # a first build cannot finish with a stale not_provided gate in
+            # report_data.json or interpretation.json, then verify that final
+            # report pack once more before publishing the final manifest.
+            run_stage("report", args, data_root, out_dir, pbf, env)
+            write_manifest(
+                args,
+                data_root,
+                out_dir,
+                pbf,
+                preserve_context=preserve_manifest_context,
+            )
+            run_stage("verify", args, data_root, out_dir, pbf, env)
+        write_manifest(
+            args,
+            data_root,
+            out_dir,
+            pbf,
+            preserve_context=preserve_manifest_context,
+        )
     print("\nDone. Open output/report.html (or the served URL) to explore.")
 
 

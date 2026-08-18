@@ -1,4 +1,4 @@
 numpy>=1.24
 shapely>=2.0
 requests>=2.31
-pyosmium>=3.6
+osmium>=3.6

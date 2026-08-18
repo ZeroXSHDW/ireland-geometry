@@ -24,7 +24,7 @@ from shapely.strtree import STRtree
 try:
     import osmium
 except ImportError as exc:  # pragma: no cover - dependency is part of the runtime package
-    raise SystemExit("pyosmium is required for road proximity") from exc
+    raise SystemExit("the osmium package (PyOsmium bindings) is required for road proximity") from exc
 
 try:
     from runtime import atomic_write_csv, project_path

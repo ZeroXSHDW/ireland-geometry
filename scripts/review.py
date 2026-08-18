@@ -12,17 +12,53 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
+import sys
 from collections import Counter
 from pathlib import Path
 
 try:
+    from review_ui import build_html as build_review_html
     from runtime import atomic_write_csv, atomic_write_text, project_path
 except ImportError:
+    from scripts.review_ui import build_html as build_review_html
     from scripts.runtime import atomic_write_csv, atomic_write_text, project_path
 
 
 LABELS = {"supportive", "ambiguous", "not_supportive", "not_reviewed"}
+
+# Keep the evidence contract in the review queue so the browser workspace can
+# inspect the same dossier fields that drive candidate prioritisation.
+DOSSIER_EVIDENCE_FIELDS = (
+    "geometry_quality",
+    "reg_no",
+    "niah_name",
+    "source_region",
+    "county",
+    "rating",
+    "niah_type",
+    "date_mid",
+    "century",
+    "match_mode",
+    "dist_m",
+    "architect",
+    "architect_confidence",
+    "architect_evidence",
+    "reference_count",
+    "reference_sources",
+    "reference_types",
+    "reference_urls",
+    "archive_refs",
+    "verified_reference_count",
+    "independent_reference_count",
+    "evidence_text",
+    "image_paths",
+    "plan_paths",
+    "validation_status",
+    "review_warnings",
+    "osm_niah_ref",
+    "osm_heritage",
+    "wikidata",
+)
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -30,6 +66,45 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return []
     with path.open(newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+def validate_labels(labels: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Validate and normalize labels supplied to the review pipeline.
+
+    Labels outside the current candidate queue remain valid input and are
+    reported by ``main`` as ignored. Duplicate IDs, missing identifiers,
+    missing label columns, and unknown label values are rejected rather than
+    silently allowing the last row to win.
+    """
+    errors: list[str] = []
+    seen: set[str] = set()
+    normalized: list[dict[str, str]] = []
+    for row_number, row in enumerate(labels, 2):
+        missing = [field for field in ("osm_id", "label") if field not in row]
+        if missing:
+            errors.append(f"row {row_number} is missing required column(s): {', '.join(missing)}")
+            continue
+        osm_id = str(row.get("osm_id") or "").strip()
+        label = str(row.get("label") or "").strip()
+        if not osm_id:
+            errors.append(f"row {row_number} has a blank osm_id")
+            continue
+        if osm_id in seen:
+            errors.append(f"row {row_number} duplicates osm_id {osm_id}")
+            continue
+        if label not in LABELS:
+            errors.append(
+                f"row {row_number} has invalid label {label!r}; "
+                f"choose from {', '.join(sorted(LABELS))}"
+            )
+            continue
+        seen.add(osm_id)
+        normalized.append({**row, "osm_id": osm_id, "label": label})
+    if errors:
+        preview = "; ".join(errors[:5])
+        suffix = f"; and {len(errors) - 5} more" if len(errors) > 5 else ""
+        raise ValueError(f"invalid review labels: {preview}{suffix}")
+    return normalized
 
 
 def number(value: object, default: float = 0.0) -> float:
@@ -40,7 +115,7 @@ def number(value: object, default: float = 0.0) -> float:
 
 
 def load_queue(dossiers: list[dict[str, str]], labels: list[dict[str, str]], top_n: int) -> list[dict[str, str]]:
-    labels_by_id = {row.get("osm_id", ""): row for row in labels if row.get("osm_id")}
+    labels_by_id = {row["osm_id"]: row for row in validate_labels(labels)}
     ordered = sorted(dossiers, key=lambda row: (-number(row.get("score")), row.get("osm_id", "")))[:top_n]
     output = []
     for rank, row in enumerate(ordered, 1):
@@ -63,6 +138,7 @@ def load_queue(dossiers: list[dict[str, str]], labels: list[dict[str, str]], top
             "evidence_source": label.get("evidence_source", ""),
             "notes": label.get("notes", ""),
         }
+        candidate.update({field: row.get(field, "") for field in DOSSIER_EVIDENCE_FIELDS})
         if candidate["label"] not in LABELS:
             candidate["label"] = "not_reviewed"
         output.append(candidate)
@@ -131,20 +207,9 @@ def confusion(queue: list[dict[str, str]]) -> list[dict[str, object]]:
 
 
 def build_html(queue: list[dict[str, str]]) -> str:
-    data = json.dumps(queue, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    template = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ireland geometry expert review</title>
-<style>body{font:14px/1.4 system-ui,sans-serif;color:#17202a;margin:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d9dee5;padding:7px;vertical-align:top;text-align:left}th{background:#f4f6f8;position:sticky;top:0}select,textarea,button{font:inherit;padding:5px}textarea{min-width:220px;min-height:42px}.muted{color:#667085}.toolbar{display:flex;gap:10px;align-items:center;margin:12px 0}a{color:#2563eb}</style></head>
-<body><h1>Expert validation queue</h1><p class="muted">Labels are local review annotations, not automatic truth. Download the CSV, then rerun the review stage with it.</p>
-<div class="toolbar"><button id="download">Download labels CSV</button><span id="count"></span></div>
-<table><thead><tr><th>#</th><th>Candidate</th><th>Evidence</th><th>Label</th><th>Confidence</th><th>Source / notes</th></tr></thead><tbody id="rows"></tbody></table>
-<script>const DATA=__DATA__;const esc=v=>String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
-const choices=['supportive','ambiguous','not_supportive','not_reviewed'];
-function render(){document.getElementById('count').textContent=`${DATA.length} candidates`;document.getElementById('rows').innerHTML=DATA.map((r,i)=>`<tr><td>${r.review_rank}</td><td><b>${esc(r.name||'Unnamed')}</b><br><span class="muted">${esc(r.osm_id)} · score ${esc(r.score)}</span><br><a href="${esc(r.map_url)}" target="_blank" rel="noopener">Open map</a></td><td>${esc(r.evidence_summary)}<br><span class="muted">${esc(r.flags)}</span></td><td><select data-i="${i}">${choices.map(c=>`<option ${r.label===c?'selected':''}>${c}</option>`).join('')}</select></td><td><input data-confidence="${i}" value="${esc(r.confidence)}" placeholder="0–1"></td><td><input data-reviewer="${i}" value="${esc(r.reviewer)}" placeholder="reviewer"><br><textarea data-notes="${i}" placeholder="evidence notes">${esc(r.notes)}</textarea></td></tr>`).join('');}
-function sync(){document.querySelectorAll('select[data-i]').forEach(e=>DATA[e.dataset.i].label=e.value);document.querySelectorAll('[data-confidence]').forEach(e=>DATA[e.dataset.confidence].confidence=e.value);document.querySelectorAll('[data-reviewer]').forEach(e=>DATA[e.dataset.reviewer].reviewer=e.value);document.querySelectorAll('[data-notes]').forEach(e=>DATA[e.dataset.notes].notes=e.value);}
-document.getElementById('download').onclick=()=>{sync();const cols=['osm_id','label','reviewer','reviewed_at','confidence','evidence_source','notes'];const q=v=>`"${String(v??'').replaceAll('"','""')}"`;const csv=[cols.join(','),...DATA.map(r=>cols.map(c=>q(r[c])).join(','))].join('\\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='expert-labels.csv';a.click();};render();</script></body></html>"""
-    return template.replace("__DATA__", data)
+    """Build the canonical review page from the shared review UI module."""
+    return build_review_html(queue)
+
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -154,12 +219,29 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--labels", default=None, help="optional expert labels CSV")
     parser.add_argument("--top-n", type=int, default=1000)
     args = parser.parse_args(argv)
+    if args.top_n < 1:
+        parser.error("--top-n must be positive")
     data = project_path(args.data_root, "data")
     out = project_path(args.out_dir, "output")
     dossiers = read_csv(out / "candidate_dossiers.csv") or read_csv(out / "historical_validation.csv")
     label_path = project_path(args.labels, str(data / "review" / "labels.csv")) if args.labels else data / "review" / "labels.csv"
     labels = read_csv(label_path if label_path.exists() else Path("/does/not/exist"))
-    queue = load_queue(dossiers, labels, max(1, args.top_n))
+    try:
+        queue = load_queue(dossiers, labels, args.top_n)
+    except ValueError as exc:
+        parser.error(str(exc))
+    label_ids = {
+        str(row.get("osm_id") or "").strip()
+        for row in labels
+        if str(row.get("osm_id") or "").strip()
+    }
+    queue_ids = {row["osm_id"] for row in queue}
+    ignored_labels = len(label_ids.difference(queue_ids))
+    if ignored_labels:
+        print(
+            f"[review] ignored {ignored_labels:,} labels outside the current queue",
+            file=sys.stderr,
+        )
     fields = list(queue[0]) if queue else ["review_rank", "osm_id", "label"]
     atomic_write_csv(out / "review_queue.csv", fields, queue)
     atomic_write_csv(

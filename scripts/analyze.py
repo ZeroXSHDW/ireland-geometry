@@ -47,6 +47,7 @@ try:  # direct script execution
         iter_polygons,
         polygon_from_element,
         repair_geometry,
+        safe_minimum_rotated_rectangle,
         shape_descriptors,
         to_local_meters,
     )
@@ -60,6 +61,7 @@ except ImportError:  # package/test execution
         iter_polygons,
         polygon_from_element,
         repair_geometry,
+        safe_minimum_rotated_rectangle,
         shape_descriptors,
         to_local_meters,
     )
@@ -240,7 +242,7 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
         return None
 
     # --- bounding box (minimum-area rotated rectangle) --------------------
-    mrr = local.minimum_rotated_rectangle
+    mrr = safe_minimum_rotated_rectangle(local)
     if mrr is None or mrr.area <= 0:
         return None
     box = list(mrr.exterior.coords)[:-1]

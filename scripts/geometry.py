@@ -9,10 +9,21 @@ multi-exterior format emitted by the current Geofabrik extractor.
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Iterator
 
+try:
+    from itertools import pairwise as _pairwise
+except ImportError:  # pragma: no cover - Python 3.9 compatibility for the local legacy venv
+    def _pairwise(values):
+        iterator = iter(values)
+        previous = next(iterator, None)
+        for current in iterator:
+            yield previous, current
+            previous = current
+
 from shapely import affinity
-from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon, shape
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, shape
 from shapely.ops import unary_union
 
 
@@ -193,17 +204,58 @@ def convexity_ratio(geom) -> float:
     return area / hull_area if hull_area > 0 else 0.0
 
 
+def safe_minimum_rotated_rectangle(geom):
+    """Return an oriented envelope without leaking GEOS warnings to batch logs.
+
+    Some valid, narrow OSM footprints trigger ``oriented_envelope`` runtime
+    warnings in newer Shapely/GEOS combinations even though the returned
+    rectangle is usable. The geometry has already passed the canonical quality
+    checks before this helper is called, so the warning is diagnostic noise;
+    actual exceptions still propagate as a missing rectangle to the caller.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=RuntimeWarning,
+            message=r".*oriented_envelope.*",
+        )
+        try:
+            return geom.minimum_rotated_rectangle
+        except Exception:  # noqa: BLE001 - caller handles missing/degenerate rectangles
+            return None
+
+
 def _resample_ring(points: list[tuple[float, float]], n: int = 64) -> list[tuple[float, float]]:
     """Sample a closed ring at equal perimeter intervals."""
     if len(points) < 4 or n < 4:
         return []
-    line = LineString(points)
-    if line.length <= 0:
+    coords = list(points)
+    if coords[0] != coords[-1]:
+        coords.append(coords[0])
+    segments: list[tuple[tuple[float, float], tuple[float, float], float, float]] = []
+    total = 0.0
+    for start, end in _pairwise(coords):
+        length = math.hypot(end[0] - start[0], end[1] - start[1])
+        if length <= 1e-12:
+            continue
+        segments.append((start, end, total, total + length))
+        total += length
+    if total <= 0 or not segments:
         return []
-    samples = []
+    samples: list[tuple[float, float]] = []
+    segment_index = 0
     for index in range(n):
-        point = line.interpolate(line.length * index / n)
-        samples.append((point.x, point.y))
+        distance = total * index / n
+        while segment_index < len(segments) - 1 and distance > segments[segment_index][3]:
+            segment_index += 1
+        start, end, segment_start, segment_end = segments[segment_index]
+        fraction = (distance - segment_start) / (segment_end - segment_start)
+        samples.append(
+            (
+                start[0] + fraction * (end[0] - start[0]),
+                start[1] + fraction * (end[1] - start[1]),
+            )
+        )
     return samples
 
 
@@ -247,7 +299,7 @@ def shape_descriptors(geom) -> dict:
             "hole_area_fraction": 0.0,
         }
     polygon = max(parts, key=lambda item: item.area)
-    mrr = polygon.minimum_rotated_rectangle
+    mrr = safe_minimum_rotated_rectangle(polygon)
     rectangularity = polygon.area / mrr.area if mrr is not None and mrr.area > 0 else 0.0
     angles = interior_angles(polygon)
     bins = [0] * 18

@@ -22,3 +22,263 @@ jobs:
       - run: python -m ruff check scripts tests run_pipeline.py
       - run: python -m compileall -q scripts run_pipeline.py
       - run: python run_pipeline.py --help
+      - run: ireland-geometry --help
+      - run: ireland-geometry-doctor --json
+      - run: ireland-geometry-serve --help
+      - run: ireland-geometry-schema-audit --help
+      - run: ireland-geometry-repro --help
+      - run: python scripts/schema_audit.py --help
+      - run: python scripts/repro_check.py --help
+
+  optional-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev,data]"
+      - run: python -c "import duckdb, pyarrow; print(f'duckdb={duckdb.__version__} pyarrow={pyarrow.__version__}')"
+      - run: python -m pytest
+      - run: python -m ruff check scripts tests run_pipeline.py
+      - run: python -m compileall -q scripts run_pipeline.py
+      - run: ireland-geometry-doctor --json
+      - run: ireland-geometry-serve --help
+
+  optional-geo3d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev,geo3d]"
+      - run: python -c "import laspy, rasterio; print(f'laspy={laspy.__version__} rasterio={rasterio.__version__}')"
+      - run: python -m pytest
+      - run: python -m ruff check scripts tests run_pipeline.py
+      - run: python -m compileall -q scripts run_pipeline.py
+      - run: ireland-geometry-doctor --json
+      - run: ireland-geometry-serve --help
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip wheel . --no-deps --no-build-isolation --wheel-dir wheelhouse
+      - run: |
+          mkdir -p sdist
+          python - <<'PY'
+          from setuptools.build_meta import build_sdist
+
+          print(build_sdist("sdist"))
+          PY
+          test "$(find sdist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+
+          archive = next(Path("sdist").glob("*.tar.gz"))
+          with tarfile.open(archive, "r:gz") as handle:
+              names = set(handle.getnames())
+          root = next(name for name in names if "/" not in name)
+          for relative in (
+              "analysis_plan.json",
+              "schemas/analysis_plan.json",
+              "data/lidar/README.md",
+              "data/roads/README.md",
+              "data/boundaries/README.md",
+          ):
+              assert f"{root}/{relative}" in names, relative
+          print("sdist source assets verified")
+          PY
+      - run: python -m pip install --force-reinstall --no-deps wheelhouse/*.whl
+      - run: cd /tmp && python -c "from importlib.resources import files; import run_pipeline; assert files('schemas').joinpath('artifacts.json').is_file(); assert files('schemas').joinpath('analysis_plan.json').is_file(); assert (files('schemas').joinpath('artifacts.json')).read_text(encoding='utf-8').startswith('{'); assert 'build_interpretation' in files('scripts').joinpath('report.py').read_text(encoding='utf-8')"
+      - run: cd /tmp && ireland-geometry --help
+      - run: cd /tmp && ireland-geometry-doctor --help
+      - run: cd /tmp && ireland-geometry-doctor --json > /tmp/ireland-geometry-package-doctor.json
+      - run: python -c "import importlib.metadata, json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); health=result['capabilities']['query']['backend_health']; assert set(health)=={'duckdb','parquet','csv','jsonl'}; assert all('readable' in item and 'error' in item for item in health.values()); assert result['doctor_version']==56; assert result['source_freshness']['contract']=='ireland-geometry.freshness.v1'; assert result['package_version']==importlib.metadata.version('ireland-geometry-scan'); commands=result['capabilities']['commands']; assert commands['command_count']==8; assert commands['installed_count']==8; assert commands['installation_status']=='available'; assert all(item['installed'] for item in commands['commands'].values()); assert 'ireland-geometry-bundle' in commands['commands']; assert 'ireland-geometry-schema-audit' in commands['commands']; assert 'ireland-geometry-repro' in commands['commands']; assert result['capabilities']['pipeline']['diagnostic_json_outputs'] is True; assert result['capabilities']['pipeline']['post_validation_report_refresh'] is True; assert result['capabilities']['report_server']['openapi_api'] is True; assert result['capabilities']['report_server']['interpretation_api'] is True; assert result['capabilities']['bundle']['contract']=='ireland-geometry.bundle.v1'; assert result['capabilities']['bundle']['deterministic_zip'] is True; assert result['capabilities']['bundle']['verifies_archives'] is True; assert result['capabilities']['bundle']['extracts_archives'] is True; assert result['capabilities']['bundle']['requires_verified_guard'] is True; assert result['capabilities']['analysis_plan']['source']=='packaged'; assert result['capabilities']['analysis_plan']['status']=='available'"
+      - run: cd /tmp && ireland-geometry-query --help
+      - run: python -c "import subprocess; result=subprocess.run(['ireland-geometry-query','--help'], check=True, capture_output=True, text=True); assert '--after-invalid-osm-id' in result.stdout"
+      - run: cd /tmp && ireland-geometry-route --help
+      - run: cd /tmp && ireland-geometry-serve --help
+      - run: cd /tmp && ireland-geometry-bundle --help
+      - run: cd /tmp && ireland-geometry-schema-audit --help
+      - run: cd /tmp && ireland-geometry-repro --help
+      - run: cd /tmp && python -c "from scripts.columnar import COLUMNAR_CONTRACT, audit_backend; from scripts.runtime import SOURCE_FRESHNESS_CONTRACT; assert COLUMNAR_CONTRACT == 'ireland-geometry.columnar.v1'; assert SOURCE_FRESHNESS_CONTRACT == 'ireland-geometry.freshness.v1'; assert callable(audit_backend)"
+      - run: |
+          sdist_venv=$(mktemp -d)
+          python -m venv "$sdist_venv"
+          "$sdist_venv/bin/python" -m pip install --no-deps sdist/*.tar.gz
+          cd /tmp
+          "$sdist_venv/bin/python" - <<'PY'
+          import subprocess
+          import sys
+          from importlib.metadata import entry_points, version
+          from importlib.resources import files
+          from pathlib import Path
+
+          expected = {
+              "ireland-geometry": "run_pipeline:main",
+              "ireland-geometry-bundle": "scripts.bundle:main",
+              "ireland-geometry-doctor": "scripts.doctor:main",
+              "ireland-geometry-query": "scripts.query_data:main",
+              "ireland-geometry-repro": "scripts.repro_check:main",
+              "ireland-geometry-route": "scripts.route_query:main",
+              "ireland-geometry-schema-audit": "scripts.schema_audit:main",
+              "ireland-geometry-serve": "scripts.serve_report:main",
+          }
+          actual = {
+              entry_point.name: entry_point.value
+              for entry_point in entry_points(group="console_scripts")
+              if entry_point.dist and entry_point.dist.name == "ireland-geometry-scan"
+          }
+          assert actual == expected
+          package_version = version("ireland-geometry-scan")
+          assert files("schemas").joinpath("artifacts.json").is_file()
+          assert files("schemas").joinpath("analysis_plan.json").is_file()
+          for command in expected:
+              executable = Path(sys.executable).with_name(command)
+              result = subprocess.run([str(executable), "--version"], check=True, capture_output=True, text=True)
+              assert result.stdout.strip().endswith(package_version), (command, result.stdout)
+          print("sdist entry points and packaged schema verified")
+          PY
+          "$sdist_venv/bin/ireland-geometry-doctor" --json > /tmp/ireland-geometry-sdist-doctor.json
+          "$sdist_venv/bin/python" - <<'PY'
+          import importlib.metadata
+          import json
+
+          result = json.load(open('/tmp/ireland-geometry-sdist-doctor.json', encoding='utf-8'))
+          assert result['doctor_version'] == 56
+          assert result['source_freshness']['contract'] == 'ireland-geometry.freshness.v1'
+          assert result['package_version'] == importlib.metadata.version('ireland-geometry-scan')
+          commands = result['capabilities']['commands']
+          assert commands['command_count'] == 8
+          assert commands['installed_count'] == 8
+          assert commands['installation_status'] == 'available'
+          assert all(item['installed'] for item in commands['commands'].values())
+          assert result['capabilities']['pipeline']['diagnostic_json_outputs'] is True
+          assert result['capabilities']['pipeline']['post_validation_report_refresh'] is True
+          assert result['capabilities']['analysis_plan']['source'] == 'packaged'
+          assert result['capabilities']['analysis_plan']['status'] == 'available'
+          PY
+      - run: cd /tmp && python -c "from scripts.bundle import BUNDLE_CONTRACT, verify_bundle; from scripts.serve_report import CAPABILITIES_API_PATH, CAPABILITIES_CONTRACT, HEALTH_CONTRACT, INTERPRETATION_API_PATH, INTERPRETATION_CONTRACT, METADATA_CONTRACT, OPENAPI_CONTRACT, OPENAPI_PATH, QUERY_BACKEND_NAMES, QUERY_CONTRACT, ROUTE_CONTRACT, openapi_document; document=openapi_document(); assert BUNDLE_CONTRACT == 'ireland-geometry.bundle.v1'; assert callable(verify_bundle); assert CAPABILITIES_API_PATH == '/api/capabilities'; assert CAPABILITIES_CONTRACT == 'ireland-geometry.capabilities.v1'; assert HEALTH_CONTRACT == 'ireland-geometry.health.v1'; assert INTERPRETATION_API_PATH == '/api/interpretation'; assert INTERPRETATION_CONTRACT == 'ireland-geometry.interpretation.v1'; assert METADATA_CONTRACT == 'ireland-geometry.metadata.v1'; assert OPENAPI_CONTRACT == 'ireland-geometry.openapi.v1'; assert OPENAPI_PATH == '/api/openapi.json'; assert '/api/query' in document['paths']; assert INTERPRETATION_API_PATH in document['paths']; assert 'InterpretationResponse' in document['components']['schemas']; assert 'analysis_ready' in document['components']['schemas']['HealthResponse']['required']; assert {'status', 'passed', 'manifest_available', 'records'} <= set(document['components']['schemas']['ValidationStatus']['required']); assert 'ValidationStatus' in document['components']['schemas']; assert QUERY_CONTRACT == 'ireland-geometry.query.v1'; assert ROUTE_CONTRACT == 'ireland-geometry.route.v1'; assert QUERY_BACKEND_NAMES == ('duckdb','parquet','csv','jsonl')"
+      - run: cd /tmp && python -c "from scripts.runtime import runtime_signature; r=runtime_signature(); assert {'python','implementation','platform','machine','cache_tag','distributions'} <= set(r); print(r['python'])"
+      - run: |
+          cd /tmp
+          python - <<'PY'
+          import importlib.metadata
+          import shutil
+          import subprocess
+
+          expected = importlib.metadata.version('ireland-geometry-scan')
+          commands = (
+              'ireland-geometry',
+              'ireland-geometry-doctor',
+              'ireland-geometry-query',
+              'ireland-geometry-route',
+              'ireland-geometry-serve',
+              'ireland-geometry-bundle',
+              'ireland-geometry-schema-audit',
+              'ireland-geometry-repro',
+          )
+          for command in commands:
+              executable = shutil.which(command)
+              assert executable
+              result = subprocess.run([executable, '--version'], check=True, capture_output=True, text=True)
+              assert result.stdout.strip().endswith(expected), (command, result.stdout)
+          PY
+      - run: |
+          package_bundle_root=$(mktemp -d)
+          mkdir -p "$package_bundle_root/output"
+          cd "$package_bundle_root"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          output = Path("output")
+          output.joinpath("manifest.json").write_text(
+              json.dumps({"path_contract": {"version": 1}}), encoding="utf-8"
+          )
+          output.joinpath("verification.json").write_text(
+              json.dumps({"passed": True, "analysis_rows": 1, "target_rows": 1}),
+              encoding="utf-8",
+          )
+          output.joinpath("analysis_results.csv").write_text(
+              "osm_id,score\\nway/1,91\\n", encoding="utf-8"
+          )
+          Path("schema.json").write_text(
+              json.dumps({
+                  "schema_version": 1,
+                  "artifacts": {
+                      "analysis_results.csv": {
+                          "required_columns": ["osm_id"],
+                          "unique_id": "osm_id",
+                      }
+                  },
+              }),
+              encoding="utf-8",
+          )
+          PY
+          ireland-geometry-bundle --json --out-dir output --archive verified.bundle.zip --require-verified > build-result.json
+          ireland-geometry-bundle --json --verify verified.bundle.zip > verify-result.json
+          python - <<'PY'
+          import json
+
+          built = json.loads(open("build-result.json", encoding="utf-8").read())
+          verified = json.loads(open("verify-result.json", encoding="utf-8").read())
+          assert built["require_verified"] is True
+          assert built["source_manifest"]["included"] is True
+          assert built["source_verification"]["status"] == "pass"
+          assert verified["passed"] is True
+          assert verified["require_verified"] is True
+          PY
+          ireland-geometry-schema-audit --json --out-dir output --schema schema.json > schema-result.json
+          ireland-geometry-repro --json --out-dir output > repro-result.json
+          python - <<'PY'
+          import json
+
+          schema = json.load(open("schema-result.json", encoding="utf-8"))
+          repro = json.load(open("repro-result.json", encoding="utf-8"))
+          assert schema["passed"] is True
+          assert repro["passed"] is True
+          PY
+      - run: |
+          mkdir -p /tmp/ireland-geometry-package-smoke/data /tmp/ireland-geometry-package-smoke/output
+          cd /tmp/ireland-geometry-package-smoke
+          ireland-geometry --stage schema-audit,verify \
+            --dry-run-json > /tmp/ireland-geometry-package-smoke/plan.json
+          python -c "import importlib.metadata, json, os; p=json.load(open('/tmp/ireland-geometry-package-smoke/plan.json')); assert p['contract']=='ireland-geometry.dry-run.v1'; assert p['package_version']==importlib.metadata.version('ireland-geometry-scan'); assert p['cache_version']==4; assert p['cache_explanations'] is True; assert [s['name'] for s in p['stages']]==['schema-audit','verify']; assert p['stages'][0]['fingerprint']; assert p['stages'][0]['cache']['reason']=='cache_missing'; assert p['project_root']==os.getcwd(); assert p['data_root']==os.path.join(os.getcwd(),'data'); assert p['out_dir']==os.path.join(os.getcwd(),'output'); assert p['no_files_written'] is True"
+      - run: |
+          mkdir -p /tmp/ireland-geometry-package-external
+          cd /tmp
+          ireland-geometry --project-root /tmp/ireland-geometry-package-external \
+            --stage schema-audit,verify --dry-run-json > /tmp/ireland-geometry-package-external/plan.json
+          python -c "import json, os; p=json.load(open('/tmp/ireland-geometry-package-external/plan.json')); root=os.path.realpath('/tmp/ireland-geometry-package-external'); assert p['project_root']==root; assert p['data_root']==os.path.join(root,'data'); assert p['out_dir']==os.path.join(root,'output')"
+      - if: matrix.python-version == '3.11'
+        name: Create package checksums
+        run: |
+          sha256sum wheelhouse/*.whl sdist/*.tar.gz > package-sha256sums.txt
+          cat package-sha256sums.txt
+      - if: matrix.python-version == '3.11'
+        name: Upload canonical package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ireland-geometry-packages-py3.11-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            wheelhouse/*.whl
+            sdist/*.tar.gz
+            package-sha256sums.txt
+          if-no-files-found: error
+          retention-days: 14

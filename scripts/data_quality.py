@@ -50,6 +50,36 @@ FIELD_RULES: dict[str, tuple[str, tuple[float, float] | None]] = {
     "building_levels": ("numeric", (0.0, float("inf"))),
 }
 
+UNAVAILABLE_SOURCE_STATUSES = frozenset(
+    {
+        "not_provided",
+        "unavailable",
+        "provided_but_unreadable",
+        "error",
+        "incomplete",
+        "not_installed",
+        "missing_required",
+    }
+)
+
+
+def source_status(row: dict[str, str]) -> str:
+    """Return the explicit status used by a source artifact.
+
+    Some optional-source exports use ``status`` while others use ``quality``.
+    Treating the latter as available would under-report missing or unreadable
+    source coverage in the audit summary.
+    """
+    for field in ("status", "quality"):
+        value = (row.get(field) or "").strip()
+        if value:
+            return value
+    return "available"
+
+
+def is_unavailable_source_status(status: str) -> bool:
+    return status in UNAVAILABLE_SOURCE_STATUSES
+
 
 def field_audit(rows: list[dict[str, str]], group: str, field: str, rule: str, bounds: tuple[float, float] | None) -> dict[str, object]:
     values = [row.get(field, "").strip() for row in rows]
@@ -79,6 +109,46 @@ def field_audit(rows: list[dict[str, str]], group: str, field: str, rule: str, b
     }
 
 
+def build_duplicate_groups(rows: list[dict[str, str]]) -> list[dict[str, object]]:
+    """Return deterministic, reviewable groups of rows sharing a centroid.
+
+    Empty or non-numeric coordinates are excluded: they are missingness issues
+    covered by ``field_audit`` rather than duplicate spatial locations.  The
+    original coordinate strings are retained in the key so this diagnostic
+    does not silently invent a rounding tolerance.
+    """
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for row in rows:
+        lat = row.get("lat", "").strip()
+        lon = row.get("lon", "").strip()
+        if not lat or not lon or not math.isfinite(number(lat)) or not math.isfinite(number(lon)):
+            continue
+        grouped.setdefault((lat, lon), []).append(row)
+
+    output: list[dict[str, object]] = []
+    for (lat, lon), members in sorted(grouped.items()):
+        if len(members) < 2:
+            continue
+        ids = sorted({row.get("osm_id", "") for row in members if row.get("osm_id", "")})
+        groups = sorted({row.get("group", "") for row in members if row.get("group", "")})
+        target_n = sum(row.get("is_control") == "0" for row in members)
+        control_n = sum(row.get("is_control") == "1" for row in members)
+        output.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "row_n": len(members),
+                "duplicate_n": len(members) - 1,
+                "osm_ids": "|".join(ids),
+                "groups": "|".join(groups),
+                "target_n": target_n,
+                "control_n": control_n,
+                "review_status": "review",
+            }
+        )
+    return output
+
+
 def build_audit(out: Path) -> tuple[list[dict[str, object]], dict[str, object]]:
     analysis = read_csv(out / "analysis_results.csv")
     if not analysis:
@@ -95,14 +165,13 @@ def build_audit(out: Path) -> tuple[list[dict[str, object]], dict[str, object]]:
             audit_rows.append(field_audit(rows, group, field, rule, bounds))
 
     ids = [row.get("osm_id", "") for row in analysis]
-    coordinates = [(row.get("lat", ""), row.get("lon", "")) for row in analysis]
-    duplicate_cells = Counter(coordinates)
+    duplicate_groups = build_duplicate_groups(analysis)
     quality = {
         "analysis_rows": len(analysis),
         "target_rows": sum(row.get("is_control") == "0" for row in analysis),
         "control_rows": sum(row.get("is_control") == "1" for row in analysis),
         "duplicate_osm_id_n": len(ids) - len(set(ids)),
-        "duplicate_centroid_n": sum(count - 1 for count in duplicate_cells.values() if count > 1),
+        "duplicate_centroid_n": sum(int(group["duplicate_n"]) for group in duplicate_groups),
         "repaired_geometry_pct": round(100.0 * sum(row.get("repaired") == "1" for row in analysis) / len(analysis), 4),
         "multipart_geometry_pct": round(100.0 * sum(row.get("multipart") == "1" for row in analysis) / len(analysis), 4),
         "valid_geometry_pct": round(100.0 * sum(row.get("valid") == "1" for row in analysis) / len(analysis), 4),
@@ -118,15 +187,16 @@ def build_audit(out: Path) -> tuple[list[dict[str, object]], dict[str, object]]:
     source_rows = []
     for name, path in source_files.items():
         rows = read_csv(path)
-        statuses = Counter(row.get("status", row.get("quality", "available")) for row in rows)
+        statuses = Counter(source_status(row) for row in rows)
+        missing_n = sum(is_unavailable_source_status(source_status(row)) for row in rows)
         source_rows.append(
             {
                 "scope": "source",
                 "group": "all",
                 "field": name,
                 "row_n": len(rows),
-                "missing_n": sum(row.get("status") in {"not_provided", "unavailable"} for row in rows),
-                "missing_pct": round(100.0 * sum(row.get("status") in {"not_provided", "unavailable"} for row in rows) / len(rows), 4) if rows else 100.0,
+                "missing_n": missing_n,
+                "missing_pct": round(100.0 * missing_n / len(rows), 4) if rows else 100.0,
                 "unique_n": len(statuses),
                 "invalid_n": 0,
                 "quality_status": "not_provided" if not rows else ";".join(f"{key}:{value}" for key, value in sorted(statuses.items())),
@@ -152,6 +222,21 @@ def main(argv: list[str] | None = None) -> None:
         out / "data_quality.csv",
         ["scope", "group", "field", "row_n", "missing_n", "missing_pct", "unique_n", "invalid_n", "quality_status", "notes"],
         audit,
+    )
+    atomic_write_csv(
+        out / "data_quality_duplicates.csv",
+        [
+            "lat",
+            "lon",
+            "row_n",
+            "duplicate_n",
+            "osm_ids",
+            "groups",
+            "target_n",
+            "control_n",
+            "review_status",
+        ],
+        build_duplicate_groups(read_csv(out / "analysis_results.csv")),
     )
     atomic_write_json(out / "data_quality_summary.json", summary, indent=2)
     print(

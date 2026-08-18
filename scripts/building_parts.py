@@ -6,7 +6,7 @@ features and height tags provide a limited vertical/complexity signal, while
 LiDAR can provide a much better roof-height and stepped-massing measurement.
 This stage keeps those sources separate and reports their coverage honestly.
 
-The optional LiDAR input is a normalized CSV/GeoJSON FeatureCollection, a
+The optional LiDAR input is a normalized CSV/JSON/GeoJSON FeatureCollection, a
 GeoTIFF DSM/DTM, or (when ``laspy`` is installed) LAS/LAZ.  A missing or
 unreadable input still produces a complete coverage table with
 ``lidar_available=0`` so downstream reports do not confuse unavailable data
@@ -51,16 +51,25 @@ def is_part(element: dict) -> bool:
 def parse_lidar(path: Path | None) -> dict[str, dict]:
     if path is None or not path.exists():
         return {}
-    if path.suffix.lower() in {".json", ".geojson"}:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        source_rows = payload.get("features", []) if payload.get("type") == "FeatureCollection" else payload
-        rows = []
-        for feature in source_rows if isinstance(source_rows, list) else []:
-            properties = feature.get("properties", feature) if isinstance(feature, dict) else {}
-            rows.append(properties)
-    else:
-        with path.open(newline="", encoding="utf-8") as fh:
-            rows = list(csv.DictReader(fh))
+    try:
+        if path.suffix.lower() in {".json", ".geojson"}:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and payload.get("type") == "FeatureCollection":
+                source_rows = payload.get("features", [])
+            elif isinstance(payload, dict) and isinstance(payload.get("rows"), list):
+                source_rows = payload["rows"]
+            else:
+                source_rows = payload
+            rows = []
+            for feature in source_rows if isinstance(source_rows, list) else []:
+                properties = feature.get("properties", feature) if isinstance(feature, dict) else {}
+                if isinstance(properties, dict):
+                    rows.append(properties)
+        else:
+            with path.open(newline="", encoding="utf-8") as fh:
+                rows = list(csv.DictReader(fh))
+    except (OSError, UnicodeError, json.JSONDecodeError, csv.Error):
+        return {}
     out = {}
     for row in rows:
         osm_id = str(row.get("osm_id", "")).strip()
@@ -330,7 +339,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", default=None, help="data directory; defaults to project data/")
     parser.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
-    parser.add_argument("--lidar", default=None, help="optional normalized LiDAR CSV/GeoJSON, GeoTIFF DSM, or LAS/LAZ")
+    parser.add_argument("--lidar", default=None, help="optional normalized LiDAR CSV/JSON/GeoJSON, GeoTIFF DSM, or LAS/LAZ")
     args = parser.parse_args(argv)
     data = project_path(args.data_root, "data")
     out = project_path(args.out_dir, "output")
