@@ -13,14 +13,17 @@ stages. The default lazy report requests 50 target rows from
 `/api/report/page`; server-side filtering, pagination, sorting, and CSV/GeoJSON
 exports avoid downloading the 116 MB full pack. `?offline=1` remains available
 for explicit full-pack offline review, and the standalone report is unchanged.
+The analyzer also consumes the versioned
+`ireland-geometry.exploratory-score.v1` plan block and publishes the normalized
+weights/thresholds plus plan/configuration hashes in `output/scoring_config.json`.
 
 The real cached snapshot was refreshed through the diagnostic lifecycle only
 (no national analysis rebuild): schema audit, report generation, and final
 verification all pass for 123,810 analysis rows and 33,416 targets. The initial
 live page measured 264,839 bytes for 50 rows. The repository suite now passes
-193 tests, with Ruff and compileall clean, and includes a tiny offline
+197 tests, with Ruff and compileall clean, and includes a tiny offline
 subprocess fixture covering the generated manifest, schema, report, and
-verification contracts.
+verification contracts plus scoring-plan regression tests.
 
 ## Reproducible build
 
@@ -84,6 +87,7 @@ The build completed without network access. The exact input caches were:
 - separately corrected 60°/120° conventional-angle negative-control diagnostics
   are included outside the primary golden-angle family;
 - `output/report.html` interactive dashboard;
+- `output/scoring_config.json` normalized scoring configuration and provenance;
 - a data-derived interpretation panel in both dashboard modes, generated from
   the primary, negative-control, matched, NIAH-era, spatial, and holdout result
   rows rather than snapshot-specific prose; it also shows the analytical

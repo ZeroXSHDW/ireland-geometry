@@ -41,6 +41,22 @@ Known baseline defects to address:
 
 ## Cross-backend export parity contract — 2026-08-18
 
+## Versioned exploratory scoring provenance — 2026-08-18
+
+The footprint screening score is now driven by a versioned scoring block in the
+tracked project and packaged analysis plans:
+
+- `ireland-geometry.exploratory-score.v1` carries the score label, maximum,
+  screening threshold, feature weights, and geometry thresholds;
+- `scripts/analyze.py` accepts the plan explicitly, preserves legacy defaults
+  for older plans, and writes `output/scoring_config.json` with normalized
+  configuration, plan hash, and configuration hash;
+- the analyzer stage cache fingerprints the selected plan, and verification
+  rejects missing, unsupported, or mismatched scoring provenance and checks
+  that `report_data.json` carries the same configuration hash;
+- regression coverage includes plan parity, legacy fallback, hash changes, and
+  non-inferential labeling. The full source suite now contains 197 tests.
+
 The scalable export layer now proves semantic parity instead of checking only
 that optional files exist and have the expected row count:
 

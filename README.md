@@ -1,5 +1,7 @@
 # Ireland Geometric Pattern Scan
 
+Live dashboard: <https://zeroxshdw.github.io/ireland-geometry/>
+
 Reproducible geospatial analysis of Irish building footprints. The pipeline
 extracts target buildings and an empirical ordinary-building control group
 from OpenStreetMap, measures footprint geometry, joins the Republic of
