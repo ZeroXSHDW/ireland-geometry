@@ -141,6 +141,53 @@ def test_stage_cache_persists_fingerprint_inputs_and_explains_reuse(tmp_path):
     assert diagnostics["reason"] == "output_hash_mismatch"
 
 
+def test_stage_cache_fingerprint_ignores_git_and_controller_only_changes(tmp_path, monkeypatch):
+    output = tmp_path / "artifact.csv"
+    controller = tmp_path / "run_pipeline.py"
+    output.write_text("value\n1\n", encoding="utf-8")
+    controller.write_text("def write_manifest(): pass\n", encoding="utf-8")
+    monkeypatch.setattr(stage_cache, "git_revision", lambda: "first-revision")
+    first = fingerprint_payload(
+        "sample",
+        command=["sample", "--flag"],
+        script_path=output,
+        controller_path=controller,
+        input_signatures={str(output): sha256_file(output)},
+    )
+    controller.write_text("def write_manifest(): pass  # provenance-only edit\n", encoding="utf-8")
+    monkeypatch.setattr(stage_cache, "git_revision", lambda: "second-revision")
+    second = fingerprint_payload(
+        "sample",
+        command=["sample", "--flag"],
+        script_path=output,
+        controller_path=controller,
+        input_signatures={str(output): sha256_file(output)},
+    )
+    assert first == second
+    assert "revision" not in first
+    assert "controller_sha256" not in first
+
+
+def test_stage_cache_fingerprint_changes_when_effective_command_changes(tmp_path):
+    output = tmp_path / "artifact.csv"
+    output.write_text("value\n1\n", encoding="utf-8")
+    first = fingerprint(
+        "sample",
+        command=["sample", "--flag"],
+        script_path=output,
+        controller_path=output,
+        input_signatures={str(output): sha256_file(output)},
+    )
+    second = fingerprint(
+        "sample",
+        command=["sample", "--different-flag"],
+        script_path=output,
+        controller_path=output,
+        input_signatures={str(output): sha256_file(output)},
+    )
+    assert first != second
+
+
 def test_stage_cache_explains_runtime_mismatch_without_a_stage_record(tmp_path):
     output = tmp_path / "artifact.csv"
     output.write_text("value\n1\n", encoding="utf-8")

@@ -125,7 +125,7 @@ def test_doctor_separates_project_data_from_packaged_capabilities(tmp_path):
     assert result["project_root"] == str(tmp_path.resolve())
     assert result["package_root"] == str(package_root.resolve())
     assert result["capabilities"]["pipeline"]["status"] == "available"
-    assert result["capabilities"]["pipeline"]["cache_version"] == 4
+    assert result["capabilities"]["pipeline"]["cache_version"] == 5
     assert result["capabilities"]["pipeline"]["dependency_aware_cache"] is True
     assert result["capabilities"]["pipeline"]["cache_explanations"] is True
     assert result["capabilities"]["pipeline"]["supports_dry_run_cache_explanations"] is True

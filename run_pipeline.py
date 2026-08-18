@@ -264,6 +264,12 @@ def build_stage_command(
             command.append("--no-network")
     elif name == "analyze":
         command += ["--data", str(data_root / "combined.json"), "--out", str(out_dir)]
+        plan_path = (
+            project_path(args.analysis_plan, "analysis_plan.json")
+            if args.analysis_plan
+            else default_analysis_plan_path(PROJECT_ROOT, package_root=ROOT)
+        )
+        command += ["--plan", str(plan_path)]
     elif name == "negative-controls":
         command += ["--out-dir", str(out_dir)]
     elif name in {"niah", "architects"}:
@@ -506,7 +512,36 @@ def write_manifest(
         if isinstance(existing, dict) and isinstance(existing.get("parameters"), dict):
             manifest["parameters"] = existing["parameters"]
             if isinstance(existing.get("sources"), list):
-                manifest["sources"] = existing["sources"]
+                current_sources = {}
+                for source in manifest.get("sources", []):
+                    if not isinstance(source, dict):
+                        continue
+                    identity = source.get("relative_path") or source.get("path")
+                    if identity:
+                        current_sources[(source.get("path_base"), str(identity))] = source
+                preserved_sources = []
+                for source in existing["sources"]:
+                    if not isinstance(source, dict):
+                        preserved_sources.append(source)
+                        continue
+                    identity = source.get("relative_path") or source.get("path")
+                    current = current_sources.get((source.get("path_base"), str(identity)))
+                    if current is None and identity:
+                        current = next(
+                            (
+                                candidate
+                                for (candidate_base, candidate_identity), candidate in current_sources.items()
+                                if candidate_identity == str(identity)
+                            ),
+                            None,
+                        )
+                    merged = dict(source)
+                    if current is not None:
+                        for field in ("modified_at", "source_kind", "path_base", "relative_path"):
+                            if field in current:
+                                merged[field] = current[field]
+                    preserved_sources.append(merged)
+                manifest["sources"] = preserved_sources
             manifest["provenance_context_preserved"] = True
             manifest["last_invocation"] = current_parameters
     atomic_write_json(out_dir / "manifest.json", manifest, indent=2)

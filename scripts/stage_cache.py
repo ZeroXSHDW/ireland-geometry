@@ -27,8 +27,9 @@ except ImportError:
     )
 
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 CACHE_NAME = "stage_cache.json"
+FINGERPRINT_CONTRACT = "ireland-geometry.stage-cache.fingerprint.v1"
 NON_CACHEABLE = {"report", "repro-check", "verify"}
 CACHE_MODULE_PATH = Path(__file__).resolve()
 RUNTIME_MODULE_PATH = CACHE_MODULE_PATH.with_name("runtime.py")
@@ -36,7 +37,7 @@ SOURCE_ROOT = CACHE_MODULE_PATH.parent.parent
 STAGE_OUTPUT_NAMES: dict[str, tuple[str, ...]] = {
     "fetch": (),
     "fetch-niah": (),
-    "analyze": ("analysis_results.csv", "top_patterns.csv", "ireland_buildings.geojson", "significance.csv"),
+    "analyze": ("analysis_results.csv", "top_patterns.csv", "ireland_buildings.geojson", "significance.csv", "scoring_config.json"),
     "negative-controls": ("negative_controls.csv",),
     "niah": ("niah_join.csv", "niah_significance.csv", "niah_decades.csv", "niah_golden_angles.csv"),
     "architects": ("architects.csv", "architects_binary.csv", "architects_evidence.csv"),
@@ -62,7 +63,9 @@ STAGE_OUTPUT_NAMES: dict[str, tuple[str, ...]] = {
 def _empty_cache(status: str = "empty") -> dict[str, Any]:
     return {
         "cache_version": CACHE_VERSION,
+        "fingerprint_contract": FINGERPRINT_CONTRACT,
         "runtime": runtime_signature(),
+        "git_revision": git_revision(),
         "cache_status": status,
         "stages": {},
     }
@@ -101,13 +104,21 @@ def save_record(
     fingerprint_inputs: dict[str, Any] | None = None,
 ) -> None:
     cache.setdefault("cache_version", CACHE_VERSION)
+    cache["fingerprint_contract"] = FINGERPRINT_CONTRACT
     cache["runtime"] = runtime_signature()
+    cache["git_revision"] = git_revision()
     cache["cache_status"] = "valid"
     cache.setdefault("stages", {})
     record: dict[str, Any] = {
         "fingerprint": fingerprint,
         "outputs": outputs,
     }
+    revision = git_revision()
+    if revision:
+        # Git identity is useful for audit trails, but it is deliberately not
+        # part of fingerprint_inputs: a documentation or provenance commit
+        # must not force a national analytical rebuild.
+        record["git_revision"] = revision
     if fingerprint_inputs is not None:
         record["fingerprint_inputs"] = fingerprint_inputs
     cache["stages"][stage] = record
@@ -320,7 +331,7 @@ def input_paths(
             for path in (data_root / "niah").rglob("*")
             if path.is_file() and path.name != "niah.json"
         ],
-        "analyze": [combined],
+        "analyze": [combined, _configured_path(args, "analysis_plan", default_analysis_plan_path(root), root)],
         "negative-controls": [analysis],
         "niah": [combined, niah, analysis],
         "architects": [niah, out_dir / "niah_join.csv", analysis],
@@ -399,13 +410,16 @@ def fingerprint_payload(
     controller_path: Path,
     input_signatures: dict[str, str | None],
 ) -> dict[str, Any]:
+    # ``controller_path`` is retained in the public helper signature for
+    # compatibility with callers and older tests.  The effective command is
+    # already included below, and hashing the whole controller used to make
+    # manifest/reporting-only edits invalidate every analytical stage.
     return {
         "cache_version": CACHE_VERSION,
+        "fingerprint_contract": FINGERPRINT_CONTRACT,
         "stage": stage,
-        "revision": git_revision(),
         "command": command,
         "script_sha256": sha256_file(script_path),
-        "controller_sha256": sha256_file(controller_path),
         "cache_module_sha256": sha256_file(CACHE_MODULE_PATH),
         "runtime_module_sha256": sha256_file(RUNTIME_MODULE_PATH),
         "local_module_sha256": local_module_signatures(script_path),

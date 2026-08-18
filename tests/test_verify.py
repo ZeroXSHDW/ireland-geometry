@@ -1,7 +1,9 @@
 import json
+import os
+from pathlib import Path
 
 from scripts.holdout import holdout
-from scripts.runtime import sha256_file
+from scripts.runtime import SOURCE_FRESHNESS_CONTRACT, sha256_file
 from scripts.verify import (
     check_columnar_contract,
     check_dashboard_review_contract,
@@ -9,6 +11,7 @@ from scripts.verify import (
     check_holm_contract,
     check_interpretation_artifact,
     check_manifest_contract,
+    check_manifest_freshness_contract,
     check_manifest_path_contract,
     check_manifest_runtime_contract,
     check_probabilities,
@@ -211,6 +214,109 @@ def test_manifest_runtime_contract_warns_for_legacy_shape():
     check_manifest_runtime_contract({}, errors, warnings)
     assert errors == []
     assert len(warnings) == 2
+
+
+def test_manifest_freshness_contract_accepts_aligned_current_source(tmp_path):
+    source = tmp_path / "data" / "combined.json"
+    source.parent.mkdir(parents=True)
+    source.write_text("{}", encoding="utf-8")
+    modified_at_epoch = 1_600_000_000
+    os.utime(source, (modified_at_epoch, modified_at_epoch))
+    modified_at = "2020-09-13T12:26:40+00:00"
+    observed_at = "2020-09-13T12:27:40+00:00"
+    source_row = {
+        "kind": "file",
+        "source_kind": "combined_osm_json",
+        "path": str(source),
+        "path_base": "project_root",
+        "relative_path": "data/combined.json",
+        "modified_at": modified_at,
+    }
+    freshness_row = {
+        "source_kind": "combined_osm_json",
+        "path": str(source),
+        "path_base": "project_root",
+        "relative_path": "data/combined.json",
+        "modified_at": modified_at,
+        "age_seconds": 60.0,
+    }
+    errors = []
+    warnings = []
+    check_manifest_freshness_contract(
+        {
+            "schema_version": 3,
+            "project_root": str(tmp_path),
+            "sources": [source_row],
+            "source_freshness": {
+                "contract": SOURCE_FRESHNESS_CONTRACT,
+                "observed_at": observed_at,
+                "sources": [freshness_row],
+            },
+        },
+        tmp_path / "data",
+        tmp_path / "output",
+        errors,
+        warnings,
+    )
+    assert errors == []
+    assert warnings == []
+
+
+def test_manifest_freshness_contract_rejects_tampered_age_and_source_mtime(tmp_path):
+    source = tmp_path / "data" / "combined.json"
+    source.parent.mkdir(parents=True)
+    source.write_text("{}", encoding="utf-8")
+    modified_at_epoch = 1_600_000_000
+    os.utime(source, (modified_at_epoch, modified_at_epoch))
+    source_row = {
+        "source_kind": "combined_osm_json",
+        "path": str(source),
+        "path_base": "project_root",
+        "relative_path": "data/combined.json",
+        "modified_at": "2020-09-13T12:26:40+00:00",
+    }
+    freshness_row = {
+        "source_kind": "combined_osm_json",
+        "path": str(source),
+        "path_base": "project_root",
+        "relative_path": "data/combined.json",
+        "modified_at": "2020-09-13T12:26:41+00:00",
+        "age_seconds": 999.0,
+    }
+    errors = []
+    check_manifest_freshness_contract(
+        {
+            "schema_version": 3,
+            "project_root": str(tmp_path),
+            "sources": [source_row],
+            "source_freshness": {
+                "contract": SOURCE_FRESHNESS_CONTRACT,
+                "observed_at": "2020-09-13T12:27:40+00:00",
+                "sources": [freshness_row],
+            },
+        },
+        tmp_path / "data",
+        tmp_path / "output",
+        errors,
+        [],
+    )
+    assert any("age_seconds does not match" in error for error in errors)
+    assert any("does not match source_freshness" in error for error in errors)
+    assert any("modified_at is stale" in error for error in errors)
+
+
+def test_manifest_freshness_contract_requires_current_schema_record():
+    errors = []
+    warnings = []
+    check_manifest_freshness_contract(
+        {"schema_version": 3, "sources": []},
+        Path("/tmp/data"),
+        Path("/tmp/output"),
+        errors,
+        warnings,
+    )
+    assert any("missing source_freshness" in error for error in errors)
+    assert warnings == []
 
 
 def test_review_queue_contract_rejects_duplicate_and_non_target_ids():

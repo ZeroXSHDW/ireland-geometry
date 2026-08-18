@@ -7,6 +7,7 @@ from scripts.report import (
     build_report,
     build_report_data,
     interpretation_artifact,
+    source_freshness_summary,
 )
 
 
@@ -102,7 +103,19 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
         ),
         encoding="utf-8",
     )
-    (tmp_path / "manifest.json").write_text(json.dumps({"generated_at": "test"}), encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "test",
+                "source_freshness": {
+                    "contract": "ireland-geometry.freshness.v1",
+                    "observed_at": "2026-08-18T00:00:00+00:00",
+                    "sources": [{"age_seconds": 86_400}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     write_csv(
         tmp_path / "data_quality.csv",
         [
@@ -189,9 +202,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "Download audit CSV" in html
     assert '<script src="https://unpkg.com/leaflet' not in html
     assert "Source readiness:" in html
+    assert "Input freshness:" in html
+    assert "ireland-geometry.freshness.v1" in html
     assert "function renderOfflineMap()" in lazy_html
     assert data["summary"]["source_status"]["lidar"] == "not_provided"
     assert data["summary"]["source_status"]["verification"] == "not_provided"
+    assert data["summary"]["source_freshness"]["oldest_age_days"] == 1.0
     assert data["summary"]["analysis_ready"] is False
     assert data["interpretation"]["status"] == "not_provided"
     assert "No primary golden-angle comparison" in data["interpretation"]["headline"]
@@ -297,3 +313,27 @@ def test_report_interpretation_is_derived_from_result_rows():
         validation,
     )
     assert "3.00% versus 2.00%" in changed["headline"]
+
+
+def test_source_freshness_summary_reports_cache_age_without_an_age_policy():
+    summary = source_freshness_summary(
+        {
+            "source_freshness": {
+                "contract": "ireland-geometry.freshness.v1",
+                "observed_at": "2026-08-18T00:00:00+00:00",
+                "sources": [
+                    {"age_seconds": 86_400},
+                    {"age_seconds": 3_600},
+                    {"age_seconds": "invalid"},
+                ],
+            }
+        }
+    )
+    assert summary == {
+        "status": "reported",
+        "contract": "ireland-geometry.freshness.v1",
+        "observed_at": "2026-08-18T00:00:00+00:00",
+        "source_count": 3,
+        "oldest_age_days": 1.0,
+        "newest_age_days": round(3_600 / 86_400, 3),
+    }

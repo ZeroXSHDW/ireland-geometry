@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import io
 import json
 import math
 from collections import Counter
@@ -13,10 +14,20 @@ from pathlib import Path
 
 try:
     from geometry import geometry_from_geojson, iter_polygons
-    from runtime import atomic_write_json, atomic_write_text, project_path
+    from runtime import (
+        SOURCE_FRESHNESS_CONTRACT,
+        atomic_write_json,
+        atomic_write_text,
+        project_path,
+    )
 except ImportError:
     from scripts.geometry import geometry_from_geojson, iter_polygons
-    from scripts.runtime import atomic_write_json, atomic_write_text, project_path
+    from scripts.runtime import (
+        SOURCE_FRESHNESS_CONTRACT,
+        atomic_write_json,
+        atomic_write_text,
+        project_path,
+    )
 
 
 TOP_N_MARKERS = 800
@@ -24,6 +35,27 @@ TOP_N_POLYGONS = 100
 PAGE_SIZE = 50
 VALIDATION_RECORD_NAMES = ("verification", "schema_validation", "reproducibility")
 INTERPRETATION_CONTRACT = "ireland-geometry.interpretation.v1"
+REPORT_PAGE_CONTRACT = "ireland-geometry.report-page.v1"
+REPORT_EXPORT_CONTRACT = "ireland-geometry.report-export.v1"
+REPORT_PAGE_DEFAULT_LIMIT = 50
+REPORT_PAGE_MAX_LIMIT = 100
+REPORT_FILTER_SORT_KEYS = ("name", "group", "area_m2", "score", "flags")
+REPORT_EXPORT_COLUMNS = (
+    "osm_id",
+    "name",
+    "group",
+    "lat",
+    "lon",
+    "score",
+    "area_m2",
+    "aspect_ratio",
+    "convexity",
+    "circularity",
+    "flags",
+    "niah_name",
+    "niah_rating",
+    "niah_century",
+)
 
 
 def read_csv(path: Path) -> list[dict]:
@@ -172,6 +204,206 @@ def normalize_row(
     }
 
 
+def report_review_state(row: dict) -> str:
+    """Return the review filter value used by both the dashboard and API."""
+    review = row.get("review") or {}
+    return str(review.get("label") or "not_reviewed") if review.get("in_queue") else "not_queued"
+
+
+def report_filter_options(data: dict) -> dict[str, list[str]]:
+    """Return compact, deterministic select options for the lazy dashboard."""
+    rows = data.get("targets", []) if isinstance(data, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+
+    def values(getter):
+        return sorted(
+            {str(value) for row in rows if isinstance(row, dict) if (value := getter(row))},
+            key=lambda value: (value.casefold(), value),
+        )
+
+    return {
+        "group": values(lambda row: row.get("group", "")),
+        "century": values(lambda row: (row.get("niah") or {}).get("century", "")),
+        "rating": values(lambda row: (row.get("niah") or {}).get("rating", "")),
+        "type": values(lambda row: (row.get("niah") or {}).get("type", "")),
+        "review": values(report_review_state),
+    }
+
+
+def report_matching_targets(
+    data: dict,
+    *,
+    query: str = "",
+    group: str = "",
+    century: str = "",
+    rating: str = "",
+    niah_type: str = "",
+    review_state: str = "",
+    min_score: float = 0.0,
+    only_angle: bool = False,
+    only_ratio: bool = False,
+    only_circular: bool = False,
+    only_multi: bool = False,
+    sort_key: str = "score",
+    sort_desc: bool = True,
+) -> list[dict]:
+    """Apply the report's target filters outside the browser.
+
+    Keeping this predicate in the report module makes the paginated API and
+    CSV/GeoJSON exports use exactly the same semantics.
+    """
+    if sort_key not in REPORT_FILTER_SORT_KEYS:
+        raise ValueError(f"sort must be one of {', '.join(REPORT_FILTER_SORT_KEYS)}")
+    if not math.isfinite(min_score):
+        raise ValueError("score must be finite")
+    rows = data.get("targets", []) if isinstance(data, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+    needle = str(query).strip().casefold()
+
+    def matches(row: dict) -> bool:
+        niah = row.get("niah") or {}
+        history = row.get("history") or {}
+        flags = row.get("flags") or []
+        flags_text = ", ".join(str(flag) for flag in flags)
+        haystack = " ".join(
+            str(value or "")
+            for value in (
+                row.get("name"),
+                row.get("osm_id"),
+                row.get("group"),
+                row.get("subtype"),
+                row.get("address_city"),
+                flags_text,
+                niah.get("name"),
+                niah.get("county"),
+                niah.get("type"),
+                history.get("status"),
+                history.get("architect"),
+            )
+        ).casefold()
+        return (
+            (not needle or needle in haystack)
+            and (not group or row.get("group") == group)
+            and (not century or niah.get("century") == century)
+            and (not rating or niah.get("rating") == rating)
+            and (not niah_type or niah.get("type") == niah_type)
+            and (not review_state or report_review_state(row) == review_state)
+            and number(row.get("score")) >= min_score
+            and (not only_angle or bool(row.get("has_golden_angle")))
+            and (not only_ratio or bool(row.get("has_golden_ratio")))
+            and (not only_circular or "circular" in flags)
+            and (not only_multi or bool(row.get("multipart")) or bool(row.get("repaired")))
+        )
+
+    matched = [row for row in rows if isinstance(row, dict) and matches(row)]
+    if sort_key in {"name", "group", "flags"}:
+        def sort_value(row):
+            if sort_key == "flags":
+                return ", ".join(str(flag) for flag in (row.get("flags") or []))
+            return str(row.get(sort_key) or "").casefold()
+    else:
+        def sort_value(row):
+            return number(row.get(sort_key))
+    return sorted(matched, key=sort_value, reverse=sort_desc)
+
+
+def report_page_payload(
+    data: dict,
+    *,
+    limit: int = REPORT_PAGE_DEFAULT_LIMIT,
+    offset: int = 0,
+    initial: bool = False,
+    include_static: bool = False,
+    **filters,
+) -> dict:
+    """Build a bounded lazy-report response without embedding the full pack."""
+    if not 1 <= limit <= REPORT_PAGE_MAX_LIMIT:
+        raise ValueError(f"limit must be between 1 and {REPORT_PAGE_MAX_LIMIT}")
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
+    matched = report_matching_targets(data, **filters)
+    page_rows = matched[offset : offset + limit]
+    payload: dict[str, object] = {
+        "contract": REPORT_PAGE_CONTRACT,
+        "status": "ok",
+        "paged": True,
+        "initial": bool(initial),
+        "targets": page_rows,
+        "page": {
+            "limit": limit,
+            "offset": offset,
+            "count": len(page_rows),
+            "total": len(matched),
+            "has_more": offset + limit < len(matched),
+            "matching_golden_angle": sum(bool(row.get("has_golden_angle")) for row in matched),
+            "matching_niah": sum(bool((row.get("niah") or {}).get("reg_no")) for row in matched),
+        },
+        "filters": dict(filters),
+        "filter_options": report_filter_options(data),
+        "endpoints": {"page": "/api/report/page", "export": "/api/report/export"},
+    }
+    if include_static:
+        payload.update(
+            {
+                key: value
+                for key, value in data.items()
+                if key not in {"targets", "geojson", "candidate_dossiers"}
+            }
+        )
+    return payload
+
+
+def report_csv(data: dict, **filters) -> str:
+    """Serialize the current target filter as the dashboard CSV export."""
+    rows = report_matching_targets(data, **filters)
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(REPORT_EXPORT_COLUMNS)
+    for row in rows:
+        niah = row.get("niah") or {}
+        writer.writerow(
+            [
+                row.get("osm_id", ""),
+                row.get("name", ""),
+                row.get("group", ""),
+                row.get("lat", ""),
+                row.get("lon", ""),
+                row.get("score", ""),
+                row.get("area_m2", ""),
+                row.get("aspect_ratio", ""),
+                row.get("convexity", ""),
+                row.get("circularity", ""),
+                ", ".join(str(flag) for flag in (row.get("flags") or [])),
+                niah.get("name", ""),
+                niah.get("rating", ""),
+                niah.get("century", ""),
+            ]
+        )
+    return output.getvalue()
+
+
+def report_geojson(data: dict, **filters) -> dict:
+    """Return the full-geometry export for the current target filter."""
+    rows = report_matching_targets(data, **filters)
+    ids = {str(row.get("osm_id")) for row in rows}
+    source = data.get("geojson") if isinstance(data, dict) else None
+    source = source if isinstance(source, dict) else {"type": "FeatureCollection", "features": []}
+    features = [
+        feature
+        for feature in source.get("features", [])
+        if isinstance(feature, dict)
+        and str((feature.get("properties") or {}).get("osm_id")) in ids
+    ]
+    return {
+        "type": "FeatureCollection",
+        "contract": REPORT_EXPORT_CONTRACT,
+        "status": "ok",
+        "features": features,
+    }
+
+
 def load_manifest(out: Path) -> dict:
     path = out / "manifest.json"
     if not path.exists():
@@ -257,6 +489,38 @@ def maybe_number(value) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def source_freshness_summary(manifest: dict) -> dict:
+    """Return a compact dashboard summary of manifest source ages."""
+    record = manifest.get("source_freshness") if isinstance(manifest, dict) else None
+    if not isinstance(record, dict):
+        return {
+            "status": "not_provided",
+            "contract": None,
+            "observed_at": "",
+            "source_count": 0,
+            "oldest_age_days": None,
+            "newest_age_days": None,
+        }
+    ages = []
+    rows = record.get("sources")
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            age_seconds = maybe_number(row.get("age_seconds"))
+            if age_seconds is not None and age_seconds >= 0:
+                ages.append(age_seconds / 86_400.0)
+    contract = record.get("contract")
+    return {
+        "status": "reported" if contract == SOURCE_FRESHNESS_CONTRACT else "invalid",
+        "contract": contract,
+        "observed_at": record.get("observed_at", ""),
+        "source_count": len(rows) if isinstance(rows, list) else 0,
+        "oldest_age_days": round(max(ages), 3) if ages else None,
+        "newest_age_days": round(min(ages), 3) if ages else None,
+    }
 
 
 def p_text(value) -> str:
@@ -576,6 +840,7 @@ def build_report_data(out: Path) -> dict:
     review_confusion = read_csv(out / "review_confusion.csv")
     historical_source_register = read_csv(out / "historical_source_register.csv")
     columnar_status = read_json(out / "columnar_status.json")
+    scoring_config = read_json(out / "scoring_config.json")
     verification = read_json(out / "verification.json")
     significance = read_csv(out / "significance.csv")
     negative_controls = read_csv(out / "negative_controls.csv")
@@ -657,6 +922,7 @@ def build_report_data(out: Path) -> dict:
 
     modes = Counter(row.get("match_mode", "") for row in niah_rows)
     manifest = load_manifest(out)
+    freshness_summary = source_freshness_summary(manifest)
     covariate_status = {
         row.get("covariate", ""): row.get("status", "not_provided")
         for row in spatial_covariates_summary
@@ -704,6 +970,13 @@ def build_report_data(out: Path) -> dict:
         "duplicate_centroid_n": integer(quality_summary.get("duplicate_centroid_n")),
         "generated_at": manifest.get("generated_at", ""),
         "source_status": source_status,
+        "source_freshness": freshness_summary,
+        "scoring": {
+            "contract": scoring_config.get("contract", ""),
+            "version": scoring_config.get("version"),
+            "config_sha256": scoring_config.get("config_sha256", ""),
+            "label": scoring_config.get("label", ""),
+        },
         "validation": validation,
         "analysis_ready": validation["passed"] and validation["manifest_available"],
     }
@@ -722,6 +995,7 @@ def build_report_data(out: Path) -> dict:
         "targets": targets,
         "outlines": outlines,
         "summary": summary,
+        "scoring": scoring_config,
         "interpretation": interpretation,
         "significance": significance,
         "negative_controls": negative_controls,
@@ -788,7 +1062,7 @@ def interpretation_artifact(data: dict) -> dict:
 
 
 def build_lazy_report(out: Path) -> str:
-    """Return the same dashboard with the data pack fetched at runtime."""
+    """Return a server-backed dashboard with an explicit full-pack offline mode."""
     template = TEMPLATE.replace("__MARKER_LIMIT__", str(TOP_N_MARKERS)).replace("__DATA__", "null")
     marker = "<script>\nconst PACK = null;\n"
     start = template.index(marker) + len(marker)
@@ -797,8 +1071,17 @@ def build_lazy_report(out: Path) -> str:
     body = body.rsplit("reportLaunch();", 1)[0]
     script = """<script>
 async function loadPack() {
-  const response = await fetch('report_data.json');
-  if (!response.ok) throw new Error(`Could not load report_data.json (${response.status})`);
+  const params = new URLSearchParams(location.search);
+  const offline = params.get('offline') === '1';
+  const url = offline
+    ? 'report_data.json'
+    : `/api/report/page?${new URLSearchParams({initial:'1',limit:'50',offset:'0'})}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(offline
+      ? `Could not load report_data.json (${response.status})`
+      : `Could not load the paginated report API (${response.status}); serve this file with ireland-geometry-serve or use ?offline=1`);
+  }
   boot(await response.json());
 }
 function boot(PACK) {
@@ -993,7 +1276,8 @@ tr[data-id] { cursor:pointer; }
 <script>
 const PACK = __DATA__;
 const OFFLINE_REQUESTED = new URLSearchParams(location.search).get('offline') === '1';
-const DATA = PACK.targets || [];
+const SERVER_MODE = Boolean(PACK && PACK.paged) && !OFFLINE_REQUESTED;
+let DATA = PACK.targets || [];
 const OUTLINES = PACK.outlines || [];
 const SUMMARY = PACK.summary || {};
 const INTERPRETATION = PACK.interpretation || {};
@@ -1012,6 +1296,10 @@ const GEOJSON = PACK.geojson || {type:'FeatureCollection',features:[]};
 const PAGE_SIZE = 50;
 let filtered = DATA.slice();
 let page = 1;
+let pageStats = PACK.page || {total: DATA.length, matching_golden_angle: 0, matching_niah: 0};
+let serverPageReady = Boolean(PACK.initial);
+let serverRequestId = 0;
+let filterTimer = null;
 let sortKey = 'score';
 let sortDesc = true;
 let map = null;
@@ -1031,10 +1319,11 @@ const hasFlag = (row, flag) => row.flags.includes(flag);
 const unique = key => [...new Set(DATA.map(row => key(row)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
 
 function fillSelect(id, values) { for (const value of values) { const option=document.createElement('option'); option.value=value; option.textContent=value; $(id).appendChild(option); } }
-fillSelect('group', unique(row=>row.group));
-fillSelect('century', unique(row=>row.niah.century));
-fillSelect('rating', unique(row=>row.niah.rating));
-fillSelect('niahType', unique(row=>row.niah.type));
+const FILTER_OPTIONS = PACK.filter_options || {};
+fillSelect('group', FILTER_OPTIONS.group || unique(row=>row.group));
+fillSelect('century', FILTER_OPTIONS.century || unique(row=>row.niah.century));
+fillSelect('rating', FILTER_OPTIONS.rating || unique(row=>row.niah.rating));
+fillSelect('niahType', FILTER_OPTIONS.type || unique(row=>row.niah.type));
 
 const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['reviewState','review']];
 const VIEW_CHECKS = [['onlyAngle','angle'],['onlyRatio','ratio'],['onlyCircular','circular'],['onlyMulti','multi']];
@@ -1075,16 +1364,54 @@ function sortRows(rows) {
   return rows.sort((a,b) => { let av=a[sortKey], bv=b[sortKey]; if(sortKey==='flags') { av=flagsText(a); bv=flagsText(b); } if(sortKey==='name'||sortKey==='group') return (String(av||'').localeCompare(String(bv||'')))*(sortDesc?-1:1); return ((Number(bv)||0)-(Number(av)||0))*(sortDesc?1:-1); });
 }
 function updateSortHeaders() { document.querySelectorAll('th[data-sort]').forEach(th=>{ const active=th.dataset.sort===sortKey; const direction=active?(sortDesc?'descending':'ascending'):'none'; th.setAttribute('aria-sort',direction); const button=th.querySelector('.sort-button'); if(button) button.setAttribute('aria-label',`${button.textContent.trim()}; ${active?`sorted ${direction}`:'activate to sort'}`); }); }
+function currentFilterParameters() {
+  const params=new URLSearchParams();
+  const add=(key,value)=>{ if(value!==undefined && value!==null && String(value)!=='') params.set(key,String(value)); };
+  add('q',$('query').value.trim()); add('group',$('group').value); add('century',$('century').value);
+  add('rating',$('rating').value); add('type',$('niahType').value); add('review',$('reviewState').value);
+  if(Number($('score').value)>0) add('score',Number($('score').value));
+  for(const [id,key] of VIEW_CHECKS) if($(id).checked) params.set(key,'1');
+  add('sort',sortKey==='score'?'':sortKey); if(!sortDesc) params.set('desc','0');
+  return params;
+}
+function hasActiveViewState() { const params=currentFilterParameters(); return !sortDesc || [...params.keys()].some(key=>key!=='desc'); }
 function sortBy(key) { sortDesc=sortKey===key?!sortDesc:key==='score'; sortKey=key; applyFilters(); }
-function applyFilters() { filtered=sortRows(DATA.filter(matches)); page=1; syncViewState(); updateSortHeaders(); renderAll(); }
+async function fetchServerPage() {
+  const requestId=++serverRequestId;
+  const params=currentFilterParameters(); params.set('limit',String(PAGE_SIZE)); params.set('offset',String((page-1)*PAGE_SIZE));
+  try {
+    const endpoint=PACK.endpoints?.page || '/api/report/page';
+    const response=await fetch(`${endpoint}?${params}`);
+    const payload=await response.json();
+    if(!response.ok) throw new Error(payload.error || `Report page request failed (${response.status})`);
+    if(requestId!==serverRequestId) return;
+    DATA=payload.targets || []; filtered=DATA.slice(); pageStats=payload.page || {total:0}; renderAll();
+  } catch(error) {
+    if(requestId!==serverRequestId) return;
+    $('count').textContent=`Report API unavailable: ${error.message}`;
+    $('tbody').innerHTML=''; $('empty').hidden=false;
+  }
+}
+function applyFilters() {
+  page=1; syncViewState(); updateSortHeaders();
+  if(SERVER_MODE) {
+    if(serverPageReady && !hasActiveViewState()) { serverPageReady=false; filtered=DATA.slice(); renderAll(); return; }
+    serverPageReady=false; return fetchServerPage();
+  }
+  filtered=sortRows(DATA.filter(matches)); renderAll();
+}
+function queueFilters() { clearTimeout(filterTimer); filterTimer=setTimeout(()=>applyFilters(), $('query')===document.activeElement ? 180 : 0); }
 function renderAll() { renderSummary(); renderTable(); renderMap(); }
 
 function renderSummary() {
-  $('kTargets').textContent=filtered.length.toLocaleString();
+  const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
+  const golden=SERVER_MODE ? Number(pageStats.matching_golden_angle||0) : filtered.filter(row=>row.has_golden_angle).length;
+  const niah=SERVER_MODE ? Number(pageStats.matching_niah||0) : filtered.filter(row=>row.niah.reg_no).length;
+  $('kTargets').textContent=total.toLocaleString();
   $('kControls').textContent=Number(SUMMARY.controls||0).toLocaleString();
-  $('kGolden').textContent=filtered.filter(row=>row.has_golden_angle).length.toLocaleString();
-  $('kNiah').textContent=filtered.filter(row=>row.niah.reg_no).length.toLocaleString();
-  $('count').textContent=`${filtered.length.toLocaleString()} matching targets · showing up to ${PAGE_SIZE} per page`;
+  $('kGolden').textContent=golden.toLocaleString();
+  $('kNiah').textContent=niah.toLocaleString();
+  $('count').textContent=`${total.toLocaleString()} matching targets · showing up to ${PAGE_SIZE} per page`;
   $('reviewCoverage').textContent=`Expert review queue: ${Number(SUMMARY.review_queue_targets||0).toLocaleString()} of ${Number(SUMMARY.targets||0).toLocaleString()} targets (${fmt(SUMMARY.review_queue_coverage_pct,2)}%); unqueued targets are labeled explicitly.`;
 }
 function interpretationStatusClass(value) { return String(value||'not_reported').toLowerCase().replace(/[^a-z0-9_-]/g,'_'); }
@@ -1106,16 +1433,17 @@ function qualityValues(value) { return String(value??'').split('|').map(item=>it
 function osmHref(id) { return `https://www.openstreetmap.org/${encodeURIComponent(id)}`; }
 function qualityMemberHtml(value) { return qualityValues(value).map(id=>`<span class="quality-member"><button type="button" data-quality-focus="${esc(id)}">${esc(id)}</button><a href="${esc(osmHref(id))}" target="_blank" rel="noopener">OSM</a></span>`).join('') || '<span class="footnote">none</span>'; }
 function qualityGroupHtml(value) { return qualityValues(value).map(group=>`<span class="flag">${esc(group)}</span>`).join('') || '<span class="footnote">none</span>'; }
-function focusQualityId(id) { const row=DATA.find(item=>item.osm_id===id); if(!row) { const status=document.querySelector('.quality-status'); if(status) status.textContent=`${id} is not a target row in this dashboard view; use its OSM link for inspection.`; return; } $('query').value=id; applyFilters(); focusRow(id); }
+async function focusQualityId(id) { if(SERVER_MODE) { $('query').value=id; await applyFilters(); focusRow(id); return; } const row=DATA.find(item=>item.osm_id===id); if(!row) { const status=document.querySelector('.quality-status'); if(status) status.textContent=`${id} is not a target row in this dashboard view; use its OSM link for inspection.`; return; } $('query').value=id; applyFilters(); focusRow(id); }
 function qualityStatusKind(value) { const status=String(value||''); if(status==='ok') return 'ok'; if(status.startsWith('available')||status.startsWith('provided')) return 'provided'; if(status.startsWith('not_provided')) return 'missing'; return 'check'; }
 function qualityStatusHtml(value) { const status=String(value||'not_reported'); return `<span class="quality-badge ${qualityStatusKind(status)}">${esc(status)}</span>`; }
 function renderQualityAuditTable() { const scope=$('qualityAuditScope').value; const state=$('qualityAuditStatus').value; const rows=QUALITY_AUDIT.filter(row=>(!scope||row.scope===scope)&&(!state||qualityStatusKind(row.quality_status)===state)); $('qualityAuditCount').textContent=`${rows.length.toLocaleString()} of ${QUALITY_AUDIT.length.toLocaleString()} audit rows`; $('qualityAuditTable').innerHTML=rows.length?`<table><thead><tr><th>Scope</th><th>Group</th><th>Field</th><th>Rows</th><th>Missing</th><th>Invalid</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.scope)}</td><td>${esc(row.group)}</td><td>${esc(row.field)}</td><td>${esc(row.row_n)}</td><td>${esc(row.missing_n)} (${fmt(row.missing_pct,2)}%)</td><td>${esc(row.invalid_n)}</td><td>${qualityStatusHtml(row.quality_status)}</td><td>${esc(row.notes)}</td></tr>`).join('')}</tbody></table>`:'<p class="footnote">No audit rows match this filter.</p>'; }
 function renderQualityAudit() { if(!QUALITY_AUDIT.length) { $('qualityAudit').innerHTML='<p class="footnote">No field or source audit rows were reported.</p>'; return; } $('qualityAudit').innerHTML=`<details class="quality-details"><summary>Inspect field and source audit (${QUALITY_AUDIT.length.toLocaleString()} rows)</summary><div class="quality-audit-controls"><label>Scope <select id="qualityAuditScope"><option value="">All</option><option value="analysis">Analysis</option><option value="source">Source</option></select></label><label>Status <select id="qualityAuditStatus"><option value="">All</option><option value="ok">OK</option><option value="provided">Provided</option><option value="missing">Not provided</option><option value="check">Check</option></select></label><button id="downloadQuality" type="button">Download audit CSV</button><span id="qualityAuditCount" class="quality-audit-count footnote"></span></div><div id="qualityAuditTable" class="quality-audit-table"></div></details>`; $('qualityAuditScope').addEventListener('change',renderQualityAuditTable); $('qualityAuditStatus').addEventListener('change',renderQualityAuditTable); $('downloadQuality').addEventListener('click',downloadQualityAudit); renderQualityAuditTable(); }
 function renderTable() {
-  const start=(page-1)*PAGE_SIZE, visible=filtered.slice(start,start+PAGE_SIZE);
+  const visible=SERVER_MODE ? filtered : filtered.slice((page-1)*PAGE_SIZE,(page-1)*PAGE_SIZE+PAGE_SIZE);
   $('tbody').innerHTML=visible.map(row=>`<tr data-id="${esc(row.osm_id)}" tabindex="0" aria-label="Focus ${esc(row.name||'Unnamed')} ${esc(row.osm_id)}"><td><b>${esc(row.name||'Unnamed')}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`).join('');
   $('empty').hidden=visible.length>0;
-  const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)); $('page').textContent=`${Math.min(page,pages)} / ${pages}`; $('prev').disabled=page<=1; $('next').disabled=page>=pages;
+  const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
+  const pages=Math.max(1,Math.ceil(total/PAGE_SIZE)); $('page').textContent=`${Math.min(page,pages)} / ${pages}`; $('prev').disabled=page<=1; $('next').disabled=page>=pages;
   document.querySelectorAll('#tbody tr[data-id]').forEach(tr=>{ tr.addEventListener('click',()=>focusRow(tr.dataset.id)); tr.addEventListener('keydown',event=>{ if((event.key==='Enter'||event.key===' ')&&!event.target.closest('a,button,input,select,textarea')){ event.preventDefault(); focusRow(tr.dataset.id); } }); });
   document.querySelectorAll('#tbody a.review-link').forEach(link=>link.addEventListener('click',event=>event.stopPropagation()));
 }
@@ -1185,6 +1513,14 @@ function sourceStatusText() {
   const entries=Object.entries(statuses);
   return entries.length ? entries.map(([key,value])=>`${esc(key.replaceAll('_',' '))}: <b>${esc(String(value).replaceAll('_',' '))}</b>`).join(' · ') : 'not reported';
 }
+function sourceFreshnessText() {
+  const freshness=SUMMARY.source_freshness||{};
+  if(freshness.status!=='reported' || !Number(freshness.source_count)) return freshness.status==='invalid' ? 'invalid freshness record' : 'not reported';
+  const oldest=Number(freshness.oldest_age_days);
+  const age=Number.isFinite(oldest) ? `; oldest cached source ${fmt(oldest,1)} days old` : '';
+  const observed=freshness.observed_at ? `; observed ${esc(freshness.observed_at)}` : '';
+  return `${Number(freshness.source_count).toLocaleString()} cached sources under ${esc(freshness.contract||'the freshness contract')}${age}${observed}`;
+}
 function routePayloadDetails(payload) { return payload.type==='Feature' ? (payload.properties||{}) : payload; }
 function routeCoordinates(payload) {
   const geometry=payload.type==='Feature' ? payload.geometry : null;
@@ -1230,9 +1566,16 @@ function initRoute() {
     : 'Enter coordinates and run a route against the local graph.';
 }
 function download(name, content, type) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),500); }
-function downloadCsv() { const cols=['osm_id','name','group','lat','lon','score','area_m2','aspect_ratio','convexity','circularity','flags','niah_name','niah_rating','niah_century']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(',')]; filtered.forEach(row=>lines.push(cols.map(key=>{ if(key==='flags')return escCsv(flagsText(row)); if(key.startsWith('niah_'))return escCsv(row.niah[key.slice(5)]); return escCsv(row[key]); }).join(','))); download('ireland-geometry-filtered.csv',lines.join('\n'),'text/csv'); }
+async function downloadFiltered(format) {
+  const params=currentFilterParameters(); params.set('format',format);
+  const endpoint=PACK.endpoints?.export || '/api/report/export';
+  const response=await fetch(`${endpoint}?${params}`); const body=await response.text();
+  if(!response.ok) { let message=body; try { message=JSON.parse(body).error || body; } catch(error) {} throw new Error(message || `Export failed (${response.status})`); }
+  download(format==='csv'?'ireland-geometry-filtered.csv':'ireland-geometry-filtered.geojson',body,format==='csv'?'text/csv':'application/geo+json');
+}
+function downloadCsv() { if(SERVER_MODE) { downloadFiltered('csv').catch(error=>{ $('count').textContent=`CSV export unavailable: ${error.message}`; }); return; } const cols=['osm_id','name','group','lat','lon','score','area_m2','aspect_ratio','convexity','circularity','flags','niah_name','niah_rating','niah_century']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(',')]; filtered.forEach(row=>lines.push(cols.map(key=>{ if(key==='flags')return escCsv(flagsText(row)); if(key.startsWith('niah_'))return escCsv(row.niah[key.slice(5)]); return escCsv(row[key]); }).join(','))); download('ireland-geometry-filtered.csv',lines.join('\n'),'text/csv'); }
 function downloadQualityAudit() { const cols=['scope','group','field','row_n','missing_n','missing_pct','unique_n','invalid_n','quality_status','notes']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(','),...QUALITY_AUDIT.map(row=>cols.map(key=>escCsv(row[key])).join(','))]; download('ireland-data-quality-audit.csv',lines.join('\n'),'text/csv'); }
-function downloadGeo() { const ids=new Set(filtered.map(row=>row.osm_id)); const copy={...GEOJSON,features:(GEOJSON.features||[]).filter(feature=>ids.has(feature.properties?.osm_id))}; download('ireland-geometry-filtered.geojson',JSON.stringify(copy),'application/geo+json'); }
+function downloadGeo() { if(SERVER_MODE) { downloadFiltered('geojson').catch(error=>{ $('count').textContent=`GeoJSON export unavailable: ${error.message}`; }); return; } const ids=new Set(filtered.map(row=>row.osm_id)); const copy={...GEOJSON,features:(GEOJSON.features||[]).filter(feature=>ids.has(feature.properties?.osm_id))}; download('ireland-geometry-filtered.geojson',JSON.stringify(copy),'application/geo+json'); }
 let mapAssetsAvailable = false;
 function loadStyle(href) { const link=document.createElement('link'); link.rel='stylesheet'; link.href=href; document.head.appendChild(link); }
 function loadScript(src) { return new Promise((resolve,reject)=>{ const script=document.createElement('script'); script.src=src; script.onload=resolve; script.onerror=()=>reject(new Error(`Could not load map asset ${src}`)); document.head.appendChild(script); }); }
@@ -1251,7 +1594,7 @@ async function loadMapAssets() {
   }
 }
 function initMap() { if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined'){ offlineMap=true; renderOfflineMap(); return; } map=L.map('map').setView([53.35,-8.05],7); const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map); const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri World Imagery',maxZoom:18}); markerLayer=(L.markerClusterGroup?L.markerClusterGroup({maxClusterRadius:45,disableClusteringAtZoom:14}):L.layerGroup()).addTo(map); const outlineLayer=L.layerGroup().addTo(map); OUTLINES.forEach(item=>{ const shapes=item.rings.length===1?item.rings[0]:item.rings; L.polygon(shapes,{color:'#1f2937',weight:2,fillColor:color(item.score),fillOpacity:.2}).bindPopup(`<b>${esc(item.name||'Unnamed')}</b><br>${esc(item.group)} · score ${fmt(item.score)}<br>${flagHtml({flags:item.flags||[]})}`).addTo(outlineLayer); }); L.control.layers({'OSM':osm,'Satellite':esri},{'Top outlines':outlineLayer,'Markers':markerLayer}).addTo(map); renderMap(); }
-function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); applyFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',applyFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--;renderTable();}}); $('next').addEventListener('click',()=>{if(page<Math.ceil(filtered.length/PAGE_SIZE)){page++;renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), and Esri World Imagery for visual reference.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap(); }
+function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), and Esri World Imagery for visual reference.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap(); }
 async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { document.body.innerHTML=`<pre style="padding:20px">${error}</pre>`; } }
 reportLaunch();
 </script>

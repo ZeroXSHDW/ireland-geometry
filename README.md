@@ -19,6 +19,9 @@ and 300 Monte Carlo iterations:
 - 135,173 OSM area elements ingested;
 - 123,810 footprints pass the 25 m² analysis threshold;
 - 33,416 target buildings and 90,394 empirical controls;
+- a versioned `ireland-geometry.exploratory-score.v1` scoring plan with
+  self-describing weights, thresholds, and `output/scoring_config.json`
+  provenance;
 - 9,455 OSM→NIAH spatial joins (8,884 analyzed rows);
 - 41 NIAH significance tests, 2 point-pattern groups, 1,114 architect-evidence rows;
 - 100,212 local target-control pairs, 12 matched tests, and 12 hierarchical tests;
@@ -172,12 +175,15 @@ cache semantics cannot silently reuse an old stage. It also follows the local
 Python import closure of each stage, so edits to shared analytical helpers such
 as `geometry.py` or `stats.py` invalidate the stages that consume them without
 making report-server or query-CLI edits rebuild analytical stages.
-Stage-cache version 4 also records the exact fingerprint inputs with each
-reusable stage and exposes stable dry-run reasons such as `cache_missing`,
+Stage-cache version 5 also records the exact fingerprint inputs with each
+reusable stage under `ireland-geometry.stage-cache.fingerprint.v1` and exposes stable dry-run reasons such as `cache_missing`,
 `runtime_mismatch`, `fingerprint_inputs_missing`, `output_hash_mismatch`,
 and `cache_hit`. This makes a
 cache decision inspectable without rerunning the stage or reverse-engineering
 the fingerprint.
+Git revision remains available as audit metadata but does not invalidate a
+stage by itself; controller edits that only change manifest/provenance writing
+also leave effective analytical fingerprints unchanged.
 
 Diagnostic-only reruns (`report`, `schema-audit`, `repro-check`, and `verify`)
 preserve the existing analytical manifest context instead of replacing its
@@ -230,6 +236,12 @@ readiness fails if any exceeds the configured positive limit. Without that
 option, freshness is still reported but does not impose an age policy.
 Manifest and API source-freshness records use the versioned
 `ireland-geometry.freshness.v1` contract.
+The OpenAPI 3.1 document declares the source-freshness object and its
+timestamp/age fields so clients can validate metadata and capability responses
+without relying on permissive extra properties.
+The standalone and lazy report method/provenance panel also summarizes the
+number of reported cached sources and the oldest observed source age; the
+manifest remains the detailed source-by-source record.
 Its capability matrix also reports whether the generated manifest is legacy or
 supports relocation-safe relative paths, including portable artifact/source
 counts and external-source counts.
@@ -261,11 +273,16 @@ downloadable artifacts for 14 days from successful CI runs.
 `ireland-geometry-serve` binds to `127.0.0.1:8000` and serves
 `report_lazy.html` by default. Use `--open` to launch it in the default
 browser, `--port 0` to select an available port, or `--report report.html` to
-serve the self-contained dashboard. The `__health` endpoint can be used by a
+serve the self-contained dashboard. The lazy dashboard requests only the
+first 50 target rows from `GET /api/report/page`; its filters, sorting,
+pagination, and CSV/GeoJSON exports stay server-side, so opening the report
+does not download the full target/geometry pack. Append `?offline=1` when a
+full-pack, dependency-free offline review is intentional; the standalone
+`report.html` remains fully embedded. The `__health` endpoint can be used by a
 smoke test or local automation: it reports `ready: false` and
 `status: "degraded"` when the lazy report lacks its required data pack, while
 an embedded `report.html` does not require that pack. Clients that advertise gzip receive the
-115 MB report data pack compressed on the wire (the browser transparently
+full `report_data.json` pack compressed on the wire (the browser transparently
 decompresses it); the server caches the compressed bytes until the pack
 changes and returns a deterministic `ETag`, so repeat requests can revalidate
 with `If-None-Match` and receive `304 Not Modified` without another download.
@@ -320,7 +337,12 @@ row counts, source/artifact counts, verification, schema-audit, and
 reproducibility status, plus usable export backends; each export backend now includes declared status,
 file availability, runtime readability, and any probe error, alongside the
 `readable_backends` list. Its response links to the full local JSON records.
-`GET /api/capabilities` provides a single discovery document for local
+`GET /api/report/page` exposes the versioned
+`ireland-geometry.report-page.v1` contract with bounded target pages and
+filter options. `GET /api/report/export?format=csv|geojson` exposes the
+matching `ireland-geometry.report-export.v1` export contract. Both endpoints
+reuse the dashboard predicate and reload the server-side pack only when its
+mtime/size changes. `GET /api/capabilities` provides a single discovery document for local
 automation: it reports report readiness, analytical validation readiness,
 package version, endpoint paths,
 versioned response contracts, query limits/cursors, route availability, and
@@ -329,10 +351,12 @@ the JSON surfaces identify themselves with stable
 contracts: `ireland-geometry.health.v1`, `ireland-geometry.query.v1`,
 `ireland-geometry.metadata.v1`, `ireland-geometry.route.v1`, and
 `ireland-geometry.capabilities.v1`, plus
-`ireland-geometry.interpretation.v1`. `GET /api/openapi.json` serves a
+`ireland-geometry.interpretation.v1`,
+`ireland-geometry.report-page.v1`, and
+`ireland-geometry.report-export.v1`. `GET /api/openapi.json` serves a
 dependency-free OpenAPI 3.1 document for those read-only endpoints, including
-the interpretation sidecar, query filters/cursors, route coordinate/profile
-parameters, response schemas,
+the interpretation sidecar, paginated report filters/exports, query
+filters/cursors, route coordinate/profile parameters, response schemas,
 and the `ireland-geometry.openapi.v1` document contract. The schema endpoint
 uses the same deterministic ETag revalidation behavior as the other local
 metadata surfaces.
@@ -466,6 +490,7 @@ retaining filters, the table, and downloads.
 |---|---|
 | `analysis_results.csv` | One row per analyzed target/control footprint, with dimensions, angles, symmetry, convexity, circularity, quality flags, and score. |
 | `top_patterns.csv` | Target rows with score ≥ 55, ranked for inspection. |
+| `scoring_config.json` | Versioned exploratory scoring contract, normalized weights/thresholds, and hashes for the plan and effective configuration. |
 | `ireland_buildings.geojson` | Target geometries and report properties. |
 | `significance.csv` | Building-level target/control comparisons with Wilson intervals, risk differences, odds ratios, raw p, Holm-adjusted p, method, and verdict. |
 | `negative_controls.csv` | Separately corrected conventional-angle diagnostics that test whether generic angular structure tracks target/control status. |
@@ -527,6 +552,12 @@ polygon area / convex-hull area
 so a valid polygon is at most 1.0, rather than the inverted ratio used by the
 original prototype. The composite score is a prioritisation heuristic, not a
 probability or a model of design quality.
+
+The score weights and thresholds are versioned in the tracked analysis plan
+under `ireland-geometry.exploratory-score.v1`. The analyzer emits the normalized
+configuration and both plan/configuration hashes in `scoring_config.json`, so a
+changed screening rule becomes an explicit analytical input and cannot be
+mistaken for an inferential result.
 
 It also records rectangularity, normalized angle entropy, radial variability,
 four low-order radial Fourier descriptors, vertex density, hole-area fraction,
@@ -678,7 +709,9 @@ Git revision, and whether the working tree was dirty at build time. `verify` che
 ID alignment, no-replacement uniqueness, probability ranges, schema registry,
 package/runtime provenance shape, report
 JavaScript, optional-source status, artifact hashes, and complete manifest
-coverage. It rejects duplicate or external manifest paths and unlisted output
+coverage. It also validates the `ireland-geometry.freshness.v1` source-age
+record, including timestamp arithmetic, source-row alignment, and current
+filesystem modification times. It rejects duplicate or external manifest paths and unlisted output
 coverage. Its path contract preserves portable relative references alongside
 the legacy absolute paths, and verification can resolve an artifact after the
 project has been moved. It rejects duplicate or external manifest paths and

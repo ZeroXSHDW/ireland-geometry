@@ -19,6 +19,10 @@ from scripts.serve_report import (
     OPENAPI_CONTRACT,
     OPENAPI_PATH,
     QUERY_CONTRACT,
+    REPORT_EXPORT_API_PATH,
+    REPORT_EXPORT_CONTRACT,
+    REPORT_PAGE_API_PATH,
+    REPORT_PAGE_CONTRACT,
     ROUTE_API_PATH,
     ROUTE_CONTRACT,
     create_server,
@@ -153,6 +157,8 @@ def test_report_server_capabilities_api_describes_contracts_and_runtime_state(tm
             "route": ROUTE_CONTRACT,
             "openapi": OPENAPI_CONTRACT,
             "interpretation": INTERPRETATION_CONTRACT,
+            "report_page": REPORT_PAGE_CONTRACT,
+            "report_export": REPORT_EXPORT_CONTRACT,
         }
         assert capabilities["report"] == {
             "name": "report_lazy.html",
@@ -180,6 +186,21 @@ def test_report_server_capabilities_api_describes_contracts_and_runtime_state(tm
             "method": "GET",
             "contract": INTERPRETATION_CONTRACT,
             "available": False,
+        }
+        assert capabilities["endpoints"]["report_page"] == {
+            "path": REPORT_PAGE_API_PATH,
+            "method": "GET",
+            "contract": REPORT_PAGE_CONTRACT,
+            "available": True,
+            "pagination": True,
+            "max_limit": 100,
+        }
+        assert capabilities["endpoints"]["report_export"] == {
+            "path": REPORT_EXPORT_API_PATH,
+            "method": "GET",
+            "contract": REPORT_EXPORT_CONTRACT,
+            "available": True,
+            "formats": ["csv", "geojson"],
         }
         assert capabilities["endpoints"]["query"]["contract"] == QUERY_CONTRACT
         assert capabilities["endpoints"]["query"]["readable_backends"] == ["csv"]
@@ -228,6 +249,15 @@ def test_report_server_openapi_document_describes_read_endpoints(tmp_path):
             document["components"]["schemas"]["HealthResponse"]["required"]
         )
         assert "ValidationStatus" in document["components"]["schemas"]
+        assert "SourceFreshness" in document["components"]["schemas"]
+        freshness_schema = document["components"]["schemas"]["SourceFreshness"]
+        assert (
+            freshness_schema["properties"]["contract"]["const"]
+            == "ireland-geometry.freshness.v1"
+        )
+        assert set(freshness_schema["required"]) == {"contract", "observed_at", "sources"}
+        assert "source_freshness" in document["components"]["schemas"]["MetadataResponse"]["required"]
+        assert "source_freshness" in document["components"]["schemas"]["CapabilitiesResponse"]["required"]
         assert set(document["paths"]) == {
             "/__health",
             "/api/capabilities",
@@ -236,6 +266,8 @@ def test_report_server_openapi_document_describes_read_endpoints(tmp_path):
             "/api/interpretation",
             "/api/query",
             "/api/route",
+            REPORT_PAGE_API_PATH,
+            REPORT_EXPORT_API_PATH,
         }
         assert document["x-response-contracts"]["interpretation"] == INTERPRETATION_CONTRACT
         assert document["paths"][INTERPRETATION_API_PATH]["get"]["operationId"] == "getInterpretation"
@@ -248,6 +280,12 @@ def test_report_server_openapi_document_describes_read_endpoints(tmp_path):
             item["name"] for item in document["paths"]["/api/route"]["get"]["parameters"]
         }
         assert {"start_lat", "start_lon", "goal_lat", "goal_lon", "format"} <= route_parameters
+        report_parameters = {
+            item["name"] for item in document["paths"][REPORT_PAGE_API_PATH]["get"]["parameters"]
+        }
+        assert {"q", "score", "limit", "offset", "initial", "sort"} <= report_parameters
+        assert document["paths"][REPORT_EXPORT_API_PATH]["get"]["operationId"] == "exportFilteredReport"
+        assert "ReportPageResponse" in document["components"]["schemas"]
         conditional = urllib.request.Request(
             f"{base}{OPENAPI_PATH}", headers={"If-None-Match": etag}
         )
@@ -378,7 +416,15 @@ def test_report_server_metadata_api_exposes_compact_build_contract(tmp_path):
     freshness = {
         "contract": "ireland-geometry.freshness.v1",
         "observed_at": "2026-08-18T00:00:00+00:00",
-        "sources": [{"source_kind": "file", "age_seconds": 3600}],
+        "sources": [
+            {
+                "source_kind": "file",
+                "path": "/tmp/combined.json",
+                "path_base": "external",
+                "modified_at": "2026-08-17T23:00:00+00:00",
+                "age_seconds": 3600,
+            }
+        ],
     }
     (tmp_path / "manifest.json").write_text(
         json.dumps(
@@ -774,3 +820,106 @@ def test_report_server_allows_full_embedded_report(tmp_path):
         assert report_url(server, server.report_name).endswith("/report.html")
     finally:
         server.server_close()
+
+
+def test_report_server_pages_and_exports_filtered_targets(tmp_path):
+    (tmp_path / "report_lazy.html").write_text("<html>lazy</html>", encoding="utf-8")
+    targets = [
+        {
+            "osm_id": "way/1",
+            "name": "Alpha Chapel",
+            "group": "worship",
+            "subtype": "chapel",
+            "address_city": "Dublin",
+            "score": 91,
+            "area_m2": 120,
+            "aspect_ratio": 1.2,
+            "convexity": 0.9,
+            "circularity": 0.8,
+            "flags": ["circular"],
+            "has_golden_angle": 1,
+            "has_golden_ratio": 1,
+            "multipart": 0,
+            "repaired": 0,
+            "niah": {"reg_no": "R1", "name": "Alpha", "county": "Dublin", "type": "church", "century": "18th", "rating": "Regional"},
+            "history": {"status": "", "architect": ""},
+            "review": {"in_queue": True, "label": "supportive"},
+        },
+        {
+            "osm_id": "way/2",
+            "name": "Beta Hall",
+            "group": "other",
+            "subtype": "hall",
+            "address_city": "Cork",
+            "score": 20,
+            "area_m2": 80,
+            "aspect_ratio": 2.0,
+            "convexity": 0.7,
+            "circularity": 0.4,
+            "flags": [],
+            "has_golden_angle": 0,
+            "has_golden_ratio": 0,
+            "multipart": 1,
+            "repaired": 0,
+            "niah": {"reg_no": "", "name": "", "county": "Cork", "type": "", "century": "", "rating": ""},
+            "history": {"status": "", "architect": ""},
+            "review": {"in_queue": False},
+        },
+    ]
+    (tmp_path / "report_data.json").write_text(
+        json.dumps(
+            {
+                "targets": targets,
+                "summary": {"targets": 2},
+                "geojson": {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "geometry": None, "properties": {"osm_id": "way/1"}},
+                        {"type": "Feature", "geometry": None, "properties": {"osm_id": "way/2"}},
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    server = create_server(tmp_path, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = report_url(server, server.report_name).rsplit("/", 1)[0]
+        page_url = f"{base}{REPORT_PAGE_API_PATH}?initial=1&limit=1&group=worship&score=80"
+        with urllib.request.urlopen(page_url, timeout=2) as response:
+            page = json.load(response)
+        assert page["contract"] == REPORT_PAGE_CONTRACT
+        assert page["initial"] is True
+        assert page["page"] == {
+            "limit": 1,
+            "offset": 0,
+            "count": 1,
+            "total": 1,
+            "has_more": False,
+            "matching_golden_angle": 1,
+            "matching_niah": 1,
+        }
+        assert [row["osm_id"] for row in page["targets"]] == ["way/1"]
+        assert page["summary"] == {"targets": 2}
+        with urllib.request.urlopen(
+            f"{base}{REPORT_EXPORT_API_PATH}?format=csv&group=worship&score=80", timeout=2
+        ) as response:
+            csv_body = response.read().decode("utf-8")
+            assert response.headers["Content-Disposition"].endswith("ireland-geometry-filtered.csv\"")
+        assert csv_body.splitlines()[0].startswith("osm_id,name,group")
+        assert "way/1" in csv_body and "way/2" not in csv_body
+        with urllib.request.urlopen(
+            f"{base}{REPORT_EXPORT_API_PATH}?format=geojson&group=worship", timeout=2
+        ) as response:
+            geojson = json.load(response)
+        assert geojson["contract"] == REPORT_EXPORT_CONTRACT
+        assert [feature["properties"]["osm_id"] for feature in geojson["features"]] == ["way/1"]
+        with pytest.raises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(f"{base}{REPORT_PAGE_API_PATH}?limit=101", timeout=2)
+        assert error.value.code == 400
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

@@ -35,9 +35,19 @@ try:
         probe_backend,
         query_rows,
     )
+    from report import (
+        REPORT_EXPORT_CONTRACT,
+        REPORT_FILTER_SORT_KEYS,
+        REPORT_PAGE_CONTRACT,
+        REPORT_PAGE_DEFAULT_LIMIT,
+        REPORT_PAGE_MAX_LIMIT,
+        report_csv,
+        report_geojson,
+        report_page_payload,
+    )
     from road_routing import SQLiteRoadGraph, load_graph, parse_departure
     from route_query import ROUTE_CONTRACT, query_route, route_geojson
-    from runtime import package_version, project_path
+    from runtime import SOURCE_FRESHNESS_CONTRACT, package_version, project_path
 except ImportError:
     from scripts.query_data import (
         _cursor_for_row,
@@ -45,9 +55,19 @@ except ImportError:
         probe_backend,
         query_rows,
     )
+    from scripts.report import (
+        REPORT_EXPORT_CONTRACT,
+        REPORT_FILTER_SORT_KEYS,
+        REPORT_PAGE_CONTRACT,
+        REPORT_PAGE_DEFAULT_LIMIT,
+        REPORT_PAGE_MAX_LIMIT,
+        report_csv,
+        report_geojson,
+        report_page_payload,
+    )
     from scripts.road_routing import SQLiteRoadGraph, load_graph, parse_departure
     from scripts.route_query import ROUTE_CONTRACT, query_route, route_geojson
-    from scripts.runtime import package_version, project_path
+    from scripts.runtime import SOURCE_FRESHNESS_CONTRACT, package_version, project_path
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -60,6 +80,8 @@ METADATA_API_PATH = "/api/metadata"
 CAPABILITIES_API_PATH = "/api/capabilities"
 OPENAPI_PATH = "/api/openapi.json"
 INTERPRETATION_API_PATH = "/api/interpretation"
+REPORT_PAGE_API_PATH = "/api/report/page"
+REPORT_EXPORT_API_PATH = "/api/report/export"
 HEALTH_CONTRACT = "ireland-geometry.health.v1"
 QUERY_CONTRACT = "ireland-geometry.query.v1"
 METADATA_CONTRACT = "ireland-geometry.metadata.v1"
@@ -74,6 +96,8 @@ API_CONTRACTS = {
     "route": ROUTE_CONTRACT,
     "openapi": OPENAPI_CONTRACT,
     "interpretation": INTERPRETATION_CONTRACT,
+    "report_page": REPORT_PAGE_CONTRACT,
+    "report_export": REPORT_EXPORT_CONTRACT,
 }
 QUERY_MAX_LIMIT = 1000
 QUERY_MAX_OFFSET = 10_000_000
@@ -115,6 +139,27 @@ def _openapi_error_response(description: str) -> dict[str, object]:
 
 def openapi_document() -> dict[str, object]:
     """Return the versioned, dependency-free schema for the local read API."""
+    report_parameters = [
+        _openapi_query_parameter("q", {"type": "string"}, description="Case-insensitive target search."),
+        _openapi_query_parameter("group", {"type": "string"}, description="Exact target group."),
+        _openapi_query_parameter("century", {"type": "string"}, description="Exact NIAH century filter."),
+        _openapi_query_parameter("rating", {"type": "string"}, description="Exact NIAH rating filter."),
+        _openapi_query_parameter("type", {"type": "string"}, description="Exact NIAH type filter."),
+        _openapi_query_parameter("review", {"type": "string"}, description="Review queue state."),
+        _openapi_query_parameter("score", {"type": "number", "format": "double"}, description="Finite inclusive minimum score."),
+        _openapi_query_parameter("angle", {"type": "boolean"}, description="Require a golden-angle flag."),
+        _openapi_query_parameter("ratio", {"type": "boolean"}, description="Require a golden-ratio flag."),
+        _openapi_query_parameter("circular", {"type": "boolean"}, description="Require a circularity flag."),
+        _openapi_query_parameter("multi", {"type": "boolean"}, description="Require multipart or repaired geometry."),
+        _openapi_query_parameter("sort", {"type": "string", "enum": list(REPORT_FILTER_SORT_KEYS)}, description="Stable sort key."),
+        _openapi_query_parameter("desc", {"type": "boolean", "default": True}, description="Sort descending when true."),
+    ]
+    report_page_parameters = [
+        *report_parameters,
+        _openapi_query_parameter("limit", {"type": "integer", "minimum": 1, "maximum": REPORT_PAGE_MAX_LIMIT, "default": REPORT_PAGE_DEFAULT_LIMIT}, description="Rows in one page."),
+        _openapi_query_parameter("offset", {"type": "integer", "minimum": 0, "maximum": QUERY_MAX_OFFSET, "default": 0}, description="Zero-based page offset."),
+        _openapi_query_parameter("initial", {"type": "boolean"}, description="Include compact static report sections."),
+    ]
     return {
         "openapi": "3.1.0",
         "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
@@ -178,6 +223,41 @@ def openapi_document() -> dict[str, object]:
                         ),
                         "404": _openapi_error_response("Interpretation sidecar is not available"),
                         "500": _openapi_error_response("Interpretation sidecar is invalid"),
+                    },
+                }
+            },
+            REPORT_PAGE_API_PATH: {
+                "get": {
+                    "operationId": "getReportPage",
+                    "summary": "Read a bounded, filtered report target page",
+                    "parameters": report_page_parameters,
+                    "responses": {
+                        "200": _openapi_json_response("ReportPageResponse", "Report target page"),
+                        "400": _openapi_error_response("Invalid report page parameters"),
+                        "404": _openapi_error_response("Report data pack is not available"),
+                        "500": _openapi_error_response("Report data pack is invalid"),
+                    },
+                }
+            },
+            REPORT_EXPORT_API_PATH: {
+                "get": {
+                    "operationId": "exportFilteredReport",
+                    "summary": "Export the current report filter as CSV or GeoJSON",
+                    "parameters": [
+                        *report_parameters,
+                        _openapi_query_parameter("format", {"type": "string", "enum": ["csv", "geojson"]}, description="Export format.", required=True),
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Filtered CSV or GeoJSON export",
+                            "content": {
+                                "text/csv": {"schema": {"type": "string"}},
+                                "application/geo+json": {"schema": {"$ref": "#/components/schemas/GeoJSONFeatureCollection"}},
+                            },
+                        },
+                        "400": _openapi_error_response("Invalid export parameters"),
+                        "404": _openapi_error_response("Report data pack is not available"),
+                        "500": _openapi_error_response("Report data pack is invalid"),
                     },
                 }
             },
@@ -346,6 +426,7 @@ def openapi_document() -> dict[str, object]:
                         "validation",
                         "contracts",
                         "endpoints",
+                        "source_freshness",
                     ],
                     "properties": {
                         "contract": {"const": CAPABILITIES_CONTRACT},
@@ -355,6 +436,12 @@ def openapi_document() -> dict[str, object]:
                         "validation": {"$ref": "#/components/schemas/ValidationStatus"},
                         "contracts": {"type": "object", "additionalProperties": {"type": "string"}},
                         "endpoints": {"type": "object", "additionalProperties": True},
+                        "source_freshness": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/SourceFreshness"},
+                                {"type": "null"},
+                            ]
+                        },
                     },
                     "additionalProperties": True,
                 },
@@ -374,10 +461,50 @@ def openapi_document() -> dict[str, object]:
                 },
                 "MetadataResponse": {
                     "type": "object",
-                    "required": ["contract", "status"],
+                    "required": ["contract", "status", "source_freshness"],
                     "properties": {
                         "contract": {"const": METADATA_CONTRACT},
                         "status": {"type": "string"},
+                        "source_freshness": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/SourceFreshness"},
+                                {"type": "null"},
+                            ]
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "SourceFreshness": {
+                    "type": "object",
+                    "required": ["contract", "observed_at", "sources"],
+                    "properties": {
+                        "contract": {"const": SOURCE_FRESHNESS_CONTRACT},
+                        "observed_at": {"type": "string", "format": "date-time"},
+                        "sources": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": [
+                                    "source_kind",
+                                    "path",
+                                    "path_base",
+                                    "modified_at",
+                                    "age_seconds",
+                                ],
+                                "properties": {
+                                    "source_kind": {"type": "string"},
+                                    "path": {"type": "string"},
+                                    "path_base": {
+                                        "type": "string",
+                                        "enum": ["project_root", "external"],
+                                    },
+                                    "relative_path": {"type": "string"},
+                                    "modified_at": {"type": "string", "format": "date-time"},
+                                    "age_seconds": {"type": "number", "minimum": 0},
+                                },
+                                "additionalProperties": True,
+                            },
+                        },
                     },
                     "additionalProperties": True,
                 },
@@ -401,6 +528,32 @@ def openapi_document() -> dict[str, object]:
                         "interpretation": {"type": ["object", "null"]},
                         "source": {"type": "string"},
                         "error": {"type": "string"},
+                    },
+                    "additionalProperties": True,
+                },
+                "ReportPageResponse": {
+                    "type": "object",
+                    "required": ["contract", "status", "paged", "targets", "page", "filter_options"],
+                    "properties": {
+                        "contract": {"const": REPORT_PAGE_CONTRACT},
+                        "status": {"type": "string", "const": "ok"},
+                        "paged": {"type": "boolean", "const": True},
+                        "initial": {"type": "boolean"},
+                        "targets": {"type": "array", "items": {"type": "object"}},
+                        "page": {"type": "object", "additionalProperties": True},
+                        "filters": {"type": "object", "additionalProperties": True},
+                        "filter_options": {"type": "object", "additionalProperties": True},
+                    },
+                    "additionalProperties": True,
+                },
+                "GeoJSONFeatureCollection": {
+                    "type": "object",
+                    "required": ["type", "features"],
+                    "properties": {
+                        "type": {"const": "FeatureCollection"},
+                        "features": {"type": "array", "items": {"type": "object"}},
+                        "contract": {"type": "string"},
+                        "status": {"type": "string"},
                     },
                     "additionalProperties": True,
                 },
@@ -578,6 +731,12 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         if path == INTERPRETATION_API_PATH:
             self._write_interpretation()
             return
+        if path == REPORT_PAGE_API_PATH:
+            self._write_report_page()
+            return
+        if path == REPORT_EXPORT_API_PATH:
+            self._write_report_export()
+            return
         if path == CAPABILITIES_API_PATH:
             self._write_capabilities()
             return
@@ -667,6 +826,29 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", cache_control)
         if response_etag:
             self.send_header("ETag", response_etag)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _write_bytes(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        filename: str | None = None,
+        cache_control: str = "no-cache",
+    ) -> None:
+        response_etag = _etag(body) if cache_control != "no-store" else None
+        if response_etag and _etag_matches(self.headers.get("If-None-Match"), response_etag):
+            self._write_not_modified(response_etag, cache_control=cache_control)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache_control)
+        if response_etag:
+            self.send_header("ETag", response_etag)
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
 
@@ -783,6 +965,155 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                 "rows": rows,
             },
         )
+
+    def _report_filters(self) -> tuple[dict[str, object], int, int, bool]:
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+
+        def value(name: str) -> str | None:
+            values = query.get(name)
+            return values[0] if values else None
+
+        def boolean(name: str, default: bool = False) -> bool:
+            raw = value(name)
+            if raw in {None, ""}:
+                return default
+            normalized = raw.strip().lower()
+            if normalized in TRUE_QUERY_VALUES:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+            raise ValueError(f"{name} must be a boolean")
+
+        limit = int(value("limit") or REPORT_PAGE_DEFAULT_LIMIT)
+        if not 1 <= limit <= REPORT_PAGE_MAX_LIMIT:
+            raise ValueError(f"limit must be between 1 and {REPORT_PAGE_MAX_LIMIT}")
+        offset = int(value("offset") or "0")
+        if not 0 <= offset <= QUERY_MAX_OFFSET:
+            raise ValueError(f"offset must be between 0 and {QUERY_MAX_OFFSET}")
+        score_text = value("score")
+        min_score = float(score_text) if score_text not in {None, ""} else 0.0
+        if not math.isfinite(min_score):
+            raise ValueError("score must be finite")
+        sort_key = value("sort") or "score"
+        sort_desc = boolean("desc", True)
+        filters = {
+            "query": value("q") or "",
+            "group": value("group") or "",
+            "century": value("century") or "",
+            "rating": value("rating") or "",
+            "niah_type": value("type") or "",
+            "review_state": value("review") or "",
+            "min_score": min_score,
+            "only_angle": boolean("angle"),
+            "only_ratio": boolean("ratio"),
+            "only_circular": boolean("circular"),
+            "only_multi": boolean("multi"),
+            "sort_key": sort_key,
+            "sort_desc": sort_desc,
+        }
+        return filters, limit, offset, boolean("initial")
+
+    def _report_data_or_error(self, contract: str = REPORT_PAGE_CONTRACT) -> dict[str, object] | None:
+        path = Path(self.directory or ".").resolve() / "report_data.json"
+        try:
+            return self.server.report_data(path)  # type: ignore[attr-defined]
+        except FileNotFoundError:
+            self._write_json(
+                {
+                    "contract": contract,
+                    "status": "not_provided",
+                    "error": "report_data.json is not available",
+                },
+                status=404,
+                cache_control="no-cache",
+            )
+        except (OSError, ValueError) as exc:
+            self._write_json(
+                {
+                    "contract": contract,
+                    "status": "error",
+                    "error": f"report_data.json is invalid: {exc}",
+                },
+                status=500,
+                cache_control="no-cache",
+            )
+        return None
+
+    def _write_report_page(self) -> None:
+        try:
+            filters, limit, offset, initial = self._report_filters()
+        except (TypeError, ValueError) as exc:
+            self._write_json(
+                {"contract": REPORT_PAGE_CONTRACT, "status": "error", "error": str(exc)},
+                status=400,
+                cache_control="no-cache",
+            )
+            return
+        data = self._report_data_or_error(REPORT_PAGE_CONTRACT)
+        if data is None:
+            return
+        try:
+            payload = report_page_payload(
+                data,
+                limit=limit,
+                offset=offset,
+                initial=initial,
+                include_static=initial,
+                **filters,
+            )
+        except (TypeError, ValueError) as exc:
+            self._write_json(
+                {"contract": REPORT_PAGE_CONTRACT, "status": "error", "error": str(exc)},
+                status=400,
+                cache_control="no-cache",
+            )
+            return
+        self._write_json(payload, cache_control="no-cache")
+
+    def _write_report_export(self) -> None:
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+        format_name = (query.get("format") or [""])[0].strip().lower()
+        if format_name not in {"csv", "geojson"}:
+            self._write_json(
+                {
+                    "contract": REPORT_EXPORT_CONTRACT,
+                    "status": "error",
+                    "error": "format must be csv or geojson",
+                },
+                status=400,
+                cache_control="no-cache",
+            )
+            return
+        try:
+            filters, _limit, _offset, _initial = self._report_filters()
+        except (TypeError, ValueError) as exc:
+            self._write_json(
+                {"contract": REPORT_EXPORT_CONTRACT, "status": "error", "error": str(exc)},
+                status=400,
+                cache_control="no-cache",
+            )
+            return
+        data = self._report_data_or_error(REPORT_EXPORT_CONTRACT)
+        if data is None:
+            return
+        try:
+            if format_name == "csv":
+                body = report_csv(data, **filters).encode("utf-8")
+                self._write_bytes(body, content_type="text/csv; charset=utf-8", filename="ireland-geometry-filtered.csv")
+            else:
+                body = json.dumps(
+                    _json_safe(report_geojson(data, **filters)),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+                self._write_bytes(body, content_type="application/geo+json; charset=utf-8", filename="ireland-geometry-filtered.geojson")
+        except (TypeError, ValueError) as exc:
+            self._write_json(
+                {"contract": REPORT_EXPORT_CONTRACT, "status": "error", "error": str(exc)},
+                status=400,
+                cache_control="no-cache",
+            )
 
     def _write_metadata(self) -> None:
         """Return compact provenance, verification, schema, and export metadata."""
@@ -1038,6 +1369,21 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                         "contract": INTERPRETATION_CONTRACT,
                         "available": interpretation_available,
                     },
+                    "report_page": {
+                        "path": REPORT_PAGE_API_PATH,
+                        "method": "GET",
+                        "contract": REPORT_PAGE_CONTRACT,
+                        "available": data_pack_exists,
+                        "pagination": True,
+                        "max_limit": REPORT_PAGE_MAX_LIMIT,
+                    },
+                    "report_export": {
+                        "path": REPORT_EXPORT_API_PATH,
+                        "method": "GET",
+                        "contract": REPORT_EXPORT_CONTRACT,
+                        "available": data_pack_exists,
+                        "formats": ["csv", "geojson"],
+                    },
                     "query": {
                         "path": QUERY_API_PATH,
                         "method": "GET",
@@ -1217,6 +1563,9 @@ class ReportHTTPServer(ThreadingHTTPServer):
         self._gzip_cache: bytes | None = None
         self._gzip_cache_etag: str | None = None
         self._gzip_lock = threading.Lock()
+        self._report_data_cache_key: tuple[int, int] | None = None
+        self._report_data_cache: dict[str, object] | None = None
+        self._report_data_lock = threading.Lock()
         self.routing_graph_path: Path | None = None
 
     def compressed_data(self, path: Path) -> bytes:
@@ -1237,6 +1586,22 @@ class ReportHTTPServer(ThreadingHTTPServer):
                 self._gzip_cache_key = key
                 self._gzip_cache_etag = _etag(self._gzip_cache)
             return self._gzip_cache, self._gzip_cache_etag
+
+    def report_data(self, path: Path) -> dict[str, object]:
+        """Load and cache the full report pack for server-side filtering."""
+        stat = path.stat()
+        key = (stat.st_mtime_ns, stat.st_size)
+        with self._report_data_lock:
+            if self._report_data_cache_key == key and self._report_data_cache is not None:
+                return self._report_data_cache
+            payload, error = _read_json_object(path)
+            if error:
+                raise ValueError(error)
+            if payload is None:
+                raise FileNotFoundError(path)
+            self._report_data_cache_key = key
+            self._report_data_cache = payload
+            return payload
 
 
 def create_server(

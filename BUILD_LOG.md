@@ -59,7 +59,21 @@ that optional files exist and have the expected row count:
   verification `PASS`.
 - Doctor is now version 56. It records source freshness metadata and supports
   `--max-input-age-days` so strict readiness can reject stale required caches.
-  The source suite now passes 184 tests and Ruff checks remain green.
+  The source suite now passes 189 tests and Ruff checks remain green.
+- The verifier now validates the `ireland-geometry.freshness.v1` manifest block,
+  including age arithmetic, source alignment, and current source modification
+  times; tampered or stale freshness metadata is rejected.
+- The standalone and lazy report packs now carry a compact source-freshness
+  summary and render the reported source count/oldest age in the method and
+  provenance panel; the full manifest remains the detailed record.
+- The OpenAPI 3.1 contract now declares `SourceFreshness` and references it
+  from metadata and capabilities responses, including source timestamp and age
+  fields for schema-aware automation.
+- Stage-cache version 5 now uses the versioned
+  `ireland-geometry.stage-cache.fingerprint.v1` contract. Git revision is kept
+  for audit metadata but no longer invalidates stages by itself, and
+  provenance-only controller edits no longer force analytical rebuilds; the
+  v4 cache is intentionally invalidated and refreshed.
 
 ## Compact interpretation sidecar and API — 2026-08-18
 
@@ -1307,3 +1321,31 @@ schema, and server regression coverage exercises both not-provided and all-pass
 states.
 The metadata endpoint now exposes the reproducibility status and link alongside
 its existing verification and schema records.
+
+## Granular cache invalidation and lightweight lazy dashboard — 2026-08-18
+
+The next operational pass addressed the two largest remaining local-workflow
+costs: unnecessary cache misses and browser downloads of the full report pack.
+
+- Stage-cache version 5 now separates effective stage inputs from audit-only Git
+  identity. Documentation/provenance-only controller edits no longer invalidate
+  every analytical stage; stage fingerprints retain the exact command, stage
+  code/import closure, runtime, declared inputs, and cache contract. Regression
+  coverage proves Git/controller-only changes are ignored while effective
+  command changes still invalidate.
+- `report_lazy.html` now defaults to `/api/report/page`, loading 50 targets and
+  compact static sections. Filtering, sorting, pagination, and CSV/GeoJSON
+  export reuse one server-side report predicate; `?offline=1` remains an
+  explicit full-pack fallback and `report.html` stays standalone.
+- The server caches the parsed report pack by mtime/size and advertises the
+  `ireland-geometry.report-page.v1` and `ireland-geometry.report-export.v1`
+  contracts through capabilities and OpenAPI. Against the current cached
+  national output, the initial page was 264,839 bytes for 50 rows versus the
+  116 MB full `report_data.json`; a filtered worship page returned 10 rows and
+  the CSV export was 2,013 bytes.
+- Added `tests/fixtures/pipeline_smoke` and an offline subprocess test covering
+  the real analysis-to-report-to-verify lifecycle with a valid tiny PBF, NIAH
+  fixture, schema audit, reproducibility check, and passing verification.
+- Final checks: 193 tests passed, Ruff and compileall passed, the full cached
+  diagnostic lifecycle was refreshed without a national rebuild, and final
+  verification passed for 123,810 analysis rows / 33,416 targets.

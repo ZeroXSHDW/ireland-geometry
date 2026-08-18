@@ -211,7 +211,7 @@ def test_json_dry_run_emits_a_machine_readable_plan_without_writing_outputs(tmp_
     assert result.returncode == 0
     plan = json.loads(result.stdout)
     assert plan["contract"] == "ireland-geometry.dry-run.v1"
-    assert plan["cache_version"] == 4
+    assert plan["cache_version"] == 5
     assert plan["cache_explanations"] is True
     assert plan["package_version"] == package_version()
     assert plan["dry_run"] is True
@@ -333,6 +333,50 @@ def test_diagnostic_rerun_preserves_existing_manifest_build_context(tmp_path):
     assert updated["last_invocation"]["seed"] == 999
 
 
+def test_diagnostic_rerun_merges_freshness_into_preserved_source_rows(tmp_path):
+    project = tmp_path / "project"
+    output = project / "output"
+    source = project / "data" / "combined.json"
+    source.parent.mkdir(parents=True)
+    output.mkdir(parents=True)
+    source.write_text("{}", encoding="utf-8")
+    original = {
+        "manifest_version": 2,
+        "schema_version": 3,
+        "parameters": {"stage": "all", "seed": 20260816, "mc": 300},
+        "sources": [
+            {
+                "kind": "combined_osm_json",
+                "path": str(source),
+                "path_base": "project_root",
+                "relative_path": "data/combined.json",
+                "sha256": "legacy-hash-preserved",
+            }
+        ],
+    }
+    (output / "manifest.json").write_text(json.dumps(original), encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "run_pipeline.py"),
+            "--stage",
+            "verify",
+            "--project-root",
+            str(project),
+            "--no-network",
+        ],
+        cwd=ROOT.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    updated = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert updated["sources"][0]["sha256"] == "legacy-hash-preserved"
+    assert updated["sources"][0]["modified_at"]
+    assert updated["source_freshness"]["sources"][0]["relative_path"] == "data/combined.json"
+
+
 def test_pbf_routing_cache_tracks_the_pbf_input(tmp_path):
     args = parse_args(["--stage", "road-routing", "--road-from-pbf"])
     pbf = tmp_path / "ireland.osm.pbf"
@@ -370,6 +414,7 @@ def test_optional_cache_inputs_are_limited_to_consuming_stages(tmp_path):
     analyze_paths = input_paths("analyze", **kwargs)
     parts_paths = input_paths("building-parts", **kwargs)
     review_paths = input_paths("review", **kwargs)
+    assert ROOT / "analysis_plan.json" in analyze_paths
     assert ROOT / "data/lidar/custom.csv" not in analyze_paths
     assert ROOT / "data/lidar/custom.csv" in parts_paths
     assert ROOT / "data/review/custom.csv" in review_paths

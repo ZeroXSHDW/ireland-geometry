@@ -30,10 +30,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
 from collections import Counter
+from pathlib import Path
 
 import numpy as np
 from shapely import affinity
@@ -51,7 +53,13 @@ try:  # direct script execution
         shape_descriptors,
         to_local_meters,
     )
-    from runtime import atomic_write_csv, atomic_write_text
+    from runtime import (
+        atomic_write_csv,
+        atomic_write_json,
+        atomic_write_text,
+        default_analysis_plan_path,
+        sha256_file,
+    )
     from stats import apply_holm, compare_proportions, p_format
 except ImportError:  # package/test execution
     from scripts.geometry import (
@@ -65,7 +73,13 @@ except ImportError:  # package/test execution
         shape_descriptors,
         to_local_meters,
     )
-    from scripts.runtime import atomic_write_csv, atomic_write_text
+    from scripts.runtime import (
+        atomic_write_csv,
+        atomic_write_json,
+        atomic_write_text,
+        default_analysis_plan_path,
+        sha256_file,
+    )
     from scripts.stats import apply_holm, compare_proportions, p_format
 
 GOLDEN = (1.0 + math.sqrt(5.0)) / 2.0  # 1.618033988749895
@@ -152,6 +166,116 @@ FIELDNAMES = [
 
 TARGET_GROUPS = ["worship", "government", "historic", "civic", "other"]
 
+SCORING_CONTRACT = "ireland-geometry.exploratory-score.v1"
+DEFAULT_SCORING_CONFIG = {
+    "contract": SCORING_CONTRACT,
+    "version": 1,
+    "label": "Exploratory screening/ranking heuristic; not an inferential statistic.",
+    "max_score": 100.0,
+    "screening_threshold": 55.0,
+    "weights": {
+        "golden_ratio": 25.0,
+        "fib_ratio": 15.0,
+        "fib_dimension": 12.0,
+        "right_angle_fraction": 12.0,
+        "reflective_symmetry": 20.0,
+        "rot180_symmetry": 10.0,
+        "circularity": 10.0,
+        "rotational_symmetry": 8.0,
+        "cruciform_candidate": 6.0,
+        "golden_angle": 8.0,
+        "angle_108": 3.0,
+        "angle_120": 2.0,
+    },
+    "thresholds": {
+        "golden_ratio_error_pct": 3.0,
+        "fib_ratio_error_pct": 2.0,
+        "fib_dimension_tolerance_pct": 3.0,
+        "golden_angle_tolerance_deg": 3.0,
+        "regular_angle_tolerance_deg": 3.0,
+        "right_angle_tolerance_deg": 2.0,
+        "symmetry_flag_iou": 0.85,
+        "reflective_iou_floor": 0.6,
+        "rot180_iou_floor": 0.6,
+        "circularity": 0.85,
+        "cruciform_convexity": 0.97,
+        "cruciform_vertices": 8,
+        "cruciform_area_m2": 200.0,
+    },
+}
+SCORING_WEIGHT_KEYS = tuple(DEFAULT_SCORING_CONFIG["weights"])
+SCORING_THRESHOLD_KEYS = tuple(DEFAULT_SCORING_CONFIG["thresholds"])
+
+
+def _scoring_config_hash(config: dict) -> str:
+    encoded = json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def load_scoring_config(plan_path: Path) -> dict:
+    """Load and validate the versioned exploratory scoring block.
+
+    Plans written before the scoring block existed retain the exact legacy
+    behaviour through the in-code default.  Current plans are required to
+    carry the block so changes to weights or thresholds are reviewable and
+    become an input to the stage cache.
+    """
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Could not read analysis plan {plan_path}: {exc}") from exc
+    raw = plan.get("scoring") if isinstance(plan, dict) else None
+    if raw is None:
+        return json.loads(json.dumps(DEFAULT_SCORING_CONFIG))
+    if not isinstance(raw, dict):
+        raise SystemExit("analysis plan scoring must be an object")
+    missing = [key for key in ("contract", "version", "label", "max_score", "screening_threshold", "weights", "thresholds") if key not in raw]
+    if missing:
+        raise SystemExit("analysis plan scoring is missing: " + ", ".join(missing))
+    if raw.get("contract") != SCORING_CONTRACT or raw.get("version") != 1:
+        raise SystemExit("analysis plan scoring contract/version is unsupported")
+    if not isinstance(raw.get("weights"), dict) or not isinstance(raw.get("thresholds"), dict):
+        raise SystemExit("analysis plan scoring weights and thresholds must be objects")
+    missing_weights = [key for key in SCORING_WEIGHT_KEYS if key not in raw["weights"]]
+    missing_thresholds = [key for key in SCORING_THRESHOLD_KEYS if key not in raw["thresholds"]]
+    if missing_weights or missing_thresholds:
+        missing_parts = []
+        if missing_weights:
+            missing_parts.append("weights: " + ", ".join(missing_weights))
+        if missing_thresholds:
+            missing_parts.append("thresholds: " + ", ".join(missing_thresholds))
+        raise SystemExit("analysis plan scoring is missing " + "; ".join(missing_parts))
+    config = {
+        "contract": raw["contract"],
+        "version": int(raw["version"]),
+        "label": str(raw["label"]),
+        "max_score": float(raw["max_score"]),
+        "screening_threshold": float(raw["screening_threshold"]),
+        "weights": {key: float(raw["weights"][key]) for key in SCORING_WEIGHT_KEYS},
+        "thresholds": {key: float(raw["thresholds"][key]) for key in SCORING_THRESHOLD_KEYS},
+    }
+    values = [config["max_score"], config["screening_threshold"], *config["weights"].values(), *config["thresholds"].values()]
+    if not all(math.isfinite(value) for value in values):
+        raise SystemExit("analysis plan scoring contains non-finite values")
+    if config["max_score"] <= 0 or config["screening_threshold"] < 0:
+        raise SystemExit("analysis plan scoring maximum and screening threshold are invalid")
+    if any(value < 0 for value in config["weights"].values()):
+        raise SystemExit("analysis plan scoring weights must be non-negative")
+    return config
+
+
+def scoring_config_artifact(plan_path: Path, config: dict) -> dict:
+    """Return the self-describing scoring provenance artifact."""
+    return {
+        "contract": SCORING_CONTRACT,
+        "version": config["version"],
+        "label": config["label"],
+        "config_sha256": _scoring_config_hash(config),
+        "plan_path": str(plan_path),
+        "plan_sha256": sha256_file(plan_path),
+        "config": config,
+    }
+
 
 # --------------------------------------------------------------------------
 # geometry helpers
@@ -200,9 +324,9 @@ def nearest_fib_ratio(aspect: float) -> tuple[float, float]:
     return best, best_err
 
 
-def fib_dim(dim: float) -> float:
+def fib_dim(dim: float, tolerance_pct: float = 3.0) -> float:
     for f in FIB_METERS:
-        if f >= 5 and dim > 0 and abs(dim - f) / f <= 0.03:
+        if f >= 5 and dim > 0 and abs(dim - f) / f * 100.0 <= tolerance_pct:
             return f
     return 0.0
 
@@ -224,7 +348,15 @@ def tag_float(tags: dict, *keys: str) -> float:
 # --------------------------------------------------------------------------
 
 
-def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
+def analyze_element(
+    el: dict,
+    min_area: float,
+    angle_hist,
+    scoring: dict | None = None,
+) -> dict | None:
+    scoring = scoring or DEFAULT_SCORING_CONFIG
+    weights = scoring["weights"]
+    thresholds = scoring["thresholds"]
     poly = polygon_from_element(el)
     if poly is None:
         return None
@@ -261,11 +393,13 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
         b = round(a)
         if 1 <= b <= 179:
             angle_hist[b] += 1
-    right_frac = sum(1 for a in angs if abs(a - 90.0) <= 2.0) / n_verts if n_verts else 0.0
-    has_golden_angle = any(abs(a - GOLDEN_ANGLE) <= 3.0 for a in angs)
-    has_108 = any(abs(a - 108.0) <= 3.0 for a in angs)
-    has_60 = any(abs(a - 60.0) <= 3.0 for a in angs)
-    has_120 = any(abs(a - 120.0) <= 3.0 for a in angs)
+    regular_angle_tolerance = thresholds["regular_angle_tolerance_deg"]
+    right_angle_tolerance = thresholds["right_angle_tolerance_deg"]
+    right_frac = sum(1 for a in angs if abs(a - 90.0) <= right_angle_tolerance) / n_verts if n_verts else 0.0
+    has_golden_angle = any(abs(a - GOLDEN_ANGLE) <= thresholds["golden_angle_tolerance_deg"] for a in angs)
+    has_108 = any(abs(a - 108.0) <= regular_angle_tolerance for a in angs)
+    has_60 = any(abs(a - 60.0) <= regular_angle_tolerance for a in angs)
+    has_120 = any(abs(a - 120.0) <= regular_angle_tolerance for a in angs)
 
     # --- convexity, symmetry, circularity -----------------------------------
     convexity = convexity_ratio(local)
@@ -282,35 +416,48 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
     # --- Fibonacci / golden matches -----------------------------------------
     nearest, fib_err = nearest_fib_ratio(aspect)
     golden_err = abs(aspect - GOLDEN) / GOLDEN * 100.0
-    golden_match = golden_err <= 3.0
-    fib_ratio_match = nearest is not None and fib_err <= 2.0 and nearest != 1.0 or (aspect == 1.0)
-    fib_len = fib_dim(length_m)
-    fib_wid = fib_dim(width_m)
+    golden_match = golden_err <= thresholds["golden_ratio_error_pct"]
+    fib_ratio_match = (
+        nearest is not None
+        and fib_err <= thresholds["fib_ratio_error_pct"]
+        and nearest != 1.0
+        or (aspect == 1.0)
+    )
+    fib_len = fib_dim(length_m, thresholds["fib_dimension_tolerance_pct"])
+    fib_wid = fib_dim(width_m, thresholds["fib_dimension_tolerance_pct"])
 
     # --- score ---------------------------------------------------------------
     score = 0.0
     if golden_match:
-        score += 25
+        score += weights["golden_ratio"]
     if fib_ratio_match and nearest not in (1.0,):
-        score += 15
+        score += weights["fib_ratio"]
     if fib_len or fib_wid:
-        score += 12
-    score += 12 * right_frac
-    score += 20 * max(0.0, iou_reflect - 0.6) / 0.4
-    score += 10 * max(0.0, iou_rot180 - 0.6) / 0.4
-    if circularity >= 0.85:
-        score += 10
-    if max(iou_rot60, iou_rot45, iou_rot72) >= 0.85:
-        score += 8
-    if convexity <= 0.97 and n_verts >= 8 and local.area >= 200:
-        score += 6
+        score += weights["fib_dimension"]
+    score += weights["right_angle_fraction"] * right_frac
+    reflect_floor = thresholds["reflective_iou_floor"]
+    rot180_floor = thresholds["rot180_iou_floor"]
+    score += weights["reflective_symmetry"] * max(0.0, iou_reflect - reflect_floor) / (1.0 - reflect_floor)
+    score += weights["rot180_symmetry"] * max(0.0, iou_rot180 - rot180_floor) / (1.0 - rot180_floor)
+    if circularity >= thresholds["circularity"]:
+        score += weights["circularity"]
+    symmetry_flag_iou = thresholds["symmetry_flag_iou"]
+    if max(iou_rot60, iou_rot45, iou_rot72) >= symmetry_flag_iou:
+        score += weights["rotational_symmetry"]
+    cruciform = (
+        convexity <= thresholds["cruciform_convexity"]
+        and n_verts >= thresholds["cruciform_vertices"]
+        and local.area >= thresholds["cruciform_area_m2"]
+    )
+    if cruciform:
+        score += weights["cruciform_candidate"]
     if has_golden_angle:
-        score += 8
+        score += weights["golden_angle"]
     if has_108:
-        score += 3
+        score += weights["angle_108"]
     if has_120:
-        score += 2
-    score = min(100.0, round(score, 2))
+        score += weights["angle_120"]
+    score = min(scoring["max_score"], round(score, 2))
 
     flags = []
     if golden_match:
@@ -319,21 +466,21 @@ def analyze_element(el: dict, min_area: float, angle_hist) -> dict | None:
         flags.append("fib_ratio")
     if fib_len or fib_wid:
         flags.append("fib_dimension")
-    if iou_reflect >= 0.85:
+    if iou_reflect >= symmetry_flag_iou:
         flags.append("reflective_symmetry")
-    if iou_rot180 >= 0.85:
+    if iou_rot180 >= symmetry_flag_iou:
         flags.append("rot180_symmetry")
-    if iou_rot90 >= 0.85:
+    if iou_rot90 >= symmetry_flag_iou:
         flags.append("rot90_symmetry")
-    if iou_rot60 >= 0.85:
+    if iou_rot60 >= symmetry_flag_iou:
         flags.append("hexagonal")
-    if iou_rot45 >= 0.85:
+    if iou_rot45 >= symmetry_flag_iou:
         flags.append("octagonal")
-    if iou_rot72 >= 0.85:
+    if iou_rot72 >= symmetry_flag_iou:
         flags.append("pentagonal")
-    if circularity >= 0.85:
+    if circularity >= thresholds["circularity"]:
         flags.append("circular")
-    if convexity <= 0.97 and n_verts >= 8 and local.area >= 200:
+    if cruciform:
         flags.append("cruciform_candidate")
     if has_golden_angle:
         flags.append("golden_angle")
@@ -490,8 +637,9 @@ def main() -> None:
         "--data", default=None, help="combined JSON path; defaults to project data/combined.json"
     )
     ap.add_argument("--out", default=None, help="output directory; defaults to project output/")
+    ap.add_argument("--plan", default=None, help="analysis plan containing the versioned scoring block")
     ap.add_argument("--min-area", type=float, default=25.0)
-    ap.add_argument("--strong-score", type=float, default=55.0)
+    ap.add_argument("--strong-score", type=float, default=None)
     args = ap.parse_args()
 
     try:
@@ -503,6 +651,13 @@ def main() -> None:
         sys.exit(f"Missing {data_path}. Run scripts/fetch_geofabrik.py first.")
     out_dir = project_path(args.out, "output")
     out_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = project_path(args.plan, "analysis_plan.json") if args.plan else default_analysis_plan_path()
+    if not plan_path.exists():
+        sys.exit(f"Missing analysis plan {plan_path}.")
+    scoring = load_scoring_config(plan_path)
+    strong_score = scoring["screening_threshold"] if args.strong_score is None else args.strong_score
+    if not math.isfinite(strong_score) or strong_score < 0:
+        sys.exit("--strong-score must be finite and non-negative")
 
     payload = json.loads(data_path.read_text())
     elements = payload["elements"]
@@ -511,7 +666,7 @@ def main() -> None:
     angle_hist = np.zeros(181, dtype=np.int64)
     rows, features = [], []
     for i, el in enumerate(elements):
-        res = analyze_element(el, args.min_area, angle_hist)
+        res = analyze_element(el, args.min_area, angle_hist, scoring)
         if res is not None:
             row, poly, tags = res
             rows.append(row)
@@ -543,7 +698,7 @@ def main() -> None:
     atomic_write_csv(out_dir / "analysis_results.csv", FIELDNAMES, rows)
 
     strong = sorted(
-        [r for r in targets if r["score"] >= args.strong_score],
+        [r for r in targets if r["score"] >= strong_score],
         key=lambda r: r["score"],
         reverse=True,
     )
@@ -551,6 +706,7 @@ def main() -> None:
 
     fc = {"type": "FeatureCollection", "features": features}
     atomic_write_text(out_dir / "ireland_buildings.geojson", json.dumps(fc))
+    atomic_write_json(out_dir / "scoring_config.json", scoring_config_artifact(plan_path, scoring), indent=2)
 
     # --- significance ----------------------------------------------------------
     sig = build_significance(rows, angle_hist)

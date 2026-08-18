@@ -169,7 +169,7 @@ def pipeline_status(root: Path) -> dict[str, Any]:
         script.is_file() and _file_contains(script, "--json") for script in diagnostic_scripts
     )
     cache_module = root / "scripts" / "stage_cache.py"
-    result["cache_version"] = 4 if _file_contains(cache_module, "CACHE_VERSION = 4") else None
+    result["cache_version"] = 5 if _file_contains(cache_module, "CACHE_VERSION = 5") else None
     result["dependency_aware_cache"] = cache_module.is_file() and all(
         _file_contains(cache_module, token)
         for token in ("def local_module_paths(", "def local_module_signatures(", '"local_module_sha256"')
@@ -922,6 +922,8 @@ def analysis_plan_status(project_root: Path, package_root: Path) -> dict[str, An
         "sha256": sha256_file(selected),
         "plan_id": None,
         "plan_version": None,
+        "scoring_contract": None,
+        "scoring_version": None,
         "status": "not_installed",
     }
     if not selected.is_file():
@@ -938,6 +940,14 @@ def analysis_plan_status(project_root: Path, package_root: Path) -> dict[str, An
         return result
     result["plan_id"] = payload.get("plan_id")
     result["plan_version"] = payload.get("version")
+    scoring = payload.get("scoring")
+    if isinstance(scoring, dict):
+        result["scoring_contract"] = scoring.get("contract")
+        result["scoring_version"] = scoring.get("version")
+        if scoring.get("contract") != "ireland-geometry.exploratory-score.v1" or scoring.get("version") != 1:
+            result["status"] = "incomplete"
+            result["error"] = "analysis plan scoring contract/version is unsupported"
+            return result
     required = ("plan_id", "version", "primary_signals", "holdout_fraction")
     missing = [key for key in required if key not in payload]
     if missing:

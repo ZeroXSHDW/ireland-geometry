@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import importlib.util
 import json
 import math
@@ -18,16 +19,19 @@ import re
 import shutil
 import subprocess
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
     from runtime import (
         MANIFEST_EXCLUDED_OUTPUTS,
+        SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
         git_dirty,
         git_revision,
         output_counts,
+        path_modified_at,
         project_path,
         sha256_file,
         sha256_path,
@@ -36,11 +40,13 @@ try:
 except ImportError:
     from scripts.runtime import (
         MANIFEST_EXCLUDED_OUTPUTS,
+        SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
         git_dirty,
         git_revision,
         output_counts,
+        path_modified_at,
         project_path,
         sha256_file,
         sha256_path,
@@ -85,6 +91,7 @@ ANALYSIS_REQUIRED = {
 SIGNIFICANCE_REQUIRED = {"p_adjusted", "method", "verdict"}
 VERDICTS = {"SIGNAL", "suggestive", "background"}
 INTERPRETATION_CONTRACT = "ireland-geometry.interpretation.v1"
+SCORING_CONTRACT = "ireland-geometry.exploratory-score.v1"
 
 
 def _module_available(name: str) -> bool:
@@ -107,6 +114,39 @@ def require_file(path: Path, errors: list[str]) -> bool:
         errors.append(f"empty artifact: {path}")
         return False
     return True
+
+
+def check_scoring_config_contract(path: Path, errors: list[str]) -> dict:
+    """Validate the versioned exploratory score provenance artifact."""
+    if not require_file(path, errors):
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        errors.append(f"scoring_config.json is not valid JSON: {exc}")
+        return {}
+    if not isinstance(payload, dict):
+        errors.append("scoring_config.json root is not an object")
+        return {}
+    if payload.get("contract") != SCORING_CONTRACT or payload.get("version") != 1:
+        errors.append("scoring_config.json has an unsupported contract or version")
+    config = payload.get("config")
+    if not isinstance(config, dict):
+        errors.append("scoring_config.json has no config object")
+        return payload
+    if config.get("contract") != SCORING_CONTRACT or config.get("version") != 1:
+        errors.append("scoring_config.json config contract/version does not match")
+    expected_hash = hashlib.sha256(
+        json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if payload.get("config_sha256") != expected_hash:
+        errors.append("scoring_config.json config_sha256 does not match config")
+    if "not an inferential statistic" not in str(config.get("label", "")).lower():
+        errors.append("scoring_config.json must label the score as non-inferential")
+    plan_path = Path(str(payload.get("plan_path", "")))
+    if plan_path.is_file() and payload.get("plan_sha256") != sha256_file(plan_path):
+        errors.append("scoring_config.json plan_sha256 does not match its plan file")
+    return payload
 
 
 def check_columns(
@@ -822,6 +862,152 @@ def check_manifest_runtime_contract(
             errors.append(f"manifest runtime distribution {name!r} has an invalid version")
 
 
+def _manifest_timestamp(value: object, label: str, errors: list[str]) -> datetime | None:
+    """Parse a manifest timestamp and require an explicit timezone."""
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{label} must be a non-empty ISO-8601 timestamp")
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        errors.append(f"{label} is not a valid ISO-8601 timestamp")
+        return None
+    if parsed.tzinfo is None:
+        errors.append(f"{label} must include a timezone")
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _manifest_source_identity(source: dict) -> tuple[str, str, str] | None:
+    """Return the portable identity used to align source and freshness rows."""
+    relative = source.get("relative_path")
+    path_base = source.get("path_base")
+    if isinstance(relative, str) and relative.strip():
+        return ("relative", str(path_base or ""), relative)
+    raw_path = source.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    return ("path", "", str(Path(raw_path).expanduser().resolve()))
+
+
+def check_manifest_freshness_contract(
+    manifest: dict,
+    data_root: Path,
+    out_dir: Path,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    """Validate the versioned source-age record and its alignment with inputs."""
+    record = manifest.get("source_freshness")
+    schema_version = manifest.get("schema_version", 0)
+    if record is None:
+        if isinstance(schema_version, (int, float)) and schema_version >= 3:
+            errors.append("manifest schema version 3 is missing source_freshness")
+        else:
+            warnings.append("manifest has no source_freshness; treating it as a legacy record")
+        return
+    if not isinstance(record, dict):
+        errors.append("manifest source_freshness must be an object")
+        return
+    if record.get("contract") != SOURCE_FRESHNESS_CONTRACT:
+        errors.append(
+            "manifest source_freshness has an unsupported contract: "
+            f"{record.get('contract')!r}"
+        )
+    observed = _manifest_timestamp(record.get("observed_at"), "manifest source_freshness observed_at", errors)
+    rows = record.get("sources")
+    if not isinstance(rows, list):
+        errors.append("manifest source_freshness sources must be a list")
+        return
+
+    freshness_by_identity: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for index, row in enumerate(rows, 1):
+        label = f"manifest source_freshness source {index}"
+        if not isinstance(row, dict):
+            errors.append(f"{label} must be an object")
+            continue
+        source_kind = row.get("source_kind")
+        if not isinstance(source_kind, str) or not source_kind.strip():
+            errors.append(f"{label} is missing a non-empty source_kind")
+        path_base = row.get("path_base")
+        if path_base not in {"project_root", "external"}:
+            errors.append(f"{label} has an invalid path_base")
+        if not isinstance(row.get("path"), str) or not str(row.get("path")).strip():
+            errors.append(f"{label} is missing a path")
+        relative = row.get("relative_path")
+        if relative is not None:
+            if not isinstance(relative, str) or not relative.strip():
+                errors.append(f"{label} has an invalid relative_path")
+            elif Path(relative).is_absolute() or ".." in Path(relative).parts:
+                errors.append(f"{label} relative_path escapes its declared base: {relative}")
+        modified = _manifest_timestamp(row.get("modified_at"), f"{label} modified_at", errors)
+        age = row.get("age_seconds")
+        if isinstance(age, bool) or not isinstance(age, (int, float)) or not math.isfinite(age):
+            errors.append(f"{label} age_seconds must be a finite number")
+        elif age < 0:
+            errors.append(f"{label} age_seconds must be non-negative")
+        if observed is not None and modified is not None and isinstance(age, (int, float)) and not isinstance(age, bool) and math.isfinite(age):
+            expected_age = max(0.0, (observed - modified).total_seconds())
+            if abs(float(age) - expected_age) > 1.0:
+                errors.append(f"{label} age_seconds does not match observed_at and modified_at")
+        identity = _manifest_source_identity(row)
+        if identity is not None:
+            freshness_by_identity[identity].append(row)
+
+    manifest_sources = manifest.get("sources", [])
+    if not isinstance(manifest_sources, list):
+        errors.append("manifest sources is not a list")
+        return
+    expected_sources: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for index, source in enumerate(manifest_sources, 1):
+        if not isinstance(source, dict):
+            continue
+        source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
+        modified_at = source.get("modified_at")
+        if source_path.exists() and modified_at is None:
+            errors.append(f"manifest source {index} is missing modified_at: {source_path}")
+        if modified_at is None:
+            continue
+        if _manifest_timestamp(modified_at, f"manifest source {index} modified_at", errors) is None:
+            continue
+        identity = _manifest_source_identity(source)
+        if identity is None:
+            errors.append(f"manifest source {index} has no portable identity")
+            continue
+        expected_sources[identity].append(source)
+
+    for identity, sources in expected_sources.items():
+        freshness_rows = freshness_by_identity.get(identity, [])
+        if len(freshness_rows) != len(sources):
+            errors.append(
+                "manifest source_freshness does not align with source rows: "
+                f"{identity[-1]}"
+            )
+            continue
+        for source, freshness in zip(sources, freshness_rows, strict=False):
+            if source.get("modified_at") != freshness.get("modified_at"):
+                errors.append(
+                    "manifest source modified_at does not match source_freshness: "
+                    f"{source.get('path')}"
+                )
+            source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
+            if source_path.exists():
+                actual_modified = path_modified_at(source_path)
+                if actual_modified is not None and actual_modified != freshness.get("modified_at"):
+                    errors.append(
+                        "manifest source_freshness modified_at is stale: "
+                        f"{source_path}"
+                    )
+
+    expected_identities = set(expected_sources)
+    for identity in freshness_by_identity:
+        if identity not in expected_identities:
+            errors.append(
+                "manifest source_freshness contains a source not present in sources: "
+                f"{identity[-1]}"
+            )
+
+
 def _close_enough(actual: float, expected: float, tolerance: float = 1e-3) -> bool:
     return math.isfinite(actual) and abs(actual - expected) <= tolerance
 
@@ -1105,6 +1291,8 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
                 errors.append("GeoJSON ids do not exactly match non-control analysis ids")
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"ireland_buildings.geojson is not valid JSON: {exc}")
+
+    scoring_config = check_scoring_config_contract(out_dir / "scoring_config.json", errors)
 
     significance = out_dir / "significance.csv"
     if require_file(significance, errors):
@@ -1447,6 +1635,14 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         review_queue_ids,
         errors,
     )
+    if scoring_config and report_data_path.is_file():
+        try:
+            report_payload = json.loads(report_data_path.read_text(encoding="utf-8"))
+            report_scoring = report_payload.get("scoring", {}) if isinstance(report_payload, dict) else {}
+            if report_scoring.get("config_sha256") != scoring_config.get("config_sha256"):
+                errors.append("report_data.json scoring provenance does not match scoring_config.json")
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
     check_interpretation_artifact(
         out_dir / "interpretation.json",
         report_data_path,
@@ -1477,6 +1673,7 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
             if manifest.get("manifest_version", 0) < 2 or manifest.get("schema_version", 0) < 3:
                 errors.append("manifest does not advertise schema version 3")
             check_manifest_runtime_contract(manifest, errors, warnings)
+            check_manifest_freshness_contract(manifest, data_root, out_dir, errors, warnings)
             for source in manifest.get("sources", []):
                 source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
                 if source_path.exists():

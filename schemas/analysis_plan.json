@@ -1,6 +1,42 @@
 {
   "plan_id": "ireland-geometry-v1",
   "version": 1,
+  "scoring": {
+    "contract": "ireland-geometry.exploratory-score.v1",
+    "version": 1,
+    "label": "Exploratory screening/ranking heuristic; not an inferential statistic.",
+    "max_score": 100.0,
+    "screening_threshold": 55.0,
+    "weights": {
+      "golden_ratio": 25.0,
+      "fib_ratio": 15.0,
+      "fib_dimension": 12.0,
+      "right_angle_fraction": 12.0,
+      "reflective_symmetry": 20.0,
+      "rot180_symmetry": 10.0,
+      "circularity": 10.0,
+      "rotational_symmetry": 8.0,
+      "cruciform_candidate": 6.0,
+      "golden_angle": 8.0,
+      "angle_108": 3.0,
+      "angle_120": 2.0
+    },
+    "thresholds": {
+      "golden_ratio_error_pct": 3.0,
+      "fib_ratio_error_pct": 2.0,
+      "fib_dimension_tolerance_pct": 3.0,
+      "golden_angle_tolerance_deg": 3.0,
+      "regular_angle_tolerance_deg": 3.0,
+      "right_angle_tolerance_deg": 2.0,
+      "symmetry_flag_iou": 0.85,
+      "reflective_iou_floor": 0.6,
+      "rot180_iou_floor": 0.6,
+      "circularity": 0.85,
+      "cruciform_convexity": 0.97,
+      "cruciform_vertices": 8,
+      "cruciform_area_m2": 200.0
+    }
+  },
   "primary_signals": ["golden_angle", "golden_ratio"],
   "negative_control_signals": ["has_60_angle", "has_120_angle"],
   "negative_control_note": "Conventional-angle diagnostics are reported separately from the primary family to expose generic angular or mapping effects.",

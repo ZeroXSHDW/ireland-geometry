@@ -4,6 +4,24 @@ Status: complete for the current cached snapshot; the validation, 3-D/evidence,
 holdout, routing, point-to-point query, scalability, review, data-quality,
 spatial-bootstrap, and reproducibility tranches are included.
 
+## Latest operational upgrades
+
+The current cached output now includes a granular stage-cache contract and a
+server-backed lazy dashboard. Stage-cache version 5 keeps Git identity as audit
+metadata without making provenance-only controller edits invalidate analytical
+stages. The default lazy report requests 50 target rows from
+`/api/report/page`; server-side filtering, pagination, sorting, and CSV/GeoJSON
+exports avoid downloading the 116 MB full pack. `?offline=1` remains available
+for explicit full-pack offline review, and the standalone report is unchanged.
+
+The real cached snapshot was refreshed through the diagnostic lifecycle only
+(no national analysis rebuild): schema audit, report generation, and final
+verification all pass for 123,810 analysis rows and 33,416 targets. The initial
+live page measured 264,839 bytes for 50 rows. The repository suite now passes
+193 tests, with Ruff and compileall clean, and includes a tiny offline
+subprocess fixture covering the generated manifest, schema, report, and
+verification contracts.
+
 ## Reproducible build
 
 ```text
@@ -102,7 +120,7 @@ The build completed without network access. The exact input caches were:
 ## Verification
 
 ```text
-.venv/bin/python -m pytest                 # 184 passed (geo3d extra enabled)
+.venv/bin/python -m pytest                 # 189 passed (geo3d extra enabled)
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
 .venv/bin/python run_pipeline.py --help
@@ -209,8 +227,9 @@ The operational upgrade also adds a no-write dry-run planner and a standalone
 doctor. The planner also emits the versioned `ireland-geometry.dry-run.v1`
 JSON contract for automation. The active `.venv` now uses Python 3.11.15, which is inside the
 declared Python >=3.10 support range; the doctor reports no hard runtime
-errors. Strict readiness remains false only while the source tree contains the
-current uncommitted upgrade tranche.
+errors. Strict readiness is currently true for the clean cached checkout; it
+becomes false when the source tree is dirty, required inputs exceed a configured
+freshness limit, or validation/output requirements are not met.
 Pipeline and review CLI parameters now fail fast for invalid counts, fractions,
 empty stage selections, and queue sizes before any output directory or stage
 work is created.
@@ -249,13 +268,16 @@ verifier.
 Reproducibility comparisons now also validate normalized source hashes,
 analysis parameters, schema version, and Git revision, while ignoring absolute
 machine-specific source paths.
-The incremental cache is now runtime-aware: stage-cache version 4 records the
+The incremental cache is now runtime-aware: stage-cache version 5 records the
 Python/platform signature and declared core/optional data-engine versions,
 invalidating stale results when that environment changes.
 Each stage record now retains the exact fingerprint payload used for the cache
 key, and the no-write dry-run exposes the resulting fingerprint and stable
-cache reason. The verifier checks that persisted fingerprint inputs reproduce
-their recorded hash; Doctor reports the explainable-cache capability.
+cache reason. Fingerprints use the versioned
+`ireland-geometry.stage-cache.fingerprint.v1` contract; Git revision remains
+audit metadata, while provenance-only controller edits do not invalidate
+analytical stages. The verifier checks that persisted fingerprint inputs
+reproduce their recorded hash; Doctor reports the explainable-cache capability.
 The default order also runs the routing stage before the quality audit, so the
 audit's routing coverage reflects the current routing artifact.
 The routing adapter now supports a disk-backed SQLite v6 graph for complete PBF
@@ -359,14 +381,19 @@ CI includes a dedicated Python 3.11 optional-data job covering both engines in
 addition to the core 3.10–3.12 matrix.
 CI also covers the `geo3d` extra. Doctor version 56 now reports the normalized,
 GeoTIFF, and geographic LAS/LAZ adapters independently; the active environment
-has `rasterio 1.4.4` and `laspy 2.7.0`, and the full suite passes 184 tests.
+has `rasterio 1.4.4` and `laspy 2.7.0`, and the full suite passes 189 tests.
 Doctor strict readiness now also requires a passing verification record and the
 verifier requires complete in-tree manifest coverage.
 Manifest source rows now carry UTC modification timestamps, and the manifest
 also exposes `ireland-geometry.freshness.v1` with observed source ages. Doctor
 reports those ages and supports `--max-input-age-days` for an explicit stale
 input gate; the default remains advisory so cached projects retain their
-previous readiness behavior.
+previous readiness behavior. The verifier now rejects malformed, internally
+inconsistent, or filesystem-stale freshness records in schema-3 manifests. The
+standalone and lazy reports summarize the reported source count and oldest
+cached-source age in their method/provenance panel. OpenAPI 3.1 now declares
+the freshness object and source timestamp/age fields for metadata and
+capability clients.
 The local server now exposes `/api/capabilities`, a cacheable machine-readable
 discovery document that inventories report readiness, endpoint contracts, query
 limits/cursors, route availability, and per-backend readability. Health,
@@ -401,7 +428,7 @@ automation contract.
 The schema-audit and reproducibility diagnostics now also accept `--json`,
 emitting the exact JSON records they write to disk. Doctor reports this shared
 diagnostic-output capability, and CI exercises the utility help and packaged
-Doctor contract. The full source suite now passes 184 tests.
+Doctor contract. The full source suite now passes 189 tests.
 The schema-audit and reproducibility diagnostics are now also installed as
 `ireland-geometry-schema-audit` and `ireland-geometry-repro`, bringing the
 stable wheel command surface to eight commands. Each exposes `--version`; CI,
