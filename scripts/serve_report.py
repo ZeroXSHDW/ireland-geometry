@@ -35,16 +35,6 @@ try:
         probe_backend,
         query_rows,
     )
-    from report import (
-        REPORT_EXPORT_CONTRACT,
-        REPORT_FILTER_SORT_KEYS,
-        REPORT_PAGE_CONTRACT,
-        REPORT_PAGE_DEFAULT_LIMIT,
-        REPORT_PAGE_MAX_LIMIT,
-        report_csv,
-        report_geojson,
-        report_page_payload,
-    )
     from road_routing import SQLiteRoadGraph, load_graph, parse_departure
     from route_query import ROUTE_CONTRACT, query_route, route_geojson
     from runtime import SOURCE_FRESHNESS_CONTRACT, package_version, project_path
@@ -54,16 +44,6 @@ except ImportError:
         _json_safe,
         probe_backend,
         query_rows,
-    )
-    from scripts.report import (
-        REPORT_EXPORT_CONTRACT,
-        REPORT_FILTER_SORT_KEYS,
-        REPORT_PAGE_CONTRACT,
-        REPORT_PAGE_DEFAULT_LIMIT,
-        REPORT_PAGE_MAX_LIMIT,
-        report_csv,
-        report_geojson,
-        report_page_payload,
     )
     from scripts.road_routing import SQLiteRoadGraph, load_graph, parse_departure
     from scripts.route_query import ROUTE_CONTRACT, query_route, route_geojson
@@ -82,6 +62,11 @@ OPENAPI_PATH = "/api/openapi.json"
 INTERPRETATION_API_PATH = "/api/interpretation"
 REPORT_PAGE_API_PATH = "/api/report/page"
 REPORT_EXPORT_API_PATH = "/api/report/export"
+REPORT_PAGE_CONTRACT = "ireland-geometry.report-page.v1"
+REPORT_EXPORT_CONTRACT = "ireland-geometry.report-export.v1"
+REPORT_PAGE_DEFAULT_LIMIT = 50
+REPORT_PAGE_MAX_LIMIT = 100
+REPORT_FILTER_SORT_KEYS = ("name", "group", "area_m2", "score", "flags")
 HEALTH_CONTRACT = "ireland-geometry.health.v1"
 QUERY_CONTRACT = "ireland-geometry.query.v1"
 METADATA_CONTRACT = "ireland-geometry.metadata.v1"
@@ -146,6 +131,7 @@ def openapi_document() -> dict[str, object]:
         _openapi_query_parameter("rating", {"type": "string"}, description="Exact NIAH rating filter."),
         _openapi_query_parameter("type", {"type": "string"}, description="Exact NIAH type filter."),
         _openapi_query_parameter("review", {"type": "string"}, description="Review queue state."),
+        _openapi_query_parameter("pattern", {"type": "string"}, description="Require a named geometric pattern flag."),
         _openapi_query_parameter("score", {"type": "number", "format": "double"}, description="Finite inclusive minimum score."),
         _openapi_query_parameter("angle", {"type": "boolean"}, description="Require a golden-angle flag."),
         _openapi_query_parameter("ratio", {"type": "boolean"}, description="Require a golden-ratio flag."),
@@ -1003,6 +989,7 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             "rating": value("rating") or "",
             "niah_type": value("type") or "",
             "review_state": value("review") or "",
+            "pattern": value("pattern") or "",
             "min_score": min_score,
             "only_angle": boolean("angle"),
             "only_ratio": boolean("ratio"),
@@ -1053,6 +1040,11 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         if data is None:
             return
         try:
+            try:
+                from report import report_page_payload
+            except ImportError:
+                from scripts.report import report_page_payload
+
             payload = report_page_payload(
                 data,
                 limit=limit,
@@ -1097,6 +1089,11 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         if data is None:
             return
         try:
+            try:
+                from report import report_csv, report_geojson
+            except ImportError:
+                from scripts.report import report_csv, report_geojson
+
             if format_name == "csv":
                 body = report_csv(data, **filters).encode("utf-8")
                 self._write_bytes(body, content_type="text/csv; charset=utf-8", filename="ireland-geometry-filtered.csv")

@@ -57,12 +57,60 @@ REPORT_EXPORT_COLUMNS = (
     "niah_century",
 )
 
+PATTERN_METADATA = (
+    ("golden_ratio", "Golden ratio", "Aspect ratio is within the configured 3% golden-ratio tolerance.", "Ratios"),
+    ("fib_ratio", "Fibonacci ratio", "Aspect ratio matches a non-trivial Fibonacci ratio within 2%.", "Ratios"),
+    ("fib_dimension", "Fibonacci dimension", "Length or width is close to a Fibonacci-number dimension.", "Ratios"),
+    ("golden_angle", "Golden angle", "At least one vertex angle is within 3° of 137.5°.", "Angles"),
+    ("orthogonal", "Orthogonal", "At least half of measured vertices are near right angles.", "Angles"),
+    ("reflective_symmetry", "Reflective symmetry", "The footprint overlaps strongly with its mirror reflection.", "Symmetry"),
+    ("rot180_symmetry", "180° rotational symmetry", "The footprint overlaps strongly after a 180° rotation.", "Symmetry"),
+    ("rot90_symmetry", "90° rotational symmetry", "The footprint overlaps strongly after a 90° rotation.", "Symmetry"),
+    ("pentagonal", "Pentagonal symmetry", "The footprint overlaps strongly after a 72° rotation.", "Symmetry"),
+    ("hexagonal", "Hexagonal symmetry", "The footprint overlaps strongly after a 60° rotation.", "Symmetry"),
+    ("octagonal", "Octagonal symmetry", "The footprint overlaps strongly after a 45° rotation.", "Symmetry"),
+    ("circular", "Circular", "Circularity is at least 0.85 using 4πA/P².", "Shape"),
+    ("cruciform_candidate", "Cruciform candidate", "A concave, multi-vertex, larger footprint matching the cruciform screen.", "Shape"),
+)
+
 
 def read_csv(path: Path) -> list[dict]:
     if not path.exists():
         return []
     with path.open(newline="", encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+def build_pattern_catalog(rows: list[dict]) -> list[dict]:
+    """Return every known geometry flag with a count and plain-language description."""
+    counts = Counter(
+        str(flag)
+        for row in rows
+        for flag in (row.get("flags") or [])
+        if str(flag)
+    )
+    metadata = {key: (label, description, category) for key, label, description, category in PATTERN_METADATA}
+    ordered_keys = [key for key, *_ in PATTERN_METADATA]
+    ordered_keys.extend(sorted(set(counts) - set(metadata), key=lambda value: (value.casefold(), value)))
+    total = len(rows)
+    catalog = []
+    for key in ordered_keys:
+        label, description, category = metadata.get(
+            key,
+            (key.replace("_", " ").title(), "Additional geometry screening flag.", "Other"),
+        )
+        count = counts.get(key, 0)
+        catalog.append(
+            {
+                "key": key,
+                "label": label,
+                "description": description,
+                "category": category,
+                "count": count,
+                "pct": round(100.0 * count / total, 4) if total else 0.0,
+            }
+        )
+    return catalog
 
 
 def number(value, default=0.0):
@@ -228,6 +276,7 @@ def report_filter_options(data: dict) -> dict[str, list[str]]:
         "rating": values(lambda row: (row.get("niah") or {}).get("rating", "")),
         "type": values(lambda row: (row.get("niah") or {}).get("type", "")),
         "review": values(report_review_state),
+        "pattern": [item["key"] for item in build_pattern_catalog(rows)],
     }
 
 
@@ -240,6 +289,7 @@ def report_matching_targets(
     rating: str = "",
     niah_type: str = "",
     review_state: str = "",
+    pattern: str = "",
     min_score: float = 0.0,
     only_angle: bool = False,
     only_ratio: bool = False,
@@ -290,6 +340,7 @@ def report_matching_targets(
             and (not rating or niah.get("rating") == rating)
             and (not niah_type or niah.get("type") == niah_type)
             and (not review_state or report_review_state(row) == review_state)
+            and (not pattern or pattern in flags)
             and number(row.get("score")) >= min_score
             and (not only_angle or bool(row.get("has_golden_angle")))
             and (not only_ratio or bool(row.get("has_golden_ratio")))
@@ -957,6 +1008,7 @@ def build_report_data(out: Path) -> dict:
         "niah_contained": modes.get("contained", 0),
         "niah_near": modes.get("near", 0),
         "groups": dict(Counter(row["group"] for row in targets)),
+        "pattern_count": len(build_pattern_catalog(targets)),
         "part_mapped": sum(row["parts"]["count"] > 0 for row in targets),
         "lidar_available": sum(row["lidar"]["available"] > 0 for row in targets),
         "history_review": sum(row["history"]["priority"] in {"high", "medium"} for row in targets),
@@ -993,6 +1045,7 @@ def build_report_data(out: Path) -> dict:
     )
     data = {
         "targets": targets,
+        "pattern_catalog": build_pattern_catalog(targets),
         "outlines": outlines,
         "summary": summary,
         "scoring": scoring_config,
@@ -1101,7 +1154,7 @@ TEMPLATE = r"""<!doctype html>
 * { box-sizing:border-box; }
 html,body { margin:0; height:100%; color:var(--ink); font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
 #map { position:fixed; inset:0; background:#dfe8ee; }
-#panel { position:fixed; z-index:1000; top:10px; right:10px; bottom:10px; width:min(560px,calc(100vw - 20px));
+#panel { position:fixed; z-index:1000; top:10px; right:10px; bottom:10px; width:min(700px,calc(100vw - 20px));
          display:flex; flex-direction:column; overflow:hidden; border:1px solid #d9dee5; border-radius:14px;
          background:var(--panel); box-shadow:0 8px 32px rgba(15,23,42,.22); }
 header { padding:15px 17px 10px; border-bottom:1px solid var(--line); }
@@ -1116,7 +1169,7 @@ h1 { margin:0; font-size:18px; letter-spacing:-.02em; }
 .review-state.supportive { color:var(--green); font-weight:700; }
 .review-state.ambiguous { color:#a05a00; font-weight:700; }
 .review-state.not_supportive { color:var(--red); font-weight:700; }
-.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; padding:10px 12px; border-bottom:1px solid var(--line); }
+.kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:7px; padding:10px 12px; border-bottom:1px solid var(--line); }
 .kpi { min-width:0; padding:8px 9px; border:1px solid var(--line); border-radius:9px; background:#fff; }
 .kpi b { display:block; font-size:18px; line-height:1.1; }
 .kpi span { color:var(--muted); font-size:10px; }
@@ -1146,8 +1199,28 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .toolbar { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); }
 .toolbar small { color:var(--muted); }
 .toolbar .actions { display:flex; gap:5px; }
+.toolbar-left { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
+.toolbar-actions { display:flex; align-items:center; gap:5px; flex-wrap:wrap; justify-content:flex-end; }
+.active-filter { color:var(--blue); font-size:11px; font-weight:700; }
+.clear-button { color:#526071; font-size:11px; }
 .section { padding:10px 12px; border-bottom:1px solid var(--line); }
 .section h2 { margin:0 0 7px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#465467; }
+.section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.section-intro { margin:0 0 9px; color:var(--muted); font-size:11px; }
+.pattern-summary { margin:0 0 8px; color:var(--muted); font-size:11px; }
+.pattern-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+.pattern-card { display:flex; flex-direction:column; align-items:stretch; gap:5px; min-height:132px; padding:9px; border:1px solid var(--line);
+                border-radius:9px; background:#fff; color:var(--ink); text-align:left; }
+.pattern-card:hover, .pattern-card.active { border-color:var(--blue); box-shadow:0 0 0 2px rgba(37,99,235,.12); color:var(--ink); }
+.pattern-card.active { background:#f5f9ff; }
+.pattern-card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:6px; }
+.pattern-card-label { font-size:12px; line-height:1.2; }
+.pattern-category { color:var(--muted); font-size:9px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
+.pattern-count { color:var(--blue); font-size:15px; line-height:1; }
+.pattern-meter { height:6px; border-radius:99px; background:#eef1f5; overflow:hidden; }
+.pattern-meter-fill { height:100%; min-width:0; border-radius:99px; background:linear-gradient(90deg,#60a5fa,#2563eb); }
+.pattern-card-meta { color:#526071; font-size:10px; }
+.pattern-description { margin:0; color:var(--muted); font-size:10px; line-height:1.35; }
 .bars { display:grid; gap:5px; }
 .bar-row { display:grid; grid-template-columns:100px 1fr 58px; align-items:center; gap:6px; font-size:11px; }
 .bar-track { height:10px; border-radius:20px; background:#eef1f5; overflow:hidden; }
@@ -1210,11 +1283,14 @@ tr[data-id] { cursor:pointer; }
 .quality-badge.missing, .quality-badge.check { background:#fff1f0; color:#a5322e; }
 @media (max-width:720px) {
   #panel { top:auto; right:0; bottom:0; left:0; width:100%; max-height:72vh; border-radius:14px 14px 0 0; }
-  .kpis { grid-template-columns:repeat(4,1fr); }
+  .kpis { grid-template-columns:repeat(3,1fr); }
   .kpi b { font-size:15px; }
   .filters { grid-template-columns:1fr 1fr; }
   .filters input[type=text] { grid-column:1 / -1; }
   .route-grid { grid-template-columns:1fr 1fr; }
+  .pattern-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .toolbar { align-items:flex-start; flex-direction:column; }
+  .toolbar-actions { width:100%; justify-content:flex-start; }
 }
 </style>
 </head>
@@ -1224,13 +1300,14 @@ tr[data-id] { cursor:pointer; }
   <header>
     <h1>Ireland Geometric Pattern Scan</h1>
     <div class="subtitle">Interactive, significance-tested footprint survey. Scores are search heuristics, not proof of design intent.</div>
-    <div class="header-actions"><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
+    <div class="header-actions"><a href="#patterns">Browse geometric patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
   </header>
   <div class="kpis" aria-live="polite">
     <div class="kpi"><b id="kTargets">—</b><span>visible targets</span></div>
     <div class="kpi"><b id="kControls">—</b><span>controls</span></div>
     <div class="kpi"><b id="kGolden">—</b><span>golden-angle</span></div>
     <div class="kpi"><b id="kNiah">—</b><span>NIAH matched</span></div>
+    <div class="kpi"><b id="kPatterns">—</b><span>pattern types</span></div>
   </div>
   <div class="filters">
     <input id="query" type="text" placeholder="Search name, OSM id, flags, county…" aria-label="Search analyzed targets"/>
@@ -1238,6 +1315,7 @@ tr[data-id] { cursor:pointer; }
     <select id="century" aria-label="Filter by century"><option value="">All centuries</option></select>
     <select id="rating" aria-label="Filter by NIAH rating"><option value="">All ratings</option></select>
     <select id="niahType" aria-label="Filter by NIAH class"><option value="">All NIAH classes</option></select>
+    <select id="pattern" aria-label="Filter by geometric pattern"><option value="">All geometric patterns</option></select>
     <select id="reviewState" aria-label="Filter by review state"><option value="">All review states</option><option value="not_queued">Not in current queue</option><option value="not_reviewed">Not reviewed</option><option value="supportive">Supportive</option><option value="ambiguous">Ambiguous</option><option value="not_supportive">Not supportive</option></select>
     <label class="filter-wide" for="score"><span>Minimum score <b id="scoreValue">0</b></span><input id="score" type="range" min="0" max="100" value="0" aria-label="Minimum score"/></label>
     <div class="checks">
@@ -1247,7 +1325,8 @@ tr[data-id] { cursor:pointer; }
       <label><input id="onlyMulti" type="checkbox"/> multipart/repaired</label>
     </div>
   </div>
-  <div class="toolbar"><small id="count">Loading…</small><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div>
+  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activePattern" class="active-filter" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <div id="patterns" class="section pattern-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
     <div class="route-grid">
       <label>Start latitude<input id="routeStartLat" inputmode="decimal" placeholder="53.3498"/></label>
@@ -1293,6 +1372,8 @@ const BOOT = PACK.spatial_bootstrap || [];
 const QUALITY_DUPLICATES = PACK.data_quality_duplicates || [];
 const QUALITY_AUDIT = PACK.data_quality || [];
 const GEOJSON = PACK.geojson || {type:'FeatureCollection',features:[]};
+const PATTERN_CATALOG = PACK.pattern_catalog || [];
+const PATTERN_BY_KEY = new Map(PATTERN_CATALOG.map(item=>[item.key,item]));
 const PAGE_SIZE = 50;
 let filtered = DATA.slice();
 let page = 1;
@@ -1316,16 +1397,20 @@ const fmt = (value, digits=1) => Number.isFinite(Number(value)) ? Number(value).
 const pFmt = value => { const p=Number(value); if (!Number.isFinite(p)) return 'n/a'; if (p<1e-4) return '&lt;0.0001'; if (p<.001) return '&lt;0.001'; return p.toFixed(4).replace(/0+$/,'').replace(/\.$/,''); };
 const flagsText = row => row.flags.join(', ');
 const hasFlag = (row, flag) => row.flags.includes(flag);
+const patternLabel = key => PATTERN_BY_KEY.get(key)?.label || String(key||'').replaceAll('_',' ');
+const patternNamesText = row => row.flags.map(patternLabel).join(', ');
 const unique = key => [...new Set(DATA.map(row => key(row)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
 
 function fillSelect(id, values) { for (const value of values) { const option=document.createElement('option'); option.value=value; option.textContent=value; $(id).appendChild(option); } }
+function fillPatternSelect() { for (const item of PATTERN_CATALOG) { const option=document.createElement('option'); option.value=item.key; option.textContent=`${item.label} (${Number(item.count||0).toLocaleString()})`; $('pattern').appendChild(option); } }
 const FILTER_OPTIONS = PACK.filter_options || {};
 fillSelect('group', FILTER_OPTIONS.group || unique(row=>row.group));
 fillSelect('century', FILTER_OPTIONS.century || unique(row=>row.niah.century));
 fillSelect('rating', FILTER_OPTIONS.rating || unique(row=>row.niah.rating));
 fillSelect('niahType', FILTER_OPTIONS.type || unique(row=>row.niah.type));
+fillPatternSelect();
 
-const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['reviewState','review']];
+const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['pattern','pattern'],['reviewState','review']];
 const VIEW_CHECKS = [['onlyAngle','angle'],['onlyRatio','ratio'],['onlyCircular','circular'],['onlyMulti','multi']];
 const SORT_KEYS = new Set(['name','group','area_m2','score','flags']);
 function restoreViewState() {
@@ -1353,10 +1438,10 @@ function syncViewState() {
 function color(score) { return score >= 60 ? '#b42318' : score >= 35 ? '#d97706' : score >= 15 ? '#2563eb' : '#3f8f65'; }
 function matches(row) {
   const q=$('query').value.trim().toLowerCase();
-  const hay=[row.name,row.osm_id,row.group,row.subtype,row.address_city,flagsText(row),row.niah.name,row.niah.county,row.niah.type,row.history.status,row.history.architect].join(' ').toLowerCase();
+  const hay=[row.name,row.osm_id,row.group,row.subtype,row.address_city,flagsText(row),patternNamesText(row),row.niah.name,row.niah.county,row.niah.type,row.history.status,row.history.architect].join(' ').toLowerCase();
   return (!q || hay.includes(q)) && (!$('group').value || row.group===$('group').value) &&
     (!$('century').value || row.niah.century===$('century').value) && (!$('rating').value || row.niah.rating===$('rating').value) &&
-    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) && row.score >= Number($('score').value) &&
+    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('pattern').value || hasFlag(row,$('pattern').value)) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) && row.score >= Number($('score').value) &&
     (!$('onlyAngle').checked || row.has_golden_angle) && (!$('onlyRatio').checked || row.has_golden_ratio) &&
     (!$('onlyCircular').checked || hasFlag(row,'circular')) && (!$('onlyMulti').checked || row.multipart || row.repaired);
 }
@@ -1401,7 +1486,7 @@ function applyFilters() {
   filtered=sortRows(DATA.filter(matches)); renderAll();
 }
 function queueFilters() { clearTimeout(filterTimer); filterTimer=setTimeout(()=>applyFilters(), $('query')===document.activeElement ? 180 : 0); }
-function renderAll() { renderSummary(); renderTable(); renderMap(); }
+function renderAll() { renderSummary(); renderPatternCatalog(); renderTable(); renderMap(); }
 
 function renderSummary() {
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
@@ -1411,9 +1496,40 @@ function renderSummary() {
   $('kControls').textContent=Number(SUMMARY.controls||0).toLocaleString();
   $('kGolden').textContent=golden.toLocaleString();
   $('kNiah').textContent=niah.toLocaleString();
+  $('kPatterns').textContent=PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString();
   $('count').textContent=`${total.toLocaleString()} matching targets · showing up to ${PAGE_SIZE} per page`;
+  $('activePattern').textContent=$('pattern').value?`Pattern: ${patternLabel($('pattern').value)}`:'';
   $('reviewCoverage').textContent=`Expert review queue: ${Number(SUMMARY.review_queue_targets||0).toLocaleString()} of ${Number(SUMMARY.targets||0).toLocaleString()} targets (${fmt(SUMMARY.review_queue_coverage_pct,2)}%); unqueued targets are labeled explicitly.`;
 }
+function renderPatternCatalog() {
+  const active=$('pattern').value;
+  const total=Number(SUMMARY.targets||0);
+  const visibleCount=PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length;
+  $('patternSummary').textContent=active
+    ? `${patternLabel(active)} selected · ${Number(PATTERN_BY_KEY.get(active)?.count||0).toLocaleString()} of ${total.toLocaleString()} targets carry this flag.`
+    : `${visibleCount.toLocaleString()} pattern types found across ${total.toLocaleString()} targets. Cards are ordered by the catalogue; counts are target-level flags.`;
+  const maxCount=Math.max(1,...PATTERN_CATALOG.map(item=>Number(item.count||0)));
+  $('patternCatalog').innerHTML=PATTERN_CATALOG.map(item=>{
+    const count=Number(item.count||0), activeClass=item.key===active?' active':'';
+    const width=count?Math.max(2,Math.round(count/maxCount*100)):0;
+    return `<button type="button" class="pattern-card${activeClass}" data-pattern="${esc(item.key)}" aria-pressed="${item.key===active}"><span class="pattern-card-top"><span><span class="pattern-category">${esc(item.category||'Pattern')}</span><br><b class="pattern-card-label">${esc(item.label||patternLabel(item.key))}</b></span><b class="pattern-count">${count.toLocaleString()}</b></span><span class="pattern-meter" aria-hidden="true"><span class="pattern-meter-fill" style="width:${width}%"></span></span><span class="pattern-card-meta">${fmt(item.pct,2)}% of targets</span><span class="pattern-description">${esc(item.description||'Geometry screening flag.')}</span></button>`;
+  }).join('') || '<p class="footnote">No geometric pattern flags are available.</p>';
+}
+function setPatternFilter(key) { $('pattern').value=$('pattern').value===key?'':key; applyFilters(); }
+function clearPatternFilter() { $('pattern').value=''; applyFilters(); }
+function clearAllFilters() {
+  $('query').value='';
+  for(const [id] of VIEW_SELECTS) $(id).value='';
+  for(const [id] of VIEW_CHECKS) $(id).checked=false;
+  $('score').value='0'; $('scoreValue').textContent='0'; sortKey='score'; sortDesc=true; applyFilters();
+}
+document.addEventListener('click',event=>{
+  const card=event.target.closest?.('button.pattern-card');
+  if(card) { setPatternFilter(card.dataset.pattern); return; }
+  if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
+  if(event.target.closest?.('#clearFilters')) { clearAllFilters(); }
+});
+document.addEventListener('change',event=>{ if(event.target?.id==='pattern') queueFilters(); });
 function interpretationStatusClass(value) { return String(value||'not_reported').toLowerCase().replace(/[^a-z0-9_-]/g,'_'); }
 function renderInterpretation() {
   const findings=INTERPRETATION.findings||[], caveats=INTERPRETATION.caveats||[];
@@ -1423,7 +1539,7 @@ function renderInterpretation() {
   const caveatBlock=caveats.length?`<ul class="interpretation-caveats">${caveats.map(item=>`<li>${esc(item)}</li>`).join('')}</ul>`:'';
   $('interpretation').innerHTML=`${headline}<div class="interpretation-grid">${cards}</div>${caveatBlock}`;
 }
-function flagHtml(row) { return row.flags.slice(0,5).map(flag=>`<span class="flag">${esc(flag.replaceAll('_',' '))}</span>`).join('') || '<span class="footnote">none</span>'; }
+function flagHtml(row) { return row.flags.slice(0,5).map(flag=>`<span class="flag">${esc(patternLabel(flag))}</span>`).join('') + (row.flags.length>5?` <span class="footnote">+${row.flags.length-5} more</span>`:'') || '<span class="footnote">none</span>'; }
 function reviewHref(row) { return `review.html?osm_id=${encodeURIComponent(row.osm_id)}`; }
 function reviewFilterState(row) { return row.review?.in_queue ? String(row.review?.label||'not_reviewed') : 'not_queued'; }
 function reviewState(row) { return reviewFilterState(row).replaceAll('_',' '); }

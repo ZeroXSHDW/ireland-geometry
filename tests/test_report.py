@@ -4,9 +4,11 @@ import json
 from scripts.report import (
     build_interpretation,
     build_lazy_report,
+    build_pattern_catalog,
     build_report,
     build_report_data,
     interpretation_artifact,
+    report_matching_targets,
     source_freshness_summary,
 )
 
@@ -337,3 +339,20 @@ def test_source_freshness_summary_reports_cache_age_without_an_age_policy():
         "oldest_age_days": 1.0,
         "newest_age_days": round(3_600 / 86_400, 3),
     }
+
+
+def test_pattern_catalog_lists_every_flag_and_filters_targets():
+    rows = [
+        {"osm_id": "way/1", "flags": ["golden_angle", "orthogonal"]},
+        {"osm_id": "way/2", "flags": ["circular"]},
+    ]
+
+    catalog = build_pattern_catalog(rows)
+    by_key = {item["key"]: item for item in catalog}
+    assert by_key["golden_angle"]["count"] == 1
+    assert by_key["orthogonal"]["count"] == 1
+    assert by_key["circular"]["pct"] == 50.0
+    assert by_key["cruciform_candidate"]["count"] == 0
+
+    matches = report_matching_targets({"targets": rows}, pattern="golden_angle")
+    assert [row["osm_id"] for row in matches] == ["way/1"]
