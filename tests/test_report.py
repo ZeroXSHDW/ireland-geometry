@@ -245,6 +245,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="mapLoading"' in html
     assert "function selectMapTarget" in html
     assert "Focus in list" in html
+    assert "A place is more than a pattern." in html
+    assert 'id="cultureLens"' in html
+    assert "function renderCultureAtlas" in html
+    assert "CULTURE_LENS_LABELS" in html
+    assert "Oidhreacht" in html
+    assert "teanglann.ie" in html
     assert "function restoreViewState()" in html
     assert "function syncViewState()" in html
     assert "X-Ireland-Geometry-Runtime-Status" in lazy_html
@@ -491,6 +497,40 @@ def test_pattern_catalog_lists_every_flag_and_filters_targets():
 
     matches = report_matching_targets({"targets": rows}, pattern="golden_angle")
     assert [row["osm_id"] for row in matches] == ["way/1"]
+
+
+def test_cultural_lenses_filter_data_derived_place_contexts():
+    rows = [
+        {
+            "osm_id": "way/named",
+            "group": "worship",
+            "score": 90,
+            "spatial": {"settlement_class": "named_place"},
+            "niah": {"reg_no": "N1"},
+        },
+        {
+            "osm_id": "way/civic",
+            "group": "civic",
+            "score": 80,
+            "spatial": {"settlement_class": "unknown"},
+            "niah": {"reg_no": ""},
+        },
+        {
+            "osm_id": "way/other",
+            "group": "historic",
+            "score": 70,
+            "spatial": {"settlement_class": "unknown"},
+            "niah": {"reg_no": ""},
+        },
+    ]
+    data = {"targets": rows}
+
+    assert [row["osm_id"] for row in report_matching_targets(data, culture="named")] == ["way/named"]
+    assert [row["osm_id"] for row in report_matching_targets(data, culture="heritage")] == ["way/named"]
+    assert [row["osm_id"] for row in report_matching_targets(data, culture="pobal")] == ["way/named", "way/civic"]
+    assert [row["osm_id"] for row in report_matching_targets(data, culture="civic")] == ["way/civic"]
+    with pytest.raises(ValueError, match="culture must be one of"):
+        report_matching_targets(data, culture="folklore")
 
 
 def test_generated_runtime_recovery_restores_baseline_interpretation(tmp_path):

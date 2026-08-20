@@ -70,6 +70,13 @@ PATTERN_METADATA = (
     ("circular", "Circular", "Circularity is at least 0.85 using 4πA/P².", "Shape"),
     ("cruciform_candidate", "Cruciform candidate", "A concave, multi-vertex, larger footprint matching the cruciform screen.", "Shape"),
 )
+CULTURE_LENS_KEYS = ("named", "heritage", "pobal", "civic")
+CULTURE_LENS_LABELS = {
+    "named": "Ainm / named places",
+    "heritage": "Oidhreacht / heritage joins",
+    "pobal": "Pobal / shared life",
+    "civic": "Civic / public institutions",
+}
 
 
 def read_csv(path: Path) -> list[dict]:
@@ -280,7 +287,21 @@ def report_filter_options(data: dict) -> dict[str, list[str]]:
         "type": values(lambda row: (row.get("niah") or {}).get("type", "")),
         "review": values(report_review_state),
         "pattern": [item["key"] for item in build_pattern_catalog(rows)],
+        "culture": list(CULTURE_LENS_KEYS),
     }
+
+
+def cultural_lens_matches(row: dict, lens: str) -> bool:
+    """Return whether a target belongs to a data-derived cultural lens."""
+    if lens == "named":
+        return (row.get("spatial") or {}).get("settlement_class") == "named_place"
+    if lens == "heritage":
+        return bool((row.get("niah") or {}).get("reg_no"))
+    if lens == "pobal":
+        return row.get("group") in {"worship", "government", "civic"}
+    if lens == "civic":
+        return row.get("group") in {"government", "civic"}
+    return False
 
 
 def report_matching_targets(
@@ -293,6 +314,7 @@ def report_matching_targets(
     niah_type: str = "",
     review_state: str = "",
     pattern: str = "",
+    culture: str = "",
     min_score: float = 0.0,
     only_angle: bool = False,
     only_ratio: bool = False,
@@ -308,6 +330,8 @@ def report_matching_targets(
     """
     if sort_key not in REPORT_FILTER_SORT_KEYS:
         raise ValueError(f"sort must be one of {', '.join(REPORT_FILTER_SORT_KEYS)}")
+    if culture not in {"", *CULTURE_LENS_KEYS}:
+        raise ValueError(f"culture must be one of {', '.join(CULTURE_LENS_KEYS)}")
     if not math.isfinite(min_score):
         raise ValueError("score must be finite")
     rows = data.get("targets", []) if isinstance(data, dict) else []
@@ -344,6 +368,7 @@ def report_matching_targets(
             and (not niah_type or niah.get("type") == niah_type)
             and (not review_state or report_review_state(row) == review_state)
             and (not pattern or pattern in flags)
+            and (not culture or cultural_lens_matches(row, culture))
             and number(row.get("score")) >= min_score
             and (not only_angle or bool(row.get("has_golden_angle")))
             and (not only_ratio or bool(row.get("has_golden_ratio")))
@@ -981,6 +1006,23 @@ def build_report_data(out: Path) -> dict:
     modes = Counter(row.get("match_mode", "") for row in niah_rows)
     manifest = load_manifest(out)
     freshness_summary = source_freshness_summary(manifest)
+    county_counts = Counter(
+        str((row.get("spatial") or {}).get("county") or "").strip()
+        for row in targets
+        if bool((row.get("niah") or {}).get("reg_no"))
+        if str((row.get("spatial") or {}).get("county") or "").strip()
+    )
+    culture_summary = {
+        "named_places": sum(
+            (row.get("spatial") or {}).get("settlement_class") == "named_place"
+            for row in targets
+        ),
+        "heritage_joins": sum(bool((row.get("niah") or {}).get("reg_no")) for row in targets),
+        "shared_life": sum(row.get("group") in {"worship", "government", "civic"} for row in targets),
+        "civic_life": sum(row.get("group") in {"government", "civic"} for row in targets),
+        "county_contexts": len(county_counts),
+        "top_counties": dict(county_counts.most_common(5)),
+    }
     covariate_status = {
         row.get("covariate", ""): row.get("status", "not_provided")
         for row in spatial_covariates_summary
@@ -1015,6 +1057,7 @@ def build_report_data(out: Path) -> dict:
         "niah_contained": modes.get("contained", 0),
         "niah_near": modes.get("near", 0),
         "groups": dict(Counter(row["group"] for row in targets)),
+        "culture": culture_summary,
         "pattern_count": len(build_pattern_catalog(targets)),
         "part_mapped": sum(row["parts"]["count"] > 0 for row in targets),
         "lidar_available": sum(row["lidar"]["available"] > 0 for row in targets),
@@ -1424,6 +1467,40 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .evidence-grid article a { color:var(--blue); font-size:10px; font-weight:750; text-decoration:none; }
 .evidence-grid article a:hover { text-decoration:underline; }
 .evidence-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--red); color:#6d6254; background:#f4e9d8; font-size:10px; line-height:1.45; }
+.culture-section { padding:24px; border-bottom:1px solid #d9cfbd; background:linear-gradient(135deg,#f5eee1 0%,#e9efe8 100%); }
+.culture-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+.culture-head h2 { max-width:560px; margin:0; color:var(--deep); font:700 clamp(26px,3vw,38px)/1.02 Georgia,serif; letter-spacing:-.05em; }
+.culture-head p { max-width:650px; margin:11px 0 0; color:#5d6d66; font-size:12px; line-height:1.6; }
+.culture-mark { flex:0 0 142px; display:flex; flex-direction:column; align-items:center; justify-content:center; width:142px; height:142px; border:1px solid #c3b58f; border-radius:50%; color:#f8f2e6; background:var(--deep); box-shadow:0 8px 24px rgba(16,53,55,.13); transform:rotate(5deg); }
+.culture-mark span { color:#e1c276; font-size:9px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+.culture-mark b { margin-top:5px; color:#f7f0dc; font:700 31px/1 Georgia,serif; letter-spacing:-.07em; }
+.culture-mark small { margin-top:7px; color:rgba(247,240,220,.62); font-size:9px; }
+.culture-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:20px; }
+.culture-card { min-height:236px; padding:14px; border:1px solid #d6cdbd; background:rgba(255,252,244,.7); box-shadow:0 5px 14px rgba(31,63,59,.04); }
+.culture-card:nth-child(2) { border-top:2px solid var(--red); }
+.culture-card:nth-child(3) { border-top:2px solid var(--blue); }
+.culture-card:nth-child(4) { border-top:2px solid var(--green); }
+.culture-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+.culture-card-top small { color:#6e8177; font-size:9px; font-weight:650; letter-spacing:.02em; text-transform:none; }
+.culture-card strong { display:block; margin-top:25px; color:var(--deep); font:700 30px/.95 Georgia,serif; letter-spacing:-.06em; }
+.culture-card h3 { margin:10px 0 0; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.culture-card p { min-height:54px; margin:8px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.culture-card p b { color:var(--red); }
+.culture-focus { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:29px; margin-top:14px; padding:5px 8px; border:1px solid #cfc4b0; border-radius:7px; color:#49685e; background:#f8f2e6; font-size:10px; font-weight:750; text-align:left; }
+.culture-focus:hover, .culture-focus[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.culture-focus span { color:var(--red); font-size:14px; line-height:1; }
+.culture-focus[aria-pressed="true"] span { color:#e5c874; }
+.culture-mosaic { display:grid; grid-template-columns:1.15fr .85fr; gap:1px; margin-top:10px; border:1px solid #d6cdbd; background:#d6cdbd; }
+.culture-mosaic > div { min-height:118px; padding:15px; background:rgba(255,252,244,.78); }
+.culture-mosaic h3 { margin:8px 0 0; color:var(--deep); font:700 19px/1.08 Georgia,serif; letter-spacing:-.035em; }
+.culture-mosaic h3 b { color:var(--red); }
+.culture-mosaic p { margin:8px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.culture-mosaic-label { color:#897c67; font-size:9px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+.culture-word-links { display:flex; flex-wrap:wrap; gap:6px; margin-top:15px; }
+.culture-word-links a { display:flex; flex-direction:column; min-width:74px; padding:7px 8px; border:1px solid #d8cdb8; border-radius:7px; color:var(--deep); background:#f7f0e3; font:700 12px/1 Georgia,serif; text-decoration:none; }
+.culture-word-links a:hover { border-color:var(--blue); color:var(--blue); }
+.culture-word-links small { margin-top:4px; color:#8a7c68; font:600 9px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.culture-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:10px; line-height:1.45; }
 .diagram-kicker { fill:#857962; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
 .diagram-baseline { stroke:#c7bba6; stroke-width:1; }
 .diagram-outer { fill:rgba(53,108,105,.08); stroke:#356c69; stroke-width:2; }
@@ -1474,6 +1551,7 @@ tr:hover td { background:#f1f6f1; }
   #mapHud { top:78px; left:16px; }
   #mapLabel { left:22px; bottom:22px; }
   .equation-grid, .typology-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .culture-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .lab-toolbar { align-items:stretch; }
   .lab-toolbar select { width:100%; }
   .lab-toolbar label { min-width:calc(50% - 10px); }
@@ -1491,6 +1569,12 @@ tr:hover td { background:#f1f6f1; }
   .filters input[type=text] { grid-column:1 / -1; }
   .route-grid { grid-template-columns:1fr 1fr; }
   .pattern-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .culture-section { padding:18px; }
+  .culture-head { display:block; }
+  .culture-mark { display:none; }
+  .culture-grid { grid-template-columns:1fr; }
+  .culture-card { min-height:0; }
+  .culture-mosaic { grid-template-columns:1fr; }
   .toolbar { align-items:flex-start; flex-direction:column; }
   .toolbar-actions { width:100%; justify-content:flex-start; }
 }
@@ -1525,7 +1609,7 @@ tr:hover td { background:#f1f6f1; }
     <h1><em>Cruth</em>: the shape<br/>of public life</h1>
     <div class="subtitle">A data-backed Irish building survey expanded into a contemporary architecture studio: equations become bays, courtyards, paths, canopies and places to gather.</div>
     <p class="hero-note">The scan finds geometric signals. The studio tests how those signals might responsibly inform new civic architecture; it does not claim historic intent.</p>
-    <div class="header-actions"><a href="#studio">Enter the design studio</a><a href="#patterns">Browse measured patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
+    <div class="header-actions"><a href="#studio">Enter the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
   </header>
   <section id="studio" class="studio-section">
     <div class="studio-head">
@@ -1603,6 +1687,63 @@ tr:hover td { background:#f1f6f1; }
       <p id="studioCaveat" class="evidence-caveat">Evidence caveats will appear here once the report pack is loaded.</p>
     </div>
   </section>
+  <section id="culture" class="culture-section" aria-labelledby="cultureTitle">
+    <div class="culture-head">
+      <div>
+        <div class="studio-kicker">Living Ireland / cultural lens</div>
+        <h2 id="cultureTitle">A place is more than a pattern.</h2>
+        <p>Read the atlas through names, inherited fabric, shared life and county difference. These lenses use the current OSM, NIAH and spatial-context data; they do not claim that one geometry explains Irish culture.</p>
+      </div>
+      <div class="culture-mark" aria-hidden="true"><span>Cruth</span><b>Áit</b><small>shape → place</small></div>
+    </div>
+    <div class="culture-grid" aria-label="Data-derived Irish cultural lenses">
+      <article class="culture-card">
+        <div class="culture-card-top"><span>01 / Ainm</span><small>name</small></div>
+        <strong id="cultureNamedCount">—</strong>
+        <h3>Names keep place specific.</h3>
+        <p><b id="cultureNamedShare">—</b> of target rows sit in a named settlement context in this snapshot.</p>
+        <button class="culture-focus" type="button" data-culture-focus="named" aria-pressed="false">Explore named places <span>→</span></button>
+      </article>
+      <article class="culture-card">
+        <div class="culture-card-top"><span>02 / Oidhreacht</span><small>heritage</small></div>
+        <strong id="cultureHeritageCount">—</strong>
+        <h3>Memory has an inventory.</h3>
+        <p>NIAH-linked target rows connect footprints to named places, types, counties and ratings where the inventory reaches them.</p>
+        <button class="culture-focus" type="button" data-culture-focus="heritage" aria-pressed="false">Explore heritage joins <span>→</span></button>
+      </article>
+      <article class="culture-card">
+        <div class="culture-card-top"><span>03 / Pobal</span><small>shared life</small></div>
+        <strong id="cultureSharedLifeCount">—</strong>
+        <h3>Public life has many rooms.</h3>
+        <p>Worship, government and civic cohorts stay distinct so “community” is not flattened into one visual style.</p>
+        <button class="culture-focus" type="button" data-culture-focus="pobal" aria-pressed="false">Explore shared life <span>→</span></button>
+      </article>
+      <article class="culture-card">
+        <div class="culture-card-top"><span>04 / Civic ground</span><small>public institutions</small></div>
+        <strong id="cultureCivicLifeCount">—</strong>
+        <h3>Commons need civic edges.</h3>
+        <p>Government and civic targets form a smaller public-institution lens for testing access, welcome and shared ground.</p>
+        <button class="culture-focus" type="button" data-culture-focus="civic" aria-pressed="false">Explore civic ground <span>→</span></button>
+      </article>
+    </div>
+    <div class="culture-mosaic">
+      <div>
+        <span class="culture-mosaic-label">Contae / county mosaic</span>
+        <h3><b id="cultureCountyCount">—</b> county contexts in the heritage-linked rows.</h3>
+        <p id="cultureTopCounties">County context will appear when the report pack loads.</p>
+      </div>
+      <div class="culture-wordbank">
+        <span class="culture-mosaic-label">Words to carry into the studio</span>
+        <div class="culture-word-links">
+          <a href="https://www.teanglann.ie/en/eid/h%C3%A1it" target="_blank" rel="noopener">Áit <small>place</small></a>
+          <a href="https://www.teanglann.ie/en/eid/NAME" target="_blank" rel="noopener">Ainm <small>name</small></a>
+          <a href="https://www.teanglann.ie/en/eid/oidhreacht" target="_blank" rel="noopener">Oidhreacht <small>heritage</small></a>
+          <a href="https://www.teanglann.ie/en/eid/pobal" target="_blank" rel="noopener">Pobal <small>community</small></a>
+        </div>
+      </div>
+    </div>
+    <p class="culture-caveat">The Irish labels are language cues, not a claim that the dashboard can stand in for lived culture. Follow the evidence from place name to source record, then bring local knowledge into the design conversation.</p>
+  </section>
   <div class="kpis" aria-live="polite">
     <div class="kpi"><b id="kTargets">—</b><span>visible targets</span></div>
     <div class="kpi"><b id="kControls">—</b><span>controls</span></div>
@@ -1610,12 +1751,13 @@ tr:hover td { background:#f1f6f1; }
     <div class="kpi"><b id="kNiah">—</b><span>NIAH matched</span></div>
     <div class="kpi"><b id="kPatterns">—</b><span>pattern types</span></div>
   </div>
-  <div class="filters">
+  <div id="filters" class="filters">
     <input id="query" type="text" placeholder="Search name, OSM id, flags, county…" aria-label="Search analyzed targets"/>
     <select id="group" aria-label="Filter by group"><option value="">All groups</option></select>
     <select id="century" aria-label="Filter by century"><option value="">All centuries</option></select>
     <select id="rating" aria-label="Filter by NIAH rating"><option value="">All ratings</option></select>
     <select id="niahType" aria-label="Filter by NIAH class"><option value="">All NIAH classes</option></select>
+    <select id="cultureLens" aria-label="Filter by cultural lens"><option value="">All cultural lenses</option><option value="named">Ainm / named places</option><option value="heritage">Oidhreacht / heritage joins</option><option value="pobal">Pobal / shared life</option><option value="civic">Civic / public institutions</option></select>
     <select id="pattern" aria-label="Filter by geometric pattern"><option value="">All geometric patterns</option></select>
     <select id="reviewState" aria-label="Filter by review state"><option value="">All review states</option><option value="not_queued">Not in current queue</option><option value="not_reviewed">Not reviewed</option><option value="supportive">Supportive</option><option value="ambiguous">Ambiguous</option><option value="not_supportive">Not supportive</option></select>
     <label class="filter-wide" for="score"><span>Minimum score <b id="scoreValue">0</b></span><input id="score" type="range" min="0" max="100" value="0" aria-label="Minimum score"/></label>
@@ -1626,7 +1768,7 @@ tr:hover td { background:#f1f6f1; }
       <label><input id="onlyMulti" type="checkbox"/> multipart/repaired</label>
     </div>
   </div>
-  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activeCulture" class="active-filter" aria-live="polite"></span><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
   <div id="patterns" class="section pattern-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
     <div class="route-grid">
@@ -2059,6 +2201,14 @@ const flagsText = row => row.flags.join(', ');
 const hasFlag = (row, flag) => row.flags.includes(flag);
 const patternLabel = key => PATTERN_BY_KEY.get(key)?.label || String(key||'').replaceAll('_',' ');
 const patternNamesText = row => row.flags.map(patternLabel).join(', ');
+const CULTURE_LENS_LABELS = {named:'Ainm / named places',heritage:'Oidhreacht / heritage joins',pobal:'Pobal / shared life',civic:'Civic / public institutions'};
+function culturalLensMatches(row,lens) {
+  if(lens==='named') return row.spatial?.settlement_class==='named_place';
+  if(lens==='heritage') return Boolean(row.niah?.reg_no);
+  if(lens==='pobal') return ['worship','government','civic'].includes(row.group);
+  if(lens==='civic') return ['government','civic'].includes(row.group);
+  return true;
+}
 const unique = key => [...new Set(DATA.map(row => key(row)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),undefined,{numeric:true}));
 
 function fillSelect(id, values) { for (const value of values) { const option=document.createElement('option'); option.value=value; option.textContent=value; $(id).appendChild(option); } }
@@ -2070,7 +2220,7 @@ fillSelect('rating', FILTER_OPTIONS.rating || unique(row=>row.niah.rating));
 fillSelect('niahType', FILTER_OPTIONS.type || unique(row=>row.niah.type));
 fillPatternSelect();
 
-const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['pattern','pattern'],['reviewState','review']];
+const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['pattern','pattern'],['reviewState','review'],['cultureLens','culture']];
 const VIEW_CHECKS = [['onlyAngle','angle'],['onlyRatio','ratio'],['onlyCircular','circular'],['onlyMulti','multi']];
 const SORT_KEYS = new Set(['name','group','area_m2','score','flags']);
 function restoreViewState() {
@@ -2101,7 +2251,8 @@ function matches(row) {
   const hay=[row.name,row.osm_id,row.group,row.subtype,row.address_city,flagsText(row),patternNamesText(row),row.niah.name,row.niah.county,row.niah.type,row.history.status,row.history.architect].join(' ').toLowerCase();
   return (!q || hay.includes(q)) && (!$('group').value || row.group===$('group').value) &&
     (!$('century').value || row.niah.century===$('century').value) && (!$('rating').value || row.niah.rating===$('rating').value) &&
-    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('pattern').value || hasFlag(row,$('pattern').value)) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) && row.score >= Number($('score').value) &&
+    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('pattern').value || hasFlag(row,$('pattern').value)) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) &&
+    culturalLensMatches(row,$('cultureLens').value) && row.score >= Number($('score').value) &&
     (!$('onlyAngle').checked || row.has_golden_angle) && (!$('onlyRatio').checked || row.has_golden_ratio) &&
     (!$('onlyCircular').checked || hasFlag(row,'circular')) && (!$('onlyMulti').checked || row.multipart || row.repaired);
 }
@@ -2113,7 +2264,7 @@ function currentFilterParameters() {
   const params=new URLSearchParams();
   const add=(key,value)=>{ if(value!==undefined && value!==null && String(value)!=='') params.set(key,String(value)); };
   add('q',$('query').value.trim()); add('group',$('group').value); add('century',$('century').value);
-  add('rating',$('rating').value); add('type',$('niahType').value); add('review',$('reviewState').value);
+  add('rating',$('rating').value); add('type',$('niahType').value); add('review',$('reviewState').value); add('culture',$('cultureLens').value);
   if(Number($('score').value)>0) add('score',Number($('score').value));
   for(const [id,key] of VIEW_CHECKS) if($(id).checked) params.set(key,'1');
   add('sort',sortKey==='score'?'':sortKey); if(!sortDesc) params.set('desc','0');
@@ -2255,7 +2406,26 @@ function renderMethod() {
   if(paragraphs.length<3) return;
   paragraphs[2].innerHTML=`Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.`;
 }
-function renderAll() { renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
+function renderAll() { renderCultureAtlas(); renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
+
+function renderCultureAtlas() {
+  const culture=SUMMARY.culture || {};
+  const total=Math.max(1,Number(SUMMARY.targets||0));
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const count=value=>Number(value||0).toLocaleString();
+  set('cultureNamedCount',count(culture.named_places));
+  set('cultureNamedShare',fmt(Number(culture.named_places||0)/total*100,1)+'%');
+  set('cultureHeritageCount',count(culture.heritage_joins));
+  set('cultureSharedLifeCount',count(culture.shared_life));
+  set('cultureCivicLifeCount',count(culture.civic_life));
+  set('cultureCountyCount',count(culture.county_contexts));
+  const top=Object.entries(culture.top_counties || {}).map(([name,value])=>name+' '+count(value));
+  set('cultureTopCounties',top.length ? 'Most represented heritage-linked contexts in this pack: '+top.join(' · ')+'.' : 'County context is not available in this report pack.');
+  document.querySelectorAll('.culture-focus').forEach(button=>{
+    const active=button.dataset.cultureFocus===$('cultureLens')?.value;
+    button.setAttribute('aria-pressed',String(active));
+  });
+}
 
 function renderSummary() {
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
@@ -2267,7 +2437,9 @@ function renderSummary() {
   $('kNiah').textContent=niah.toLocaleString();
   $('kPatterns').textContent=PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString();
   $('count').textContent=`${total.toLocaleString()} matching targets · showing up to ${PAGE_SIZE} per page`;
-  $('activePattern').textContent=$('pattern').value?`Pattern: ${patternLabel($('pattern').value)}`:'';
+ $('activePattern').textContent=$('pattern').value?`Pattern: ${patternLabel($('pattern').value)}`:'';
+  const activeCulture=$('cultureLens')?.value;
+  $('activeCulture').textContent=activeCulture?`Culture: ${CULTURE_LENS_LABELS[activeCulture]||activeCulture}`:'';
   $('reviewCoverage').textContent=`Expert review queue: ${Number(SUMMARY.review_queue_targets||0).toLocaleString()} of ${Number(SUMMARY.targets||0).toLocaleString()} targets (${fmt(SUMMARY.review_queue_coverage_pct,2)}%); unqueued targets are labeled explicitly.`;
 }
 function renderPatternCatalog() {
@@ -2286,6 +2458,11 @@ function renderPatternCatalog() {
 }
 function setPatternFilter(key) { $('pattern').value=$('pattern').value===key?'':key; applyFilters(); }
 function clearPatternFilter() { $('pattern').value=''; applyFilters(); }
+function setCultureFilter(key) {
+  $('cultureLens').value=$('cultureLens').value===key?'':key;
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function clearAllFilters() {
   $('query').value='';
   for(const [id] of VIEW_SELECTS) $(id).value='';
@@ -2295,10 +2472,12 @@ function clearAllFilters() {
 document.addEventListener('click',event=>{
   const card=event.target.closest?.('button.pattern-card');
   if(card) { setPatternFilter(card.dataset.pattern); return; }
+  const culture=event.target.closest?.('button.culture-focus');
+  if(culture) { setCultureFilter(culture.dataset.cultureFocus); return; }
   if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
   if(event.target.closest?.('#clearFilters')) { clearAllFilters(); }
 });
-document.addEventListener('change',event=>{ if(event.target?.id==='pattern') queueFilters(); });
+document.addEventListener('change',event=>{ if(event.target?.id==='pattern'||event.target?.id==='cultureLens') queueFilters(); });
 function interpretationStatusClass(value) { return String(value||'not_reported').toLowerCase().replace(/[^a-z0-9_-]/g,'_'); }
 function renderInterpretation() {
   const findings=INTERPRETATION.findings||[], caveats=INTERPRETATION.caveats||[];

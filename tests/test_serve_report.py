@@ -528,7 +528,7 @@ def test_report_server_openapi_document_describes_read_endpoints(tmp_path):
         report_parameters = {
             item["name"] for item in document["paths"][REPORT_PAGE_API_PATH]["get"]["parameters"]
         }
-        assert {"q", "score", "limit", "offset", "initial", "sort"} <= report_parameters
+        assert {"q", "culture", "score", "limit", "offset", "initial", "sort"} <= report_parameters
         assert document["paths"][REPORT_EXPORT_API_PATH]["get"]["operationId"] == "exportFilteredReport"
         assert document["paths"][REPORT_RUNTIME_API_PATH]["get"]["operationId"] == "getReportRuntime"
         assert (
@@ -1718,12 +1718,13 @@ def test_report_server_pages_and_exports_filtered_targets(tmp_path):
     thread.start()
     try:
         base = report_url(server, server.report_name).rsplit("/", 1)[0]
-        page_url = f"{base}{REPORT_PAGE_API_PATH}?initial=1&limit=1&group=worship&score=80&pattern=circular"
+        page_url = f"{base}{REPORT_PAGE_API_PATH}?initial=1&limit=1&group=worship&score=80&pattern=circular&culture=heritage"
         with urllib.request.urlopen(page_url, timeout=2) as response:
             page = json.load(response)
         assert page["contract"] == REPORT_PAGE_CONTRACT
         assert page["initial"] is True
         assert page["filters"]["pattern"] == "circular"
+        assert page["filters"]["culture"] == "heritage"
         assert page["page"] == {
             "limit": 1,
             "offset": 0,
