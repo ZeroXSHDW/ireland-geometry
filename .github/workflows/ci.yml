@@ -298,6 +298,7 @@ jobs:
           from pathlib import Path
 
           from scripts.pages_audit import audit_site
+          from scripts.release_check import check_release
           from scripts.serve_report import create_server, report_url
 
           with tempfile.TemporaryDirectory(prefix="ireland-geometry-symlink-smoke-") as raw_root:
