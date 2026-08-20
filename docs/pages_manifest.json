@@ -1,11 +1,11 @@
 {
   "contract": "ireland-geometry.pages-publish.v1",
   "version": 1,
-  "source_manifest_revision": "a9450b1",
-  "source_manifest_generated_at": "2026-08-20T17:51:25+00:00",
-  "source_output_manifest_generated_at": "2026-08-20T17:51:53+00:00",
-  "source_manifest_sha256": "28d7a405c44a7f9b979d402df41f5a266221447795de6397c442cc67a03f0a5d",
-  "source_verification_sha256": "54ae17da0e97d0dac89d695e174c182a736a1a577f72fef2187b6369cc0dc97d",
+  "source_manifest_revision": "f1d661c",
+  "source_manifest_generated_at": "2026-08-20T18:15:47+00:00",
+  "source_output_manifest_generated_at": "2026-08-20T18:16:48+00:00",
+  "source_manifest_sha256": "9f385f03b54e073a68a779988cee7d5f63caecfbda777cf1293d40ee10f8c7f9",
+  "source_verification_sha256": "9a675eeabe3f6ba8d39adcd18f9d4c0513aed83900aa4c51a3a6fe3d4a8e5673",
   "source_verification": {
     "passed": true,
     "manifest_cache_alignment": {
@@ -37,14 +37,14 @@
   "source_validation": {
     "schema_validation": {
       "path": "schema_validation.json",
-      "sha256": "993a8c7ecd20073a9c20e8ed7e43e8ae76b9c3bc1744a382d92f90cfc7c462ad",
+      "sha256": "a9e8c1b0f2ef6bc13567f7dc3becab60bd7971e11f916487323115a4b010037e",
       "status": "pass",
       "passed": true,
       "schema_version": 1
     },
     "reproducibility": {
       "path": "reproducibility.json",
-      "sha256": "7a7bd7602acda32e8a08f9e4dcd036809831479a692bfaa8d9f318ca331838c7",
+      "sha256": "dc5de8eed609b91b8ad94a305e25ab40f726300d29b490181f94f128d8c97069",
       "status": "pass",
       "passed": true,
       "artifact_count": 55
@@ -52,8 +52,8 @@
   },
   "files": {
     "index.html": {
-      "sha256": "8211e53cf73c35bc708a1d1d9cf996704f5df6d95afe748527184b970f4af83a",
-      "bytes": 71638212
+      "sha256": "b4e646d94cc52cb79399c7faab0bb09c5fa08a7f6556a1d1b0893e7eda714921",
+      "bytes": 71638243
     },
     "review.html": {
       "sha256": "f6aebf5407f6b690911df16c05322f0037065a00a23e71e19c6a5728fcf23fc5",
