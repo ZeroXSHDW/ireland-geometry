@@ -646,7 +646,7 @@ jobs:
               encoding="utf-8",
           )
           output.joinpath("analysis_results.csv").write_text(
-              "osm_id,score\\nway/1,91\\n", encoding="utf-8"
+              "osm_id,score\nway/1,91\n", encoding="utf-8"
           )
           Path("schema.json").write_text(
               json.dumps({
