@@ -27,6 +27,7 @@ jobs:
       - run: ireland-geometry-serve --help
       - run: ireland-geometry-schema-audit --help
       - run: ireland-geometry-repro --help
+      - run: ireland-geometry-release-check --help
       - run: python scripts/schema_audit.py --help
       - run: python scripts/repro_check.py --help
 
@@ -104,11 +105,300 @@ jobs:
           print("sdist source assets verified")
           PY
       - run: python -m pip install --force-reinstall --no-deps wheelhouse/*.whl
-      - run: cd /tmp && python -c "from importlib.resources import files; import run_pipeline; assert files('schemas').joinpath('artifacts.json').is_file(); assert files('schemas').joinpath('analysis_plan.json').is_file(); assert (files('schemas').joinpath('artifacts.json')).read_text(encoding='utf-8').startswith('{'); assert 'build_interpretation' in files('scripts').joinpath('report.py').read_text(encoding='utf-8')"
+      - run: cd /tmp && python -c "from importlib.resources import files; import run_pipeline; assert files('schemas').joinpath('artifacts.json').is_file(); assert files('schemas').joinpath('analysis_plan.json').is_file(); assert files('schemas').joinpath('ferry_schedules.json').is_file(); assert (files('schemas').joinpath('artifacts.json')).read_text(encoding='utf-8').startswith('{'); assert 'build_interpretation' in files('scripts').joinpath('report.py').read_text(encoding='utf-8'); assert files('scripts').joinpath('pages_audit.py').is_file(); assert files('scripts').joinpath('publish_pages.py').is_file(); assert files('scripts').joinpath('release_check.py').is_file()"
+      - name: Execute dependency-light packaged report page
+        run: |
+          cd /tmp
+          python - <<'PY'
+          import hashlib
+          import json
+          import tempfile
+          import threading
+          import urllib.request
+          from pathlib import Path
+
+          from scripts.pages_audit import audit_site
+          from scripts.release_check import check_release
+          from scripts.serve_report import create_server, report_url
+
+          with tempfile.TemporaryDirectory(prefix="ireland-geometry-report-smoke-") as raw_root:
+              output = Path(raw_root) / "output"
+              output.mkdir()
+              (output / "report_lazy.html").write_text("<html>smoke</html>", encoding="utf-8")
+              (output / "report_data.json").write_text(
+                  json.dumps(
+                      {
+                          "targets": [],
+                          "summary": {"analysis_ready": True},
+                          "interpretation": {"findings": [], "caveats": []},
+                      }
+                  ),
+                  encoding="utf-8",
+              )
+              for name in ("verification", "schema_validation", "reproducibility"):
+                  (output / f"{name}.json").write_text(
+                      json.dumps({"passed": True}), encoding="utf-8"
+                  )
+              records = []
+              for path in sorted(output.iterdir()):
+                  records.append(
+                      {
+                          "relative_path": path.name,
+                          "path_base": "output_dir",
+                          "bytes": path.stat().st_size,
+                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                      }
+                  )
+              (output / "manifest.json").write_text(
+                  json.dumps({"artifacts": records}), encoding="utf-8"
+              )
+              server = create_server(output, host="127.0.0.1", port=0)
+              thread = threading.Thread(target=server.serve_forever, daemon=True)
+              thread.start()
+              try:
+                  base = report_url(server, server.report_name).rsplit("/", 1)[0]
+                  with urllib.request.urlopen(
+                      f"{base}/api/report/page?initial=1&limit=1", timeout=10
+                  ) as response:
+                      page = json.load(response)
+                  assert page["runtime"]["contract"] == "ireland-geometry.report-runtime.v1"
+                  assert page["runtime"]["status"] == "pass"
+                  assert page["runtime"]["analysis_ready"] is True
+                  assert page["summary"]["analysis_ready"] is True
+                  with urllib.request.urlopen(
+                      f"{base}/api/report/runtime", timeout=10
+                  ) as response:
+                      runtime = json.load(response)
+                  assert runtime["contract"] == "ireland-geometry.report-runtime.v1"
+                  assert runtime["status"] == "pass"
+                  assert runtime["analysis_ready"] is True
+                  with urllib.request.urlopen(
+                      f"{base}/api/report/export?format=csv", timeout=10
+                  ) as response:
+                      response.read()
+                      assert response.headers["X-Ireland-Geometry-Runtime-Contract"] == "ireland-geometry.report-runtime.v1"
+                      assert response.headers["X-Ireland-Geometry-Runtime-Status"] == "pass"
+                      assert response.headers["X-Ireland-Geometry-Analysis-Ready"] == "true"
+                      assert response.headers["X-Ireland-Geometry-Validation"] == "pass"
+                      assert response.headers["X-Ireland-Geometry-Manifest-Alignment"] == "pass"
+              finally:
+                  server.shutdown()
+                  server.server_close()
+                  thread.join(timeout=10)
+          print("dependency-light packaged report page passed")
+          PY
+      - name: Execute packaged Pages publisher
+        run: |
+          cd /tmp
+          python - <<'PY'
+          import hashlib
+          import json
+          import tempfile
+          from pathlib import Path
+
+          from scripts.publish_pages import publish_pages
+
+          def sha256(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          with tempfile.TemporaryDirectory(prefix="ireland-geometry-pages-smoke-") as raw_root:
+              root = Path(raw_root)
+              output = root / "output"
+              site = root / "docs"
+              output.mkdir()
+              generated_at = "2026-08-18T00:00:00+00:00"
+              pack = {
+                  "targets": [{"osm_id": "way/1"}],
+                  "summary": {"targets": 1, "review_queue_targets": 1, "analysis_ready": True},
+                  "geojson": {
+                      "type": "FeatureCollection",
+                      "features": [{"type": "Feature", "properties": {"osm_id": "way/1"}}],
+                  },
+                  "manifest": {"generated_at": generated_at, "git_revision": "package-smoke"},
+                  "pattern_catalog": [{"key": "golden_ratio"}],
+                  "scoring": {
+                      "contract": "ireland-geometry.exploratory-score.v1",
+                      "version": 1,
+                      "config_sha256": "a" * 64,
+                  },
+                  "interpretation": {"caveats": []},
+              }
+              (output / "report.html").write_text(
+                  "<script>const PACK = "
+                  + json.dumps(pack, separators=(",", ":"))
+                  + ";</script>",
+                  encoding="utf-8",
+              )
+              (output / "review.html").write_text(
+                  "<script>const DATA=[{\"osm_id\":\"way/1\"}];"
+                  "const QUEUE_KEY='queue';const BACKUP_SCHEMA='ireland-geometry-review-v1';"
+                  "localStorage;function downloadJson(){}async function importJson(){}</script>",
+                  encoding="utf-8",
+              )
+              (output / "verification.json").write_text(
+                  json.dumps(
+                      {
+                          "passed": True,
+                          "manifest_cache_alignment": {"status": "pass"},
+                      }
+                  ),
+                  encoding="utf-8",
+              )
+              (output / "schema_validation.json").write_text(
+                  json.dumps({"passed": True}), encoding="utf-8"
+              )
+              (output / "reproducibility.json").write_text(
+                  json.dumps({"passed": True}), encoding="utf-8"
+              )
+              manifest = {
+                  "generated_at": generated_at,
+                  "git_revision": "package-smoke",
+                  "artifacts": [],
+              }
+              for name in (
+                  "report.html",
+                  "review.html",
+                  "verification.json",
+                  "schema_validation.json",
+                  "reproducibility.json",
+              ):
+                  path = output / name
+                  manifest["artifacts"].append(
+                      {
+                          "relative_path": name,
+                          "path_base": "output_dir",
+                          "bytes": path.stat().st_size,
+                          "sha256": sha256(path),
+                      }
+                  )
+              (output / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+              result = publish_pages(output, site)
+              assert result["published"] is True
+              assert result["audit"]["passed"] is True
+              publication = json.loads(
+                  (site / "pages_manifest.json").read_text(encoding="utf-8")
+              )
+              assert publication["source_manifest_sha256"] == sha256(output / "manifest.json")
+              assert publication["source_verification_sha256"] == sha256(
+                  output / "verification.json"
+              )
+          print("packaged Pages publisher smoke passed")
+          PY
+      - name: Exercise packaged symlink guards
+        run: |
+          cd /tmp
+          python - <<'PY'
+          import json
+          import subprocess
+          import threading
+          import tempfile
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          from scripts.serve_report import create_server, report_url
+
+          with tempfile.TemporaryDirectory(prefix="ireland-geometry-symlink-smoke-") as raw_root:
+              root = Path(raw_root)
+              output = root / "output"
+              output.mkdir()
+              server_output = root / "server-output"
+              server_output.mkdir()
+              (server_output / "report_lazy.html").write_text("ok", encoding="utf-8")
+              server_link = server_output / "linked.txt"
+              server_link.symlink_to(root / "target.txt")
+              try:
+                  create_server(server_output)
+              except ValueError as exc:
+                  assert "symlink" in str(exc).lower()
+              else:
+                  raise AssertionError("report server accepted a symlinked output")
+              runtime_output = root / "server-runtime"
+              runtime_output.mkdir()
+              (runtime_output / "report_lazy.html").write_text("ok", encoding="utf-8")
+              runtime_server = create_server(runtime_output, port=0)
+              (root / "runtime-target.txt").write_text("secret", encoding="utf-8")
+              (runtime_output / "leak.txt").symlink_to(root / "runtime-target.txt")
+              runtime_thread = threading.Thread(
+                  target=runtime_server.serve_forever,
+                  daemon=True,
+              )
+              runtime_thread.start()
+              try:
+                  runtime_base = report_url(
+                      runtime_server,
+                      runtime_server.report_name,
+                  ).rsplit("/", 1)[0]
+                  try:
+                      urllib.request.urlopen(
+                          f"{runtime_base}/leak.txt",
+                          timeout=2,
+                      )
+                  except urllib.error.HTTPError as exc:
+                      assert exc.code == 404
+                  else:
+                      raise AssertionError(
+                          "report server served a symlink added after startup"
+                      )
+              finally:
+                  runtime_server.shutdown()
+                  runtime_server.server_close()
+                  runtime_thread.join(timeout=2)
+              target = root / "target.csv"
+              target.write_text("value\n1\n", encoding="utf-8")
+              (output / "linked.csv").symlink_to(target)
+              repro = subprocess.run(
+                  ["ireland-geometry-repro", "--json", "--out-dir", str(output)],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              assert repro.returncode == 1
+              repro_result = json.loads(repro.stdout)
+              assert repro_result["symlinks"] == ["linked.csv"]
+
+              linked_output = root / "linked-output"
+              linked_output.symlink_to(output, target_is_directory=True)
+              bundle = subprocess.run(
+                  [
+                      "ireland-geometry-bundle",
+                      "--json",
+                      "--out-dir",
+                      str(linked_output),
+                      "--archive",
+                      str(root / "bundle.zip"),
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              assert bundle.returncode == 2
+              assert "symlink" in bundle.stderr.lower()
+              site_target = root / "site-target"
+              site_target.mkdir()
+              linked_site = root / "linked-site"
+              linked_site.symlink_to(site_target, target_is_directory=True)
+              page_audit = audit_site(linked_site)
+              assert page_audit["passed"] is False
+              assert any(
+                  "Pages site directory must not be a symlink" in error
+                  for error in page_audit["errors"]
+              )
+              release = check_release(root, out_dir=linked_output, skip_pages=True)
+              assert release["path_boundary"]["passed"] is False
+              assert any(
+                  "output directory must not be a symlink" in error
+                  for error in release["errors"]
+              )
+          print("packaged symlink guards passed")
+          PY
       - run: cd /tmp && ireland-geometry --help
       - run: cd /tmp && ireland-geometry-doctor --help
       - run: cd /tmp && ireland-geometry-doctor --json > /tmp/ireland-geometry-package-doctor.json
-      - run: python -c "import importlib.metadata, json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); health=result['capabilities']['query']['backend_health']; assert set(health)=={'duckdb','parquet','csv','jsonl'}; assert all('readable' in item and 'error' in item for item in health.values()); assert result['doctor_version']==56; assert result['source_freshness']['contract']=='ireland-geometry.freshness.v1'; assert result['package_version']==importlib.metadata.version('ireland-geometry-scan'); commands=result['capabilities']['commands']; assert commands['command_count']==8; assert commands['installed_count']==8; assert commands['installation_status']=='available'; assert all(item['installed'] for item in commands['commands'].values()); assert 'ireland-geometry-bundle' in commands['commands']; assert 'ireland-geometry-schema-audit' in commands['commands']; assert 'ireland-geometry-repro' in commands['commands']; assert result['capabilities']['pipeline']['diagnostic_json_outputs'] is True; assert result['capabilities']['pipeline']['post_validation_report_refresh'] is True; assert result['capabilities']['report_server']['openapi_api'] is True; assert result['capabilities']['report_server']['interpretation_api'] is True; assert result['capabilities']['bundle']['contract']=='ireland-geometry.bundle.v1'; assert result['capabilities']['bundle']['deterministic_zip'] is True; assert result['capabilities']['bundle']['verifies_archives'] is True; assert result['capabilities']['bundle']['extracts_archives'] is True; assert result['capabilities']['bundle']['requires_verified_guard'] is True; assert result['capabilities']['analysis_plan']['source']=='packaged'; assert result['capabilities']['analysis_plan']['status']=='available'"
+      - run: "python -c \"import importlib.metadata, json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); health=result['capabilities']['query']['backend_health']; assert set(health)=={'duckdb','parquet','csv','jsonl'}; assert all('readable' in item and 'error' in item for item in health.values()); assert result['doctor_version']==112; assert 'strict_blockers' in result['summary']; assert result['source_freshness']['contract']=='ireland-geometry.freshness.v1'; assert result['package_version']==importlib.metadata.version('ireland-geometry-scan'); commands=result['capabilities']['commands']; assert commands['command_count']==9; assert commands['installed_count']==9; assert commands['installation_status']=='available'; assert all(item['installed'] for item in commands['commands'].values()); assert 'ireland-geometry-bundle' in commands['commands']; assert 'ireland-geometry-schema-audit' in commands['commands']; assert 'ireland-geometry-repro' in commands['commands']; assert 'ireland-geometry-release-check' in commands['commands']; assert result['capabilities']['pipeline']['diagnostic_json_outputs'] is True; assert result['capabilities']['pipeline']['reproducibility_rejects_symlinks'] is True; assert result['capabilities']['pipeline']['post_validation_report_refresh'] is True; assert result['capabilities']['pipeline']['post_validation_bundle'] is True; assert result['capabilities']['pipeline']['rejects_output_symlink'] is True; assert result['capabilities']['pipeline']['rejects_nested_symlinks'] is True; assert result['capabilities']['output_safety']['status']=='available'; assert result['capabilities']['output_safety']['allows_canonical_macos_tmp_alias'] is True; assert all(result['capabilities']['output_safety']['guards'].values()); assert all(result['capabilities']['output_safety']['stage_output_tree_guards'].values()); assert all(result['capabilities']['output_safety']['file_output_guards'].values()); assert all(result['capabilities']['output_safety']['nested_guards'].values()); assert result['capabilities']['output_safety']['observed_root']['status'] in {'pass','not_provided'}; assert result['capabilities']['data_safety']['observed_root']['status'] in {'pass','not_provided'}; assert result['capabilities']['report_server']['openapi_api'] is True; assert result['capabilities']['report_server']['interpretation_api'] is True; assert result['capabilities']['report_server']['rejects_symlinks'] is True; assert result['capabilities']['report_server']['checks_manifest_alignment'] is True; assert result['capabilities']['report_server']['report_page_runtime'] is True; assert result['capabilities']['report_server']['report_export_runtime_headers'] is True; assert result['capabilities']['report_server']['report_runtime_api'] is True; assert result['capabilities']['report_server']['report_runtime_snapshot'] is True; assert result['capabilities']['report_server']['report_runtime_source_alignment'] is True; assert result['capabilities']['report_server']['report_source_alignment_surfaces'] is True; assert isinstance(result['capabilities']['reports']['live_runtime_refresh'], bool); assert 'output_alignment' in result['capabilities']['validation']; assert result['capabilities']['validation']['source_alignment']['contract']=='ireland-geometry.source-alignment.v1'; assert result['capabilities']['validation']['source_alignment']['symlink_count']==0; assert result['capabilities']['bundle']['contract']=='ireland-geometry.bundle.v1'; assert result['capabilities']['bundle']['deterministic_zip'] is True; assert result['capabilities']['bundle']['verifies_archives'] is True; assert result['capabilities']['bundle']['extracts_archives'] is True; assert result['capabilities']['bundle']['requires_verified_guard'] is True; assert result['capabilities']['bundle']['requires_complete_validation'] is True; assert result['capabilities']['bundle']['rejects_symlinks'] is True; assert result['capabilities']['bundle']['checks_manifest_artifacts'] is True; assert result['capabilities']['release_check']['contract']=='ireland-geometry.release-check.v1'; assert result['capabilities']['release_check']['read_only'] is True; assert result['capabilities']['release_check']['checks_doctor'] is True; assert result['capabilities']['release_check']['checks_output'] is True; assert result['capabilities']['release_check']['checks_output_inventory'] is True; assert result['capabilities']['release_check']['checks_output_symlinks'] is True; assert result['capabilities']['release_check']['rejects_symlink_roots'] is True; assert result['capabilities']['release_check']['checks_validation_records'] is True; assert result['capabilities']['release_check']['checks_pages'] is True; assert result['capabilities']['release_check']['checks_bundle'] is True; assert result['capabilities']['release_check']['checks_source_alignment'] is True; assert result['capabilities']['validation']['manifest_coverage']['recursive'] is True; assert result['capabilities']['validation']['manifest_coverage']['rejects_symlinks'] is True; assert result['capabilities']['pages']['publisher_checks_manifest_artifacts'] is True; assert result['capabilities']['analysis_plan']['source']=='packaged'; assert result['capabilities']['analysis_plan']['status']=='available'\""
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['bundle']['rejects_archive_input_symlink'] is True; assert result['capabilities']['bundle']['rejects_extraction_parent_symlink'] is True"
+      - run: cd /tmp && python -c "import json; route=json.load(open('/tmp/ireland-geometry-package-doctor.json'))['capabilities']['route_query']; assert route['supports_ferry_schedules'] is True; assert route['supports_ferry_durations'] is True; assert route['supports_conditional_access_profiles'] is True; assert route['conditional_access_profiles'] is True; assert route['ferry_schedules_modeled'] is True; assert route['ferry_schedule_contract']=='ireland-geometry.ferry-schedules.v1'"
       - run: cd /tmp && ireland-geometry-query --help
       - run: python -c "import subprocess; result=subprocess.run(['ireland-geometry-query','--help'], check=True, capture_output=True, text=True); assert '--after-invalid-osm-id' in result.stdout"
       - run: cd /tmp && ireland-geometry-route --help
@@ -116,7 +406,73 @@ jobs:
       - run: cd /tmp && ireland-geometry-bundle --help
       - run: cd /tmp && ireland-geometry-schema-audit --help
       - run: cd /tmp && ireland-geometry-repro --help
-      - run: cd /tmp && python -c "from scripts.columnar import COLUMNAR_CONTRACT, audit_backend; from scripts.runtime import SOURCE_FRESHNESS_CONTRACT; from scripts.verify import check_manifest_freshness_contract; assert COLUMNAR_CONTRACT == 'ireland-geometry.columnar.v1'; assert SOURCE_FRESHNESS_CONTRACT == 'ireland-geometry.freshness.v1'; assert callable(audit_backend); assert callable(check_manifest_freshness_contract)"
+      - run: cd /tmp && ireland-geometry-release-check --help
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['report_server']['explicit_project_root'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['pipeline']['post_validation_bundle'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['bundle']['rejects_archive_inside_output'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['pages']['publisher_rejects_site_inside_output'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['pages']['publisher_rejects_symlink_roots'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['pages']['audit_rejects_symlink_root'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['output_safety']['rejects_non_directory'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert all(result['capabilities']['output_safety']['non_directory_guards'].values()); assert all(result['capabilities']['output_safety']['stage_output_guards'].values()); assert all(result['capabilities']['output_safety']['stage_output_tree_guards'].values()); assert result['capabilities']['release_check']['handles_non_directory_roots'] is True; assert result['capabilities']['pages']['publisher_handles_non_directory_roots'] is True; assert result['capabilities']['pages']['audit_handles_non_directory_root'] is True"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['data_safety']['status']=='available'; assert result['capabilities']['data_safety']['rejects_non_directory'] is True; assert all(result['capabilities']['data_safety']['guards'].values()); assert all(result['capabilities']['data_safety']['nested_guards'].values()); assert all(result['capabilities']['data_safety']['file_guards'].values()); assert all(result['capabilities']['data_safety']['extraction_tree_guards'].values()); assert all(result['capabilities']['data_safety']['satellite_tree_guards'].values())"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['file_write_safety']['status']=='available'; assert all(result['capabilities']['file_write_safety']['guards'].values())"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert all(result['capabilities']['output_safety']['nested_guards'].values())"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert result['capabilities']['output_safety']['observed_root']['status'] in {'pass','not_provided'}; assert result['capabilities']['data_safety']['observed_root']['status'] in {'pass','not_provided'}"
+      - run: cd /tmp && python -c "import json; result=json.load(open('/tmp/ireland-geometry-package-doctor.json')); assert all(result['capabilities']['data_safety']['tree_guards'].values()); assert all(result['capabilities']['data_safety']['input_guards'].values()); assert all(result['capabilities']['data_safety']['graph_output_tree_guards'].values())"
+      - run: |
+          cd /tmp
+          python - <<'PY'
+          import tempfile
+          from pathlib import Path
+
+          import run_pipeline
+
+          with tempfile.TemporaryDirectory(prefix="ireland-geometry-pipeline-symlink-smoke-") as raw_root:
+              root = Path(raw_root)
+              project = root / "project"
+              project.mkdir()
+              output = project / "output"
+              output.mkdir()
+              linked_output = root / "linked-output"
+              linked_output.symlink_to(output, target_is_directory=True)
+              try:
+                  run_pipeline.main(
+                      [
+                          "--stage",
+                          "verify",
+                          "--project-root",
+                          str(project),
+                          "--out-dir",
+                          str(linked_output),
+                          "--dry-run-json",
+                      ]
+                  )
+              except SystemExit as exc:
+                  assert "must not be a symlink" in str(exc)
+              else:
+                  raise AssertionError("pipeline accepted a symlinked output root")
+              file_output = root / "file-output"
+              file_output.write_text("not a directory", encoding="utf-8")
+              try:
+                  run_pipeline.main(
+                      [
+                          "--stage",
+                          "verify",
+                          "--project-root",
+                          str(project),
+                          "--out-dir",
+                          str(file_output),
+                          "--dry-run-json",
+                      ]
+                  )
+              except SystemExit as exc:
+                  assert "must be a directory" in str(exc)
+              else:
+                  raise AssertionError("pipeline accepted a file output root")
+          print("packaged pipeline output-root guards passed")
+          PY
+      - run: cd /tmp && python -c "from scripts.columnar import COLUMNAR_CONTRACT, audit_backend; from scripts.runtime import SOURCE_ALIGNMENT_CONTRACT, SOURCE_FRESHNESS_CONTRACT; from scripts.verify import MANIFEST_CACHE_CONTRACT, check_manifest_cache_contract, check_manifest_freshness_contract; assert COLUMNAR_CONTRACT == 'ireland-geometry.columnar.v1'; assert SOURCE_FRESHNESS_CONTRACT == 'ireland-geometry.freshness.v1'; assert SOURCE_ALIGNMENT_CONTRACT == 'ireland-geometry.source-alignment.v1'; assert MANIFEST_CACHE_CONTRACT == 'ireland-geometry.manifest-cache.v1'; assert callable(audit_backend); assert callable(check_manifest_cache_contract); assert callable(check_manifest_freshness_contract)"
       - run: |
           sdist_venv=$(mktemp -d)
           python -m venv "$sdist_venv"
@@ -135,6 +491,7 @@ jobs:
               "ireland-geometry-doctor": "scripts.doctor:main",
               "ireland-geometry-query": "scripts.query_data:main",
               "ireland-geometry-repro": "scripts.repro_check:main",
+              "ireland-geometry-release-check": "scripts.release_check:main",
               "ireland-geometry-route": "scripts.route_query:main",
               "ireland-geometry-schema-audit": "scripts.schema_audit:main",
               "ireland-geometry-serve": "scripts.serve_report:main",
@@ -148,6 +505,7 @@ jobs:
           package_version = version("ireland-geometry-scan")
           assert files("schemas").joinpath("artifacts.json").is_file()
           assert files("schemas").joinpath("analysis_plan.json").is_file()
+          assert files("schemas").joinpath("ferry_schedules.json").is_file()
           for command in expected:
               executable = Path(sys.executable).with_name(command)
               result = subprocess.run([str(executable), "--version"], check=True, capture_output=True, text=True)
@@ -160,20 +518,89 @@ jobs:
           import json
 
           result = json.load(open('/tmp/ireland-geometry-sdist-doctor.json', encoding='utf-8'))
-          assert result['doctor_version'] == 56
+          assert result['doctor_version'] == 112
           assert result['source_freshness']['contract'] == 'ireland-geometry.freshness.v1'
+          assert 'strict_blockers' in result['summary']
+          assert result['capabilities']['validation']['source_alignment']['contract'] == 'ireland-geometry.source-alignment.v1'; assert result['capabilities']['validation']['source_alignment']['symlink_count'] == 0
           assert result['package_version'] == importlib.metadata.version('ireland-geometry-scan')
           commands = result['capabilities']['commands']
-          assert commands['command_count'] == 8
-          assert commands['installed_count'] == 8
+          assert commands['command_count'] == 9
+          assert commands['installed_count'] == 9
           assert commands['installation_status'] == 'available'
           assert all(item['installed'] for item in commands['commands'].values())
           assert result['capabilities']['pipeline']['diagnostic_json_outputs'] is True
+          assert result['capabilities']['pipeline']['reproducibility_rejects_symlinks'] is True
+          assert all(result['capabilities']['output_safety']['nested_guards'].values())
+          assert result['capabilities']['output_safety']['allows_canonical_macos_tmp_alias'] is True
+          assert result['capabilities']['output_safety']['observed_root']['status'] in {'pass', 'not_provided'}
+          assert result['capabilities']['data_safety']['observed_root']['status'] in {'pass', 'not_provided'}
+          assert result['capabilities']['report_server']['rejects_symlinks'] is True
+          assert result['capabilities']['report_server']['report_runtime_snapshot'] is True
+          assert result['capabilities']['report_server']['report_runtime_source_alignment'] is True
+          assert result['capabilities']['report_server']['report_source_alignment_surfaces'] is True
+          assert result['capabilities']['report_server']['checks_manifest_alignment'] is True
+          assert result['capabilities']['report_server']['report_page_runtime'] is True
+          assert result['capabilities']['report_server']['report_export_runtime_headers'] is True
+          assert result['capabilities']['report_server']['report_runtime_api'] is True
+          assert result['capabilities']['report_server']['explicit_project_root'] is True
+          assert isinstance(result['capabilities']['reports']['live_runtime_refresh'], bool)
+          route = result['capabilities']['route_query']
+          assert route['supports_ferry_schedules'] is True
+          assert route['supports_ferry_durations'] is True
+          assert route['ferry_schedules_modeled'] is True
+          assert route['ferry_schedule_contract'] == 'ireland-geometry.ferry-schedules.v1'
+          assert 'output_alignment' in result['capabilities']['validation']
           assert result['capabilities']['pipeline']['post_validation_report_refresh'] is True
+          assert result['capabilities']['pipeline']['post_validation_bundle'] is True
+          assert result['capabilities']['pipeline']['rejects_output_symlink'] is True
+          assert result['capabilities']['pipeline']['rejects_nested_symlinks'] is True
+          assert result['capabilities']['output_safety']['status'] == 'available'
+          assert all(result['capabilities']['output_safety']['guards'].values())
+          assert result['capabilities']['output_safety']['rejects_non_directory'] is True
+          assert all(result['capabilities']['output_safety']['non_directory_guards'].values())
+          assert all(result['capabilities']['output_safety']['stage_output_guards'].values())
+          assert all(result['capabilities']['output_safety']['stage_output_tree_guards'].values())
+          assert all(result['capabilities']['output_safety']['file_output_guards'].values())
+          assert all(result['capabilities']['output_safety']['nested_guards'].values())
+          assert result['capabilities']['data_safety']['status'] == 'available'
+          assert result['capabilities']['data_safety']['rejects_non_directory'] is True
+          assert all(result['capabilities']['data_safety']['guards'].values())
+          assert all(result['capabilities']['data_safety']['nested_guards'].values())
+          assert all(result['capabilities']['data_safety']['extraction_tree_guards'].values())
+          assert all(result['capabilities']['data_safety']['satellite_tree_guards'].values())
+          assert all(result['capabilities']['data_safety']['file_guards'].values())
+          assert all(result['capabilities']['data_safety']['tree_guards'].values())
+          assert all(result['capabilities']['data_safety']['graph_output_tree_guards'].values())
+          assert all(result['capabilities']['data_safety']['input_guards'].values())
+          assert result['capabilities']['file_write_safety']['status'] == 'available'
+          assert all(result['capabilities']['file_write_safety']['guards'].values())
+          assert result['capabilities']['bundle']['rejects_archive_inside_output'] is True
+          assert result['capabilities']['bundle']['rejects_archive_input_symlink'] is True
+          assert result['capabilities']['bundle']['rejects_extraction_parent_symlink'] is True
           assert result['capabilities']['analysis_plan']['source'] == 'packaged'
           assert result['capabilities']['analysis_plan']['status'] == 'available'
+          assert result['capabilities']['release_check']['contract'] == 'ireland-geometry.release-check.v1'
+          assert result['capabilities']['release_check']['read_only'] is True
+          assert result['capabilities']['release_check']['checks_output'] is True
+          assert result['capabilities']['release_check']['checks_output_inventory'] is True
+          assert result['capabilities']['release_check']['checks_output_symlinks'] is True
+          assert result['capabilities']['release_check']['rejects_symlink_roots'] is True
+          assert result['capabilities']['release_check']['handles_non_directory_roots'] is True
+          assert result['capabilities']['release_check']['checks_validation_records'] is True
+          assert result['capabilities']['release_check']['checks_source_alignment'] is True
+          assert result['capabilities']['pages']['publisher_checks_manifest_artifacts'] is True
+          assert result['capabilities']['pages']['publisher_rejects_site_inside_output'] is True
+          assert result['capabilities']['pages']['publisher_rejects_symlink_roots'] is True
+          assert result['capabilities']['pages']['publisher_handles_non_directory_roots'] is True
+          assert result['capabilities']['pages']['audit_rejects_symlink_root'] is True
+          assert result['capabilities']['pages']['audit_handles_non_directory_root'] is True
+          assert result['capabilities']['bundle']['rejects_symlinks'] is True
+          assert result['capabilities']['bundle']['checks_manifest_artifacts'] is True
+          assert result['capabilities']['validation']['manifest_coverage']['recursive'] is True
+          assert result['capabilities']['validation']['manifest_coverage']['rejects_symlinks'] is True
           PY
-      - run: cd /tmp && python -c "from scripts.bundle import BUNDLE_CONTRACT, verify_bundle; from scripts.serve_report import CAPABILITIES_API_PATH, CAPABILITIES_CONTRACT, HEALTH_CONTRACT, INTERPRETATION_API_PATH, INTERPRETATION_CONTRACT, METADATA_CONTRACT, OPENAPI_CONTRACT, OPENAPI_PATH, QUERY_BACKEND_NAMES, QUERY_CONTRACT, ROUTE_CONTRACT, openapi_document; document=openapi_document(); assert BUNDLE_CONTRACT == 'ireland-geometry.bundle.v1'; assert callable(verify_bundle); assert CAPABILITIES_API_PATH == '/api/capabilities'; assert CAPABILITIES_CONTRACT == 'ireland-geometry.capabilities.v1'; assert HEALTH_CONTRACT == 'ireland-geometry.health.v1'; assert INTERPRETATION_API_PATH == '/api/interpretation'; assert INTERPRETATION_CONTRACT == 'ireland-geometry.interpretation.v1'; assert METADATA_CONTRACT == 'ireland-geometry.metadata.v1'; assert OPENAPI_CONTRACT == 'ireland-geometry.openapi.v1'; assert OPENAPI_PATH == '/api/openapi.json'; assert '/api/query' in document['paths']; assert INTERPRETATION_API_PATH in document['paths']; assert 'InterpretationResponse' in document['components']['schemas']; assert 'SourceFreshness' in document['components']['schemas']; assert 'source_freshness' in document['components']['schemas']['MetadataResponse']['required']; assert 'source_freshness' in document['components']['schemas']['CapabilitiesResponse']['required']; assert 'analysis_ready' in document['components']['schemas']['HealthResponse']['required']; assert {'status', 'passed', 'manifest_available', 'records'} <= set(document['components']['schemas']['ValidationStatus']['required']); assert 'ValidationStatus' in document['components']['schemas']; assert QUERY_CONTRACT == 'ireland-geometry.query.v1'; assert ROUTE_CONTRACT == 'ireland-geometry.route.v1'; assert QUERY_BACKEND_NAMES == ('duckdb','parquet','csv','jsonl')"
+      - run: cd /tmp && python -c "from scripts.bundle import BUNDLE_CONTRACT, verify_bundle; from scripts.serve_report import CAPABILITIES_API_PATH, CAPABILITIES_CONTRACT, HEALTH_CONTRACT, INTERPRETATION_API_PATH, INTERPRETATION_CONTRACT, METADATA_CONTRACT, OPENAPI_CONTRACT, OPENAPI_PATH, QUERY_BACKEND_NAMES, QUERY_CONTRACT, ROUTE_CONTRACT, openapi_document; document=openapi_document(); assert BUNDLE_CONTRACT == 'ireland-geometry.bundle.v1'; assert callable(verify_bundle); assert CAPABILITIES_API_PATH == '/api/capabilities'; assert CAPABILITIES_CONTRACT == 'ireland-geometry.capabilities.v1'; assert HEALTH_CONTRACT == 'ireland-geometry.health.v1'; assert INTERPRETATION_API_PATH == '/api/interpretation'; assert INTERPRETATION_CONTRACT == 'ireland-geometry.interpretation.v1'; assert METADATA_CONTRACT == 'ireland-geometry.metadata.v1'; assert OPENAPI_CONTRACT == 'ireland-geometry.openapi.v1'; assert OPENAPI_PATH == '/api/openapi.json'; assert '/api/query' in document['paths']; assert INTERPRETATION_API_PATH in document['paths']; assert 'InterpretationResponse' in document['components']['schemas']; assert 'SourceFreshness' in document['components']['schemas']; assert 'SourceAlignment' in document['components']['schemas']; assert 'symlink_count' in document['components']['schemas']['SourceAlignment']['required']; assert 'source_freshness' in document['components']['schemas']['MetadataResponse']['required']; assert 'source_freshness' in document['components']['schemas']['CapabilitiesResponse']['required']; assert 'source_alignment' in document['components']['schemas']['HealthResponse']['required']; assert 'source_alignment' in document['components']['schemas']['MetadataResponse']['required']; assert 'source_alignment' in document['components']['schemas']['CapabilitiesResponse']['required']; assert 'source_alignment_surfaces' in document['components']['schemas']['CapabilitiesResponse']['required']; assert 'source_alignment' in document['components']['schemas']['InterpretationResponse']['required']; assert {'status', 'passed', 'manifest_available', 'records'} <= set(document['components']['schemas']['ValidationStatus']['required']); assert 'ValidationStatus' in document['components']['schemas']; assert QUERY_CONTRACT == 'ireland-geometry.query.v1'; assert ROUTE_CONTRACT == 'ireland-geometry.route.v1'; assert QUERY_BACKEND_NAMES == ('duckdb','parquet','csv','jsonl')"
+      - run: cd /tmp && python -c "from scripts.serve_report import openapi_document; document=openapi_document(); schema=document['components']['schemas']['CapabilitiesResponse']; assert 'project_root' in schema['required']; assert schema['properties']['project_root']['type']=='string'"
       - run: cd /tmp && python -c "from scripts.runtime import runtime_signature; r=runtime_signature(); assert {'python','implementation','platform','machine','cache_tag','distributions'} <= set(r); print(r['python'])"
       - run: |
           cd /tmp
@@ -192,6 +619,7 @@ jobs:
               'ireland-geometry-bundle',
               'ireland-geometry-schema-audit',
               'ireland-geometry-repro',
+              'ireland-geometry-release-check',
           )
           for command in commands:
               executable = shutil.which(command)
@@ -231,19 +659,6 @@ jobs:
               encoding="utf-8",
           )
           PY
-          ireland-geometry-bundle --json --out-dir output --archive verified.bundle.zip --require-verified > build-result.json
-          ireland-geometry-bundle --json --verify verified.bundle.zip > verify-result.json
-          python - <<'PY'
-          import json
-
-          built = json.loads(open("build-result.json", encoding="utf-8").read())
-          verified = json.loads(open("verify-result.json", encoding="utf-8").read())
-          assert built["require_verified"] is True
-          assert built["source_manifest"]["included"] is True
-          assert built["source_verification"]["status"] == "pass"
-          assert verified["passed"] is True
-          assert verified["require_verified"] is True
-          PY
           ireland-geometry-schema-audit --json --out-dir output --schema schema.json > schema-result.json
           ireland-geometry-repro --json --out-dir output > repro-result.json
           python - <<'PY'
@@ -254,12 +669,54 @@ jobs:
           assert schema["passed"] is True
           assert repro["passed"] is True
           PY
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          output = Path("output")
+          manifest_path = output / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest["artifacts"] = []
+          for name in (
+              "analysis_results.csv",
+              "verification.json",
+              "schema_validation.json",
+              "reproducibility.json",
+          ):
+              path = output / name
+              manifest["artifacts"].append(
+                  {
+                      "relative_path": name,
+                      "path_base": "output_dir",
+                      "bytes": path.stat().st_size,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  }
+              )
+          manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+          PY
+          ireland-geometry-bundle --json --out-dir output --archive verified.bundle.zip --require-verified > build-result.json
+          ireland-geometry-bundle --json --verify verified.bundle.zip > verify-result.json
+          python - <<'PY'
+          import json
+
+          built = json.loads(open("build-result.json", encoding="utf-8").read())
+          verified = json.loads(open("verify-result.json", encoding="utf-8").read())
+          assert built["require_verified"] is True
+          assert built["source_manifest"]["included"] is True
+          assert built["source_verification"]["status"] == "pass"
+          assert all(item["status"] == "pass" for item in built["source_validation"].values())
+          assert verified["passed"] is True
+          assert verified["require_verified"] is True
+          assert all(item["included"] for item in verified["source_validation"].values())
+          PY
       - run: |
           mkdir -p /tmp/ireland-geometry-package-smoke/data /tmp/ireland-geometry-package-smoke/output
           cd /tmp/ireland-geometry-package-smoke
           ireland-geometry --stage schema-audit,verify \
+            --bundle \
             --dry-run-json > /tmp/ireland-geometry-package-smoke/plan.json
-          python -c "import importlib.metadata, json, os; p=json.load(open('/tmp/ireland-geometry-package-smoke/plan.json')); assert p['contract']=='ireland-geometry.dry-run.v1'; assert p['package_version']==importlib.metadata.version('ireland-geometry-scan'); assert p['cache_version']==5; assert p['cache_explanations'] is True; assert [s['name'] for s in p['stages']]==['schema-audit','verify']; assert p['stages'][0]['fingerprint']; assert p['stages'][0]['cache']['reason']=='cache_missing'; assert p['project_root']==os.getcwd(); assert p['data_root']==os.path.join(os.getcwd(),'data'); assert p['out_dir']==os.path.join(os.getcwd(),'output'); assert p['no_files_written'] is True"
+          python -c "import importlib.metadata, json, os; p=json.load(open('/tmp/ireland-geometry-package-smoke/plan.json')); assert p['contract']=='ireland-geometry.dry-run.v1'; assert p['package_version']==importlib.metadata.version('ireland-geometry-scan'); assert p['cache_version']==5; assert p['cache_explanations'] is True; assert [s['name'] for s in p['stages']]==['schema-audit','verify','bundle','bundle-verify']; assert p['stages'][0]['fingerprint']; assert p['stages'][0]['cache']['reason']=='cache_missing'; assert p['post_validation_bundle']['enabled'] is True; assert [operation['name'] for operation in p['post_validation_bundle']['operations']]==['bundle','bundle-verify']; assert p['post_validation_bundle']['archive']==os.path.join(os.getcwd(),'output.bundle.zip'); assert p['project_root']==os.getcwd(); assert p['data_root']==os.path.join(os.getcwd(),'data'); assert p['out_dir']==os.path.join(os.getcwd(),'output'); assert p['no_files_written'] is True"
       - run: |
           mkdir -p /tmp/ireland-geometry-package-external
           cd /tmp
@@ -282,3 +739,12 @@ jobs:
             package-sha256sums.txt
           if-no-files-found: error
           retention-days: 14
+
+  pages-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python scripts/pages_audit.py --json

@@ -41,9 +41,21 @@ from pathlib import Path
 import osmium
 
 try:
-    from runtime import atomic_write_json, project_path
+    from runtime import (
+        atomic_write_json,
+        atomic_write_stream,
+        project_path,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_json, project_path
+    from scripts.runtime import (
+        atomic_write_json,
+        atomic_write_stream,
+        project_path,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
 
 PBF_URL = "https://download.geofabrik.de/europe/ireland-and-northern-ireland-latest.osm.pbf"
 
@@ -195,18 +207,12 @@ class ExtractHandler(osmium.SimpleHandler):
 def download_pbf(dest: Path) -> None:
     print(f"[geofabrik] downloading {PBF_URL}", flush=True)
     req = urllib.request.Request(PBF_URL, headers={"User-Agent": "ireland-geometry-scan/0.1"})
-    tmp = dest.with_suffix(".part")
-    with urllib.request.urlopen(req, timeout=180) as r, tmp.open("wb") as fh:
-        total = 0
-        while True:
-            chunk = r.read(1 << 20)
-            if not chunk:
-                break
-            fh.write(chunk)
-            total += len(chunk)
-            if total % (50 << 20) == 0:
-                print(f"[geofabrik] ...{total / 1e6:.0f} MB", flush=True)
-    tmp.rename(dest)
+    def progress(total: int) -> None:
+        if total % (50 << 20) == 0:
+            print(f"[geofabrik] ...{total / 1e6:.0f} MB", flush=True)
+
+    with urllib.request.urlopen(req, timeout=180) as response:
+        total = atomic_write_stream(dest, response, on_chunk=progress)
     print(f"[geofabrik] saved {dest} ({total / 1e6:.0f} MB)", flush=True)
 
 
@@ -225,12 +231,28 @@ def main() -> None:
     args = ap.parse_args()
 
     out_path = project_path(args.out, "data/combined.json")
+    try:
+        reject_symlink_root(out_path.parent, label="data output directory")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if out_path.exists() and not args.refresh:
+        try:
+            reject_symlink_path(out_path, label="OSM combined cache file")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         n = len(json.loads(out_path.read_text()).get("elements", []))
         print(f"[geofabrik] using cached {out_path} ({n} elements); pass --refresh to re-extract")
         return
 
     pbf = project_path(args.pbf, "data/raw/ireland-latest.osm.pbf")
+    try:
+        reject_symlink_root(pbf.parent, label="PBF parent directory")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    try:
+        reject_symlink_path(pbf, label="PBF input file")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if not pbf.exists():
         if args.no_download:
             sys.exit(f"[geofabrik] {pbf} missing; run without --no-download")

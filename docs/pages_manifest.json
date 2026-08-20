@@ -1,0 +1,67 @@
+{
+  "contract": "ireland-geometry.pages-publish.v1",
+  "version": 1,
+  "source_manifest_revision": "2bfd3a5",
+  "source_manifest_generated_at": "2026-08-20T17:44:24+00:00",
+  "source_output_manifest_generated_at": "2026-08-20T17:46:53+00:00",
+  "source_manifest_sha256": "77a4c19a7954ea20096aa2ee2072397073b57c178241b349381f9a26c589843e",
+  "source_verification_sha256": "54ae17da0e97d0dac89d695e174c182a736a1a577f72fef2187b6369cc0dc97d",
+  "source_verification": {
+    "passed": true,
+    "manifest_cache_alignment": {
+      "contract": "ireland-geometry.manifest-cache.v1",
+      "status": "pass",
+      "checked_stages": [
+        "fetch",
+        "fetch-niah",
+        "analyze",
+        "spatial-covariates",
+        "osm-history",
+        "building-parts",
+        "historical",
+        "review",
+        "point-pattern",
+        "spatial-stats",
+        "spatial-bootstrap",
+        "road-proximity",
+        "road-routing",
+        "holdout"
+      ],
+      "unavailable_stages": [],
+      "check_count": 30,
+      "mismatches": []
+    },
+    "analysis_rows": 123810,
+    "target_rows": 33416
+  },
+  "source_validation": {
+    "schema_validation": {
+      "path": "schema_validation.json",
+      "sha256": "993a8c7ecd20073a9c20e8ed7e43e8ae76b9c3bc1744a382d92f90cfc7c462ad",
+      "status": "pass",
+      "passed": true,
+      "schema_version": 1
+    },
+    "reproducibility": {
+      "path": "reproducibility.json",
+      "sha256": "7a7bd7602acda32e8a08f9e4dcd036809831479a692bfaa8d9f318ca331838c7",
+      "status": "pass",
+      "passed": true,
+      "artifact_count": 55
+    }
+  },
+  "files": {
+    "index.html": {
+      "sha256": "f0bcf319d78a8969f9dbdafe40e8faadd917f9236eab0ffff9c6bfc093cab2f2",
+      "bytes": 71638212
+    },
+    "review.html": {
+      "sha256": "f6aebf5407f6b690911df16c05322f0037065a00a23e71e19c6a5728fcf23fc5",
+      "bytes": 1092566
+    },
+    "report.html": {
+      "sha256": "e4fd99fe8a422ceb68641577d14348147ab0d614ef5bfe0b7d5bd0b65c2bd303",
+      "bytes": 241
+    }
+  }
+}

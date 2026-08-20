@@ -10,6 +10,10 @@ library. It serves the selected report and generated output directory;
 ``/api/openapi.json`` provides the read-only API's versioned OpenAPI document.
 ``/api/interpretation`` provides compact data-derived findings without
 downloading the full report data pack.
+``/api/report/runtime`` provides the compact, conditionally cacheable analytical
+readiness contract for automation and long-running dashboard sessions.
+All read-only readiness responses recheck the current output-manifest and
+input-source alignment contracts before reporting analytical readiness.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ import threading
 import webbrowser
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, quote, urlsplit
 
 try:
@@ -36,8 +40,32 @@ try:
         query_rows,
     )
     from road_routing import SQLiteRoadGraph, load_graph, parse_departure
-    from route_query import ROUTE_CONTRACT, query_route, route_geojson
-    from runtime import SOURCE_FRESHNESS_CONTRACT, package_version, project_path
+    from route_query import (
+        ROUTE_CONTRACT,
+        ROUTE_OBJECTIVES,
+        VEHICLE_CLASSES,
+        query_route,
+        route_geojson,
+        validate_route_objective,
+        validate_vehicle_axleload_t,
+        validate_vehicle_class,
+        validate_vehicle_height_m,
+        validate_vehicle_length_m,
+        validate_vehicle_rating_t,
+        validate_vehicle_weight_t,
+        validate_vehicle_width_m,
+    )
+    from runtime import (
+        MANIFEST_EXCLUDED_OUTPUTS,
+        SOURCE_ALIGNMENT_CONTRACT,
+        SOURCE_FRESHNESS_CONTRACT,
+        default_project_root,
+        manifest_source_alignment,
+        package_version,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 except ImportError:
     from scripts.query_data import (
         _cursor_for_row,
@@ -46,8 +74,32 @@ except ImportError:
         query_rows,
     )
     from scripts.road_routing import SQLiteRoadGraph, load_graph, parse_departure
-    from scripts.route_query import ROUTE_CONTRACT, query_route, route_geojson
-    from scripts.runtime import SOURCE_FRESHNESS_CONTRACT, package_version, project_path
+    from scripts.route_query import (
+        ROUTE_CONTRACT,
+        ROUTE_OBJECTIVES,
+        VEHICLE_CLASSES,
+        query_route,
+        route_geojson,
+        validate_route_objective,
+        validate_vehicle_axleload_t,
+        validate_vehicle_class,
+        validate_vehicle_height_m,
+        validate_vehicle_length_m,
+        validate_vehicle_rating_t,
+        validate_vehicle_weight_t,
+        validate_vehicle_width_m,
+    )
+    from scripts.runtime import (
+        MANIFEST_EXCLUDED_OUTPUTS,
+        SOURCE_ALIGNMENT_CONTRACT,
+        SOURCE_FRESHNESS_CONTRACT,
+        default_project_root,
+        manifest_source_alignment,
+        package_version,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -62,6 +114,16 @@ OPENAPI_PATH = "/api/openapi.json"
 INTERPRETATION_API_PATH = "/api/interpretation"
 REPORT_PAGE_API_PATH = "/api/report/page"
 REPORT_EXPORT_API_PATH = "/api/report/export"
+REPORT_RUNTIME_API_PATH = "/api/report/runtime"
+SOURCE_ALIGNMENT_SURFACES = (
+    HEALTH_PATH,
+    CAPABILITIES_API_PATH,
+    METADATA_API_PATH,
+    INTERPRETATION_API_PATH,
+    REPORT_PAGE_API_PATH,
+    REPORT_RUNTIME_API_PATH,
+    REPORT_EXPORT_API_PATH,
+)
 REPORT_PAGE_CONTRACT = "ireland-geometry.report-page.v1"
 REPORT_EXPORT_CONTRACT = "ireland-geometry.report-export.v1"
 REPORT_PAGE_DEFAULT_LIMIT = 50
@@ -73,6 +135,16 @@ METADATA_CONTRACT = "ireland-geometry.metadata.v1"
 CAPABILITIES_CONTRACT = "ireland-geometry.capabilities.v1"
 OPENAPI_CONTRACT = "ireland-geometry.openapi.v1"
 INTERPRETATION_CONTRACT = "ireland-geometry.interpretation.v1"
+MANIFEST_ALIGNMENT_CONTRACT = "ireland-geometry.manifest-alignment.v1"
+REPORT_RUNTIME_CONTRACT = "ireland-geometry.report-runtime.v1"
+REPORT_RUNTIME_HEADER_NAMES = {
+    "contract": "X-Ireland-Geometry-Runtime-Contract",
+    "status": "X-Ireland-Geometry-Runtime-Status",
+    "analysis_ready": "X-Ireland-Geometry-Analysis-Ready",
+    "validation": "X-Ireland-Geometry-Validation",
+    "manifest_alignment": "X-Ireland-Geometry-Manifest-Alignment",
+    "source_alignment": "X-Ireland-Geometry-Source-Alignment",
+}
 API_CONTRACTS = {
     "health": HEALTH_CONTRACT,
     "capabilities": CAPABILITIES_CONTRACT,
@@ -83,6 +155,7 @@ API_CONTRACTS = {
     "interpretation": INTERPRETATION_CONTRACT,
     "report_page": REPORT_PAGE_CONTRACT,
     "report_export": REPORT_EXPORT_CONTRACT,
+    "report_runtime": REPORT_RUNTIME_CONTRACT,
 }
 QUERY_MAX_LIMIT = 1000
 QUERY_MAX_OFFSET = 10_000_000
@@ -225,6 +298,17 @@ def openapi_document() -> dict[str, object]:
                     },
                 }
             },
+            REPORT_RUNTIME_API_PATH: {
+                "get": {
+                    "operationId": "getReportRuntime",
+                    "summary": "Return current report analytical readiness",
+                    "responses": {
+                        "200": _openapi_json_response(
+                            "ReportRuntime", "Current report runtime readiness"
+                        ),
+                    },
+                }
+            },
             REPORT_EXPORT_API_PATH: {
                 "get": {
                     "operationId": "exportFilteredReport",
@@ -236,6 +320,47 @@ def openapi_document() -> dict[str, object]:
                     "responses": {
                         "200": {
                             "description": "Filtered CSV or GeoJSON export",
+                            "headers": {
+                                REPORT_RUNTIME_HEADER_NAMES["contract"]: {
+                                    "description": "Runtime readiness contract for the exported report pack.",
+                                    "schema": {
+                                        "type": "string",
+                                        "const": REPORT_RUNTIME_CONTRACT,
+                                    },
+                                },
+                                REPORT_RUNTIME_HEADER_NAMES["status"]: {
+                                    "description": "Current runtime status: pass, incomplete, or fail.",
+                                    "schema": {
+                                        "type": "string",
+                                        "enum": ["pass", "incomplete", "fail"],
+                                    },
+                                },
+                                REPORT_RUNTIME_HEADER_NAMES["analysis_ready"]: {
+                                    "description": "Whether analytical validation and manifest alignment both pass.",
+                                    "schema": {"type": "string", "enum": ["true", "false"]},
+                                },
+                                REPORT_RUNTIME_HEADER_NAMES["validation"]: {
+                                    "description": "Aggregated validation-record status.",
+                                    "schema": {
+                                        "type": "string",
+                                        "enum": ["pass", "incomplete", "fail", "not_provided"],
+                                    },
+                                },
+                                REPORT_RUNTIME_HEADER_NAMES["manifest_alignment"]: {
+                                    "description": "Current output-manifest byte/hash alignment status.",
+                                    "schema": {
+                                        "type": "string",
+                                        "enum": ["pass", "incomplete", "fail", "not_provided"],
+                                    },
+                                },
+                                REPORT_RUNTIME_HEADER_NAMES["source_alignment"]: {
+                                    "description": "Current input-source metadata alignment status.",
+                                    "schema": {
+                                        "type": "string",
+                                        "enum": ["pass", "incomplete", "fail", "not_provided"],
+                                    },
+                                },
+                            },
                             "content": {
                                 "text/csv": {"schema": {"type": "string"}},
                                 "application/geo+json": {"schema": {"$ref": "#/components/schemas/GeoJSONFeatureCollection"}},
@@ -334,7 +459,93 @@ def openapi_document() -> dict[str, object]:
                         _openapi_query_parameter(
                             "speed_kmh",
                             {"type": "number", "format": "double", "exclusiveMinimum": 0, "default": 50},
-                            description="Positive routing speed in km/h.",
+                            description=(
+                                "Positive fallback routing speed in km/h; supported numeric "
+                                "OSM maxspeed ceilings are applied per way on v21 SQLite graphs; "
+                                "safely supported maxspeed:conditional windows are evaluated "
+                                "when departure is supplied; supported conditional one-way "
+                                "windows use the same departure profile."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "weight_t",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional vehicle weight profile in metric tonnes; activates "
+                                "weight-based conditional turn restrictions and generic "
+                                "numeric maxweight limits on SQLite road graphs; the hgv "
+                                "profile also applies numeric maxweight:hgv limits."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "rating_t",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional HGV permitted gross-weight rating in metric tonnes; "
+                                "activates maxweightrating:hgv limits and the Irish "
+                                "maxweightrating:goods alias when vehicle_class=hgv. "
+                                "This is distinct from the actual weight_t profile."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "height_m",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional vehicle height profile in metres; activates numeric "
+                                "legal and physical maxheight limits on SQLite road graphs."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "width_m",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional vehicle width profile in metres; activates numeric "
+                                "maxwidth limits on SQLite road graphs."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "length_m",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional vehicle length profile in metres; activates numeric "
+                                "maxlength limits on SQLite road graphs."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "axleload_t",
+                            {"type": "number", "format": "double", "exclusiveMinimum": 0},
+                            description=(
+                                "Optional vehicle axle-load profile in metric tonnes; activates "
+                                "numeric maxaxleload limits on SQLite road graphs."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "vehicle_class",
+                            {"type": "string", "enum": list(VEHICLE_CLASSES), "default": "general"},
+                            description=(
+                                "Vehicle-class profile for conditional access; delivery activates "
+                                "OSM delivery-only windows, psv activates public-service-vehicle "
+                                "windows, hgv activates heavy-goods-vehicle limits/windows, and "
+                                "taxi activates taxi-specific windows on SQLite road graphs."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "allow_hgv_destination",
+                            {"type": "boolean", "default": False},
+                            description=(
+                                "For vehicle_class=hgv, explicitly allow static hgv=destination "
+                                "destination-only ways and supported "
+                                "ways and supported none @ destination exceptions to HGV "
+                                "weight/rating limits. Use only when the route serves the destination."
+                            ),
+                        ),
+                        _openapi_query_parameter(
+                            "objective",
+                            {"type": "string", "enum": list(ROUTE_OBJECTIVES), "default": "distance"},
+                            description=(
+                                "Optimize shortest physical distance (distance) or fastest "
+                                "estimated duration (duration)."
+                            ),
                         ),
                         _openapi_query_parameter(
                             "departure",
@@ -344,12 +555,20 @@ def openapi_document() -> dict[str, object]:
                         _openapi_query_parameter(
                             "include_path",
                             {"type": "boolean", "default": False},
-                            description="Include reconstructed path node IDs and coordinates.",
+                            description=(
+                                "Include reconstructed path node IDs, GeoJSON-order "
+                                "coordinates, ordered directed way/segment records, "
+                                "per-segment metrics, persisted edge constraints, "
+                                "and conditional-rule evaluations."
+                            ),
                         ),
                         _openapi_query_parameter(
                             "include_ferries",
                             {"type": "boolean", "default": False},
-                            description="Include static ferry geometry when available.",
+                            description=(
+                                "Include ferry geometry when available; persisted weekly or "
+                                "calendar-qualified service windows, next-opening waits, and crossing durations are applied when present."
+                            ),
                         ),
                         _openapi_query_parameter(
                             "format",
@@ -390,12 +609,27 @@ def openapi_document() -> dict[str, object]:
                 },
                 "HealthResponse": {
                     "type": "object",
-                    "required": ["contract", "status", "ready", "analysis_ready", "validation"],
+                    "required": [
+                        "contract",
+                        "status",
+                        "ready",
+                        "analysis_ready",
+                        "manifest_alignment",
+                        "source_alignment",
+                        "validation",
+                    ],
                     "properties": {
                         "contract": {"const": HEALTH_CONTRACT},
                         "status": {"type": "string", "enum": ["ok", "degraded"]},
                         "ready": {"type": "boolean"},
                         "analysis_ready": {"type": "boolean"},
+                        "output_symlink_guard": {"type": "boolean", "const": True},
+                        "manifest_alignment": {
+                            "$ref": "#/components/schemas/ManifestAlignment"
+                        },
+                        "source_alignment": {
+                            "$ref": "#/components/schemas/SourceAlignment"
+                        },
                         "validation": {"$ref": "#/components/schemas/ValidationStatus"},
                         "interpretation_available": {"type": "boolean"},
                         "interpretation_endpoint": {"type": "string"},
@@ -409,6 +643,10 @@ def openapi_document() -> dict[str, object]:
                         "status",
                         "ready",
                         "analysis_ready",
+                        "project_root",
+                        "manifest_alignment",
+                        "source_alignment",
+                        "source_alignment_surfaces",
                         "validation",
                         "contracts",
                         "endpoints",
@@ -419,6 +657,18 @@ def openapi_document() -> dict[str, object]:
                         "status": {"type": "string", "enum": ["ok", "degraded"]},
                         "ready": {"type": "boolean"},
                         "analysis_ready": {"type": "boolean"},
+                        "project_root": {"type": "string"},
+                        "output_symlink_guard": {"type": "boolean", "const": True},
+                        "manifest_alignment": {
+                            "$ref": "#/components/schemas/ManifestAlignment"
+                        },
+                        "source_alignment": {
+                            "$ref": "#/components/schemas/SourceAlignment"
+                        },
+                        "source_alignment_surfaces": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
                         "validation": {"$ref": "#/components/schemas/ValidationStatus"},
                         "contracts": {"type": "object", "additionalProperties": {"type": "string"}},
                         "endpoints": {"type": "object", "additionalProperties": True},
@@ -445,12 +695,108 @@ def openapi_document() -> dict[str, object]:
                     },
                     "additionalProperties": True,
                 },
+                "ManifestAlignment": {
+                    "type": "object",
+                    "required": [
+                        "contract",
+                        "status",
+                        "passed",
+                        "checked_count",
+                        "manifest_artifact_count",
+                        "actual_file_count",
+                        "symlink_count",
+                        "unlisted_count",
+                        "errors",
+                    ],
+                    "properties": {
+                        "contract": {"const": MANIFEST_ALIGNMENT_CONTRACT},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pass", "fail", "incomplete", "not_provided"],
+                        },
+                        "passed": {"type": "boolean"},
+                        "checked_count": {"type": "integer", "minimum": 0},
+                        "manifest_artifact_count": {"type": "integer", "minimum": 0},
+                        "actual_file_count": {"type": "integer", "minimum": 0},
+                        "symlink_count": {"type": "integer", "minimum": 0},
+                        "unlisted_count": {"type": "integer", "minimum": 0},
+                        "errors": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "additionalProperties": True,
+                },
+                "SourceAlignment": {
+                    "type": "object",
+                    "required": [
+                        "contract",
+                        "status",
+                        "passed",
+                        "mode",
+                        "checked_count",
+                        "unavailable_count",
+                        "unhashed_count",
+                        "hash_checked_count",
+                        "metadata_checked_count",
+                        "symlink_count",
+                        "errors",
+                    ],
+                    "properties": {
+                        "contract": {"const": SOURCE_ALIGNMENT_CONTRACT},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pass", "fail", "not_provided"],
+                        },
+                        "passed": {"type": "boolean"},
+                        "mode": {"type": "string", "enum": ["metadata", "hash"]},
+                        "checked_count": {"type": "integer", "minimum": 0},
+                        "unavailable_count": {"type": "integer", "minimum": 0},
+                        "unhashed_count": {"type": "integer", "minimum": 0},
+                        "hash_checked_count": {"type": "integer", "minimum": 0},
+                        "metadata_checked_count": {"type": "integer", "minimum": 0},
+                        "symlink_count": {"type": "integer", "minimum": 0},
+                        "errors": {"type": "array", "items": {"type": "string"}},
+                        "sources": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "symlink_paths": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "metadata_checked": {"type": "boolean"},
+                                    "expected_metadata_sha256": {
+                                        "type": ["string", "null"],
+                                        "pattern": "^[0-9a-f]{64}$",
+                                    },
+                                    "actual_metadata_sha256": {
+                                        "type": ["string", "null"],
+                                        "pattern": "^[0-9a-f]{64}$",
+                                    },
+                                },
+                                "additionalProperties": True,
+                            },
+                        },
+                    },
+                    "additionalProperties": True,
+                },
                 "MetadataResponse": {
                     "type": "object",
-                    "required": ["contract", "status", "source_freshness"],
+                    "required": [
+                        "contract",
+                        "status",
+                        "manifest_alignment",
+                        "source_alignment",
+                        "source_freshness",
+                    ],
                     "properties": {
                         "contract": {"const": METADATA_CONTRACT},
                         "status": {"type": "string"},
+                        "manifest_alignment": {
+                            "$ref": "#/components/schemas/ManifestAlignment"
+                        },
+                        "source_alignment": {
+                            "$ref": "#/components/schemas/SourceAlignment"
+                        },
                         "source_freshness": {
                             "anyOf": [
                                 {"$ref": "#/components/schemas/SourceFreshness"},
@@ -501,6 +847,8 @@ def openapi_document() -> dict[str, object]:
                         "status",
                         "available",
                         "analysis_ready",
+                        "manifest_alignment",
+                        "source_alignment",
                         "validation",
                         "interpretation",
                     ],
@@ -509,6 +857,12 @@ def openapi_document() -> dict[str, object]:
                         "status": {"type": "string", "enum": ["ok", "not_provided", "error"]},
                         "available": {"type": "boolean"},
                         "analysis_ready": {"type": "boolean"},
+                        "manifest_alignment": {
+                            "$ref": "#/components/schemas/ManifestAlignment"
+                        },
+                        "source_alignment": {
+                            "$ref": "#/components/schemas/SourceAlignment"
+                        },
                         "validation": {"$ref": "#/components/schemas/ValidationStatus"},
                         "summary": {"type": "object", "additionalProperties": True},
                         "interpretation": {"type": ["object", "null"]},
@@ -519,7 +873,15 @@ def openapi_document() -> dict[str, object]:
                 },
                 "ReportPageResponse": {
                     "type": "object",
-                    "required": ["contract", "status", "paged", "targets", "page", "filter_options"],
+                    "required": [
+                        "contract",
+                        "status",
+                        "paged",
+                        "targets",
+                        "page",
+                        "filter_options",
+                        "runtime",
+                    ],
                     "properties": {
                         "contract": {"const": REPORT_PAGE_CONTRACT},
                         "status": {"type": "string", "const": "ok"},
@@ -529,6 +891,61 @@ def openapi_document() -> dict[str, object]:
                         "page": {"type": "object", "additionalProperties": True},
                         "filters": {"type": "object", "additionalProperties": True},
                         "filter_options": {"type": "object", "additionalProperties": True},
+                        "runtime": {"$ref": "#/components/schemas/ReportRuntime"},
+                    },
+                    "additionalProperties": True,
+                },
+                "ReportRuntime": {
+                    "type": "object",
+                    "required": [
+                        "contract",
+                        "status",
+                        "analysis_ready",
+                        "validation",
+                        "manifest_alignment",
+                        "source_alignment",
+                        "snapshot",
+                    ],
+                    "properties": {
+                        "contract": {"const": REPORT_RUNTIME_CONTRACT},
+                        "status": {"type": "string", "enum": ["pass", "incomplete", "fail"]},
+                        "analysis_ready": {"type": "boolean"},
+                        "validation": {"$ref": "#/components/schemas/ValidationStatus"},
+                        "manifest_alignment": {
+                            "$ref": "#/components/schemas/ManifestAlignment"
+                        },
+                        "source_alignment": {
+                            "$ref": "#/components/schemas/SourceAlignment"
+                        },
+                        "snapshot": {
+                            "$ref": "#/components/schemas/ReportRuntimeSnapshot"
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+                "ReportRuntimeSnapshot": {
+                    "type": "object",
+                    "required": [
+                        "available",
+                        "generated_at",
+                        "git_revision",
+                        "git_dirty",
+                        "package_version",
+                        "schema_version",
+                        "manifest_sha256",
+                    ],
+                    "properties": {
+                        "available": {"type": "boolean"},
+                        "generated_at": {"type": ["string", "null"]},
+                        "git_revision": {"type": ["string", "null"]},
+                        "git_dirty": {"type": ["boolean", "null"]},
+                        "package_version": {"type": ["string", "null"]},
+                        "schema_version": {"type": ["integer", "null"]},
+                        "manifest_sha256": {
+                            "type": ["string", "null"],
+                            "pattern": "^[0-9a-f]{64}$",
+                        },
+                        "error": {"type": "string"},
                     },
                     "additionalProperties": True,
                 },
@@ -562,13 +979,315 @@ def openapi_document() -> dict[str, object]:
                 },
                 "RouteResponse": {
                     "type": "object",
-                    "required": ["contract", "reachable"],
+                    "required": [
+                        "contract",
+                        "reachable",
+                        "objective",
+                        "vehicle_weight_t",
+                        "vehicle_rating_t",
+                        "vehicle_height_m",
+                        "vehicle_width_m",
+                        "vehicle_length_m",
+                        "vehicle_axleload_t",
+                        "vehicle_class",
+                        "allow_hgv_destination",
+                        "ferry_wait_s",
+                        "ferry_wait_n",
+                        "ferry_way_ids",
+                        "ferry_distance_m",
+                        "ferry_crossing_s",
+                        "ferry_edge_n",
+                    ],
                     "properties": {
                         "contract": {"const": ROUTE_CONTRACT},
                         "status": {"type": "string"},
                         "reachable": {"type": "boolean"},
+                        "objective": {"type": "string", "enum": list(ROUTE_OBJECTIVES)},
+                        "vehicle_weight_t": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_rating_t": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_height_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_width_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_length_m": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_axleload_t": {"type": ["number", "null"], "exclusiveMinimum": 0},
+                        "vehicle_class": {"type": "string", "enum": list(VEHICLE_CLASSES)},
+                        "allow_hgv_destination": {"type": "boolean"},
                         "route_distance_m": {"type": ["number", "null"]},
                         "estimated_duration_s": {"type": ["number", "null"]},
+                        "ferry_wait_s": {"type": "number", "minimum": 0},
+                        "ferry_wait_n": {"type": "integer", "minimum": 0},
+                        "ferry_way_ids": {"type": "array", "items": {"type": "string"}},
+                        "ferry_distance_m": {"type": "number", "minimum": 0},
+                        "ferry_crossing_s": {"type": "number", "minimum": 0},
+                        "ferry_edge_n": {"type": "integer", "minimum": 0},
+                        "path_node_n": {"type": "integer", "minimum": 0},
+                        "path_node_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "path_coordinates": {
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 2,
+                                "maxItems": 2,
+                            },
+                        },
+                        "path_segment_n": {"type": "integer", "minimum": 0},
+                        "path_segment_total_distance_m": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Sum of the per-segment physical distances in metres.",
+                        },
+                        "path_segment_total_duration_s": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Sum of per-segment estimated durations, including waits.",
+                        },
+                        "path_segment_total_wait_s": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Sum of per-segment service-wait components in seconds.",
+                        },
+                        "path_segment_source": {
+                            "type": "string",
+                            "enum": ["sqlite_edges", "not_available"],
+                            "description": (
+                                "Whether ordered segment records came from SQLite "
+                                "edges with persisted way IDs."
+                            ),
+                        },
+                        "path_way_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Ordered way IDs, one per directed graph segment; "
+                                "IDs may repeat when a way spans multiple segments."
+                            ),
+                        },
+                        "path_segments": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": [
+                                    "from_node",
+                                    "to_node",
+                                    "way_id",
+                                    "distance_m",
+                                    "duration_s",
+                                    "wait_s",
+                                    "ferry",
+                                    "road_context",
+                                    "constraints",
+                                    "conditional_rules",
+                                    "transition_rules",
+                                ],
+                                "properties": {
+                                    "from_node": {"type": "string"},
+                                    "to_node": {"type": "string"},
+                                    "way_id": {"type": "string"},
+                                    "distance_m": {"type": "number", "minimum": 0},
+                                    "duration_s": {"type": "number", "minimum": 0},
+                                    "wait_s": {"type": "number", "minimum": 0},
+                                    "ferry": {"type": "boolean"},
+                                    "road_context": {
+                                        "type": "object",
+                                        "required": [
+                                            "name",
+                                            "ref",
+                                            "highway",
+                                            "route",
+                                            "oneway",
+                                        ],
+                                        "properties": {
+                                            "name": {"type": ["string", "null"]},
+                                            "ref": {"type": ["string", "null"]},
+                                            "highway": {"type": ["string", "null"]},
+                                            "route": {"type": ["string", "null"]},
+                                            "oneway": {"type": ["string", "null"]},
+                                        },
+                                        "additionalProperties": False,
+                                        "description": (
+                                            "Persisted human-readable OSM way context. "
+                                            "Legacy graphs may return null fields when "
+                                            "the source tags were not persisted."
+                                        ),
+                                    },
+                                    "constraints": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "key",
+                                                "value",
+                                                "unit",
+                                                "status",
+                                                "evaluated",
+                                                "profile",
+                                            ],
+                                            "properties": {
+                                                "key": {"type": "string"},
+                                                "value": {
+                                                    "type": ["number", "string", "null"]
+                                                },
+                                                "unit": {"type": ["string", "null"]},
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "supported",
+                                                        "unlimited",
+                                                        "unsupported",
+                                                    ],
+                                                },
+                                                "evaluated": {"type": "boolean"},
+                                                "profile": {"type": "string"},
+                                            },
+                                            "additionalProperties": False,
+                                        },
+                                        "description": (
+                                            "Static normalized OSM edge constraints. "
+                                            "Each record identifies the source key and "
+                                            "value/unit, retains the parser status, "
+                                            "and states whether the supplied route "
+                                            "profile evaluated it. Conditional turns "
+                                            "and access rules are reported separately."
+                                        ),
+                                    },
+                                    "conditional_rules": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "key",
+                                                "value",
+                                                "unit",
+                                                "condition",
+                                                "mode",
+                                                "direction",
+                                                "vehicle_class",
+                                                "status",
+                                                "evaluated",
+                                                "active",
+                                                "applied",
+                                                "profile",
+                                            ],
+                                            "properties": {
+                                                "key": {"type": "string"},
+                                                "value": {
+                                                    "type": ["number", "string", "null"]
+                                                },
+                                                "unit": {"type": ["string", "null"]},
+                                                "condition": {"type": "string"},
+                                                "mode": {"type": "string"},
+                                                "direction": {"type": "string"},
+                                                "vehicle_class": {"type": "string"},
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "supported",
+                                                        "unlimited",
+                                                        "unsupported",
+                                                    ],
+                                                },
+                                                "evaluated": {"type": "boolean"},
+                                                "active": {"type": ["boolean", "null"]},
+                                                "applied": {"type": "boolean"},
+                                                "profile": {"type": "string"},
+                                            },
+                                            "additionalProperties": False,
+                                        },
+                                        "description": (
+                                            "Conditional speed, one-way, and access "
+                                            "rules attached to this traversal. Active "
+                                            "and applied distinguish a rule that was "
+                                            "in force from one merely retained on the "
+                                            "source edge."
+                                        ),
+                                    },
+                                    "transition_rules": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "key",
+                                                "relation_id",
+                                                "via_node",
+                                                "from_way",
+                                                "to_way",
+                                                "via_way_ids",
+                                                "kind",
+                                                "condition",
+                                                "status",
+                                                "evaluated",
+                                                "active",
+                                                "applied",
+                                                "selected",
+                                                "profile",
+                                            ],
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "turn_restriction",
+                                                        "conditional_turn_restriction",
+                                                    ],
+                                                },
+                                                "relation_id": {"type": "string"},
+                                                "via_node": {"type": "string"},
+                                                "from_way": {"type": "string"},
+                                                "to_way": {"type": "string"},
+                                                "via_way_ids": {
+                                                    "type": "array",
+                                                    "items": {"type": "string"},
+                                                },
+                                                "kind": {
+                                                    "type": "string",
+                                                    "enum": ["no", "only"],
+                                                },
+                                                "condition": {"type": "string"},
+                                                "status": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "supported",
+                                                        "unsupported",
+                                                    ],
+                                                },
+                                                "evaluated": {"type": "boolean"},
+                                                "active": {"type": ["boolean", "null"]},
+                                                "applied": {"type": "boolean"},
+                                                "selected": {"type": "boolean"},
+                                                "profile": {"type": "string"},
+                                            },
+                                            "additionalProperties": False,
+                                        },
+                                        "description": (
+                                            "Turn restrictions matched by the path "
+                                            "transition entering this segment's from_node. "
+                                            "Records retain relation and via-way identity, "
+                                            "conditional evaluation state, and whether the "
+                                            "chosen outgoing way was the relation target."
+                                        ),
+                                    },
+                                },
+                                "additionalProperties": False,
+                            },
+                            "description": (
+                                "Ordered directed segment records. The tuple "
+                                "(from_node, to_node, way_id) identifies a traversed "
+                                "SQLite edge because the graph has no standalone edge ID. "
+                                "Each record also carries physical distance, estimated "
+                                "duration including wait, wait seconds, and ferry status."
+                                " The road_context object exposes persisted OSM way "
+                                "identity such as name, reference, highway class, "
+                                "route type, and oneway state."
+                                " The constraints array records static normalized OSM "
+                                "edge limits and destination-qualified HGV metadata. "
+                                "The conditional_rules array records entry-time "
+                                "speed, one-way, and access decisions. The "
+                                "transition_rules array records relation-level "
+                                "no/only turn decisions at the segment entry."
+                            ),
+                        },
                         "arrival": {"type": ["string", "null"], "format": "date-time"},
                     },
                     "additionalProperties": True,
@@ -621,6 +1340,158 @@ def _read_json_object(path: Path) -> tuple[dict[str, object] | None, str | None]
     return payload, None
 
 
+def _sha256_file(path: Path) -> str | None:
+    """Hash a regular output file without following symlinks."""
+    if path.is_symlink() or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _manifest_artifact_alignment(directory: Path) -> dict[str, object]:
+    """Recheck current output bytes against the manifest artifact inventory."""
+    manifest_path = directory / "manifest.json"
+    base: dict[str, object] = {
+        "contract": MANIFEST_ALIGNMENT_CONTRACT,
+        "checked_count": 0,
+        "manifest_artifact_count": 0,
+        "actual_file_count": 0,
+        "symlink_count": 0,
+        "unlisted_count": 0,
+        "errors": [],
+    }
+    if manifest_path.is_symlink():
+        return {
+            **base,
+            "status": "fail",
+            "passed": False,
+            "errors": ["manifest.json is a symlink"],
+        }
+    manifest, error = _read_json_object(manifest_path)
+    if error:
+        return {
+            **base,
+            "status": "fail",
+            "passed": False,
+            "errors": [f"manifest.json is invalid: {error}"],
+        }
+    if manifest is None:
+        status = "not_provided" if not manifest_path.exists() else "fail"
+        message = "manifest.json is unavailable" if status == "not_provided" else (
+            "manifest.json must be a JSON object"
+        )
+        return {**base, "status": status, "passed": False, "errors": [message]}
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        return {
+            **base,
+            "status": "incomplete",
+            "passed": False,
+            "errors": ["manifest.json has no artifact inventory"],
+        }
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    output_root = directory.resolve()
+    checked_count = 0
+    for index, record in enumerate(artifacts, 1):
+        if not isinstance(record, dict):
+            errors.append(f"manifest artifact {index} is not an object")
+            continue
+        relative = record.get("relative_path")
+        if (
+            record.get("path_base") != "output_dir"
+            or not isinstance(relative, str)
+            or not relative
+            or relative.startswith("/")
+            or "\\" in relative
+        ):
+            errors.append(f"manifest artifact {index} has an unsafe relative path")
+            continue
+        posix_path = PurePosixPath(relative)
+        if (
+            posix_path.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in posix_path.parts)
+        ):
+            errors.append(f"manifest artifact has an unsafe relative path: {relative}")
+            continue
+        if relative in seen:
+            errors.append(f"manifest has a duplicate artifact: {relative}")
+            continue
+        seen.add(relative)
+        candidate = directory.joinpath(*posix_path.parts)
+        try:
+            candidate.resolve().relative_to(output_root)
+        except ValueError:
+            errors.append(f"manifest artifact escapes output directory: {relative}")
+            continue
+        expected_bytes = record.get("bytes")
+        expected_hash = record.get("sha256")
+        if type(expected_bytes) is not int or expected_bytes < 0:
+            errors.append(f"manifest artifact has an invalid byte count: {relative}")
+            continue
+        if not _is_sha256(expected_hash):
+            errors.append(f"manifest artifact has an invalid SHA-256: {relative}")
+            continue
+        if not candidate.is_file() or candidate.is_symlink():
+            errors.append(f"current output artifact is missing: {relative}")
+            continue
+        checked_count += 1
+        if candidate.stat().st_size != expected_bytes:
+            errors.append(f"current output byte count differs from manifest: {relative}")
+        if _sha256_file(candidate) != expected_hash:
+            errors.append(f"current output hash differs from manifest: {relative}")
+
+    required = ("verification.json", "schema_validation.json", "reproducibility.json")
+    errors.extend(
+        f"manifest is missing a required validation artifact record: {name}"
+        for name in required
+        if name not in seen
+    )
+    symlinks = sorted(
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_symlink()
+    )
+    errors.extend(f"current output contains a symlink: {relative}" for relative in symlinks)
+    actual_files = {
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_file() or path.is_symlink()
+    }
+    allowed_unlisted = {"manifest.json"} | set(MANIFEST_EXCLUDED_OUTPUTS)
+    unlisted = sorted(actual_files - seen - allowed_unlisted)
+    errors.extend(f"current output contains an unlisted artifact: {relative}" for relative in unlisted)
+    base.update(
+        {
+            "status": "pass" if not errors else "fail",
+            "passed": not errors,
+            "checked_count": checked_count,
+            "manifest_artifact_count": len(artifacts),
+            "actual_file_count": len(actual_files),
+            "symlink_count": len(symlinks),
+            "unlisted_count": len(unlisted),
+            "errors": errors,
+        }
+    )
+    return base
+
+
 def _relative_file(out_dir: Path, value: str) -> Path:
     """Resolve a report path and reject paths outside the output directory."""
     candidate = (out_dir / value).resolve()
@@ -631,6 +1502,32 @@ def _relative_file(out_dir: Path, value: str) -> Path:
     if not candidate.is_file():
         raise FileNotFoundError(f"Report file does not exist: {candidate}")
     return candidate
+
+
+def _output_symlink_paths(output: Path) -> list[Path]:
+    """Return output-root or nested symlinks without following them."""
+    if output.is_symlink():
+        return [output]
+    if not output.is_dir():
+        return []
+    return sorted(
+        (path for path in output.rglob("*") if path.is_symlink()),
+        key=lambda path: path.as_posix(),
+    )
+
+
+def _require_symlink_free_output(output: Path) -> None:
+    """Fail closed before static serving can follow an output symlink."""
+    symlinks = _output_symlink_paths(output)
+    if not symlinks:
+        return
+    details = []
+    for path in symlinks:
+        try:
+            details.append(str(path.relative_to(output)))
+        except ValueError:
+            details.append(str(path))
+    raise ValueError("Output directory contains a symlink: " + ", ".join(details))
 
 
 def _display_host(host: str) -> str:
@@ -691,6 +1588,237 @@ def _validation_status(directory: Path) -> dict[str, object]:
     }
 
 
+def _report_runtime_snapshot(directory: Path) -> dict[str, object]:
+    """Return stable identity metadata for the currently served build."""
+    path = directory / "manifest.json"
+    if path.is_symlink():
+        return {
+            "available": False,
+            "generated_at": None,
+            "git_revision": None,
+            "git_dirty": None,
+            "package_version": None,
+            "schema_version": None,
+            "manifest_sha256": None,
+            "error": "manifest.json is a symlink",
+        }
+    payload, error = _read_json_object(path)
+    if error:
+        return {
+            "available": False,
+            "generated_at": None,
+            "git_revision": None,
+            "git_dirty": None,
+            "package_version": None,
+            "schema_version": None,
+            "manifest_sha256": None,
+            "error": f"manifest.json: {error}",
+        }
+    if payload is None:
+        return {
+            "available": False,
+            "generated_at": None,
+            "git_revision": None,
+            "git_dirty": None,
+            "package_version": None,
+            "schema_version": None,
+            "manifest_sha256": None,
+            "error": "manifest.json is unavailable",
+        }
+    manifest_sha256 = _sha256_file(path)
+    if manifest_sha256 is None:
+        return {
+            "available": False,
+            "generated_at": payload.get("generated_at"),
+            "git_revision": payload.get("git_revision"),
+            "git_dirty": payload.get("git_dirty"),
+            "package_version": payload.get("package_version"),
+            "schema_version": payload.get("schema_version"),
+            "manifest_sha256": None,
+            "error": "manifest.json could not be hashed",
+        }
+    return {
+        "available": True,
+        "generated_at": payload.get("generated_at"),
+        "git_revision": payload.get("git_revision"),
+        "git_dirty": payload.get("git_dirty"),
+        "package_version": payload.get("package_version"),
+        "schema_version": payload.get("schema_version"),
+        "manifest_sha256": manifest_sha256,
+    }
+
+
+def _report_source_alignment(
+    directory: Path,
+    data_root: Path | None = None,
+    project_root: Path | None = None,
+) -> dict[str, object]:
+    """Return current input-source alignment without reading source payloads."""
+    active_project_root = project_root or directory.parent
+    manifest, _error = _read_json_object(directory / "manifest.json")
+    if not isinstance(manifest, dict):
+        return manifest_source_alignment(
+            {},
+            project_root=active_project_root,
+            data_root=data_root or active_project_root / "data",
+            out_dir=directory,
+        )
+    return manifest_source_alignment(
+        manifest,
+        project_root=active_project_root,
+        data_root=data_root or active_project_root / "data",
+        out_dir=directory,
+    )
+
+
+def _report_runtime_state(
+    directory: Path,
+    *,
+    data_root: Path | None = None,
+    project_root: Path | None = None,
+) -> dict[str, object]:
+    """Return the current analytical gate for server-backed report clients."""
+    validation = _validation_status(directory)
+    manifest_alignment = _manifest_artifact_alignment(directory)
+    source_alignment = _report_source_alignment(directory, data_root, project_root)
+    snapshot = _report_runtime_snapshot(directory)
+    source_passed = source_alignment["status"] != "fail"
+    analysis_ready = bool(validation["passed"] and manifest_alignment["passed"] and source_passed)
+    if analysis_ready:
+        status = "pass"
+    elif (
+        validation["status"] == "fail"
+        or manifest_alignment["status"] == "fail"
+        or source_alignment["status"] == "fail"
+    ):
+        status = "fail"
+    else:
+        status = "incomplete"
+    return {
+        "contract": REPORT_RUNTIME_CONTRACT,
+        "status": status,
+        "analysis_ready": analysis_ready,
+        "validation": validation,
+        "manifest_alignment": manifest_alignment,
+        "source_alignment": source_alignment,
+        "snapshot": snapshot,
+    }
+
+
+def _report_runtime_headers(runtime: dict[str, object]) -> dict[str, str]:
+    """Flatten report runtime readiness into safe headers for binary exports."""
+    validation = runtime.get("validation")
+    manifest_alignment = runtime.get("manifest_alignment")
+    source_alignment = runtime.get("source_alignment")
+    validation_status = (
+        validation.get("status", "incomplete")
+        if isinstance(validation, dict)
+        else "incomplete"
+    )
+    alignment_status = (
+        manifest_alignment.get("status", "incomplete")
+        if isinstance(manifest_alignment, dict)
+        else "incomplete"
+    )
+    source_status = (
+        source_alignment.get("status", "incomplete")
+        if isinstance(source_alignment, dict)
+        else "incomplete"
+    )
+    status = runtime.get("status", "incomplete")
+    return {
+        REPORT_RUNTIME_HEADER_NAMES["contract"]: REPORT_RUNTIME_CONTRACT,
+        REPORT_RUNTIME_HEADER_NAMES["status"]: str(status),
+        REPORT_RUNTIME_HEADER_NAMES["analysis_ready"]: (
+            "true" if runtime.get("analysis_ready") is True else "false"
+        ),
+        REPORT_RUNTIME_HEADER_NAMES["validation"]: str(validation_status),
+        REPORT_RUNTIME_HEADER_NAMES["manifest_alignment"]: str(alignment_status),
+        REPORT_RUNTIME_HEADER_NAMES["source_alignment"]: str(source_status),
+    }
+
+
+def _apply_report_runtime(
+    payload: dict[str, object],
+    runtime: dict[str, object],
+    *,
+    initial: bool,
+    attach_runtime: bool = True,
+) -> None:
+    """Attach runtime readiness and prevent stale initial dashboard claims."""
+    if attach_runtime:
+        payload["runtime"] = runtime
+    if not initial:
+        return
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        summary = dict(summary)
+        summary["analysis_ready"] = runtime["analysis_ready"]
+        summary["manifest_alignment"] = runtime["manifest_alignment"]
+        summary["source_alignment"] = runtime["source_alignment"]
+        payload["summary"] = summary
+
+    if runtime["analysis_ready"]:
+        return
+    interpretation = payload.get("interpretation")
+    if not isinstance(interpretation, dict):
+        return
+    interpretation = dict(interpretation)
+    findings = []
+    validation = runtime["validation"]
+    manifest_alignment = runtime["manifest_alignment"]
+    source_alignment = runtime["source_alignment"]
+    validation_status = (
+        validation.get("status", "incomplete")
+        if isinstance(validation, dict)
+        else "incomplete"
+    )
+    alignment_status = (
+        manifest_alignment.get("status", "incomplete")
+        if isinstance(manifest_alignment, dict)
+        else "incomplete"
+    )
+    source_status = (
+        source_alignment.get("status", "incomplete")
+        if isinstance(source_alignment, dict)
+        else "incomplete"
+    )
+    validation_text = (
+        f"Current input source alignment is {source_status}; numerical findings should be treated as provisional."
+        if source_status == "fail"
+        else f"Current output artifact alignment is {alignment_status}; numerical findings should be treated as provisional."
+        if alignment_status != "pass"
+        else f"Analytical validation is {validation_status}; numerical findings should be treated as provisional."
+    )
+    for finding in interpretation.get("findings", []):
+        if not isinstance(finding, dict):
+            findings.append(finding)
+            continue
+        finding = dict(finding)
+        if finding.get("id") == "validation":
+            finding["status"] = (
+                source_status
+                if source_status == "fail"
+                else alignment_status
+                if alignment_status != "pass"
+                else validation_status
+            )
+            finding["text"] = validation_text
+        findings.append(finding)
+    interpretation["findings"] = findings
+    caveats = list(interpretation.get("caveats", []))
+    if alignment_status != "pass":
+        caveat = "Current output artifacts are not aligned with the manifest; numerical findings should be treated as provisional."
+        if caveat not in caveats:
+            caveats.append(caveat)
+    if source_status == "fail":
+        caveat = "Current input sources are not aligned with the output manifest; numerical findings should be treated as provisional."
+        if caveat not in caveats:
+            caveats.append(caveat)
+    interpretation["caveats"] = caveats
+    payload["interpretation"] = interpretation
+
+
 class ReportRequestHandler(SimpleHTTPRequestHandler):
     """Static-file handler with health and local route-query endpoints."""
 
@@ -701,6 +1829,11 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, **kwargs)
 
     def do_GET(self) -> None:
+        try:
+            _require_symlink_free_output(Path(self.directory or "."))
+        except ValueError:
+            self.send_error(404, "File not found")
+            return
         path = urlsplit(self.path).path
         if path == HEALTH_PATH:
             self._write_health()
@@ -719,6 +1852,9 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == REPORT_PAGE_API_PATH:
             self._write_report_page()
+            return
+        if path == REPORT_RUNTIME_API_PATH:
+            self._write_report_runtime()
             return
         if path == REPORT_EXPORT_API_PATH:
             self._write_report_export()
@@ -741,6 +1877,23 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def send_head(self):
+        """Refuse static paths whose components are output-directory symlinks."""
+        candidate = Path(super().translate_path(self.path))
+        directory = Path(self.directory or ".").resolve()
+        try:
+            relative = candidate.relative_to(directory)
+        except ValueError:
+            self.send_error(404, "File not found")
+            return None
+        current = directory
+        for component in relative.parts:
+            current /= component
+            if current.is_symlink():
+                self.send_error(404, "File not found")
+                return None
+        return super().send_head()
+
     def _write_health(self) -> None:
         directory = Path(self.directory or ".").resolve()
         report_path = directory / self.report_name
@@ -751,6 +1904,12 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         data_pack_required = self.report_name == DEFAULT_REPORT
         ready = report_exists and (not data_pack_required or data_pack_exists)
         validation = _validation_status(directory)
+        manifest_alignment = _manifest_artifact_alignment(directory)
+        source_alignment = _report_source_alignment(
+            directory,
+            data_root=getattr(self.server, "data_root", None),
+            project_root=getattr(self.server, "project_root", directory.parent),
+        )
         query_backend_health = _query_backend_health(directory)
         query_readable_backends = [
             name for name, status in query_backend_health.items() if status["readable"]
@@ -759,13 +1918,21 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             "contract": HEALTH_CONTRACT,
             "status": "ok" if ready else "degraded",
             "ready": ready,
-            "analysis_ready": ready and validation["passed"] and validation["manifest_available"],
+            "analysis_ready": (
+                ready
+                and validation["passed"]
+                and manifest_alignment["passed"]
+                and source_alignment["status"] != "fail"
+            ),
+            "manifest_alignment": manifest_alignment,
+            "source_alignment": source_alignment,
             "validation": validation,
             "report": self.report_name,
             "report_exists": report_exists,
             "data_pack_exists": data_pack_exists,
             "data_pack_required": data_pack_required,
             "data_pack_gzip": data_pack_exists,
+            "output_symlink_guard": True,
             "routing_available": _graph_available(graph_path),
             "route_endpoint": ROUTE_API_PATH,
             "query_available": bool(query_readable_backends),
@@ -822,10 +1989,15 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         content_type: str,
         filename: str | None = None,
         cache_control: str = "no-cache",
+        headers: dict[str, str] | None = None,
     ) -> None:
         response_etag = _etag(body) if cache_control != "no-store" else None
         if response_etag and _etag_matches(self.headers.get("If-None-Match"), response_etag):
-            self._write_not_modified(response_etag, cache_control=cache_control)
+            self._write_not_modified(
+                response_etag,
+                cache_control=cache_control,
+                headers=headers,
+            )
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -835,6 +2007,8 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             self.send_header("ETag", response_etag)
         if filename:
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -845,6 +2019,7 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         cache_control: str,
         content_encoding: str | None = None,
         vary: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.send_response(304)
         self.send_header("ETag", response_etag)
@@ -853,6 +2028,8 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Encoding", content_encoding)
         if vary:
             self.send_header("Vary", vary)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -1039,6 +2216,7 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         data = self._report_data_or_error(REPORT_PAGE_CONTRACT)
         if data is None:
             return
+        directory = Path(self.directory or ".").resolve()
         try:
             try:
                 from report import report_page_payload
@@ -1053,6 +2231,15 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                 include_static=initial,
                 **filters,
             )
+            _apply_report_runtime(
+                payload,
+                _report_runtime_state(
+                    directory,
+                    data_root=getattr(self.server, "data_root", None),
+                    project_root=getattr(self.server, "project_root", directory.parent),
+                ),
+                initial=initial,
+            )
         except (TypeError, ValueError) as exc:
             self._write_json(
                 {"contract": REPORT_PAGE_CONTRACT, "status": "error", "error": str(exc)},
@@ -1061,6 +2248,18 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             )
             return
         self._write_json(payload, cache_control="no-cache")
+
+    def _write_report_runtime(self) -> None:
+        """Return the current report runtime contract with deterministic ETags."""
+        directory = Path(self.directory or ".").resolve()
+        self._write_json(
+            _report_runtime_state(
+                directory,
+                data_root=getattr(self.server, "data_root", None),
+                project_root=getattr(self.server, "project_root", directory.parent),
+            ),
+            cache_control="no-cache",
+        )
 
     def _write_report_export(self) -> None:
         query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
@@ -1088,6 +2287,17 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         data = self._report_data_or_error(REPORT_EXPORT_CONTRACT)
         if data is None:
             return
+        runtime_headers = _report_runtime_headers(
+            _report_runtime_state(
+                Path(self.directory or ".").resolve(),
+                data_root=getattr(self.server, "data_root", None),
+                project_root=getattr(
+                    self.server,
+                    "project_root",
+                    Path(self.directory or ".").resolve().parent,
+                ),
+            )
+        )
         try:
             try:
                 from report import report_csv, report_geojson
@@ -1096,7 +2306,12 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
 
             if format_name == "csv":
                 body = report_csv(data, **filters).encode("utf-8")
-                self._write_bytes(body, content_type="text/csv; charset=utf-8", filename="ireland-geometry-filtered.csv")
+                self._write_bytes(
+                    body,
+                    content_type="text/csv; charset=utf-8",
+                    filename="ireland-geometry-filtered.csv",
+                    headers=runtime_headers,
+                )
             else:
                 body = json.dumps(
                     _json_safe(report_geojson(data, **filters)),
@@ -1104,7 +2319,12 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                     separators=(",", ":"),
                     allow_nan=False,
                 ).encode("utf-8")
-                self._write_bytes(body, content_type="application/geo+json; charset=utf-8", filename="ireland-geometry-filtered.geojson")
+                self._write_bytes(
+                    body,
+                    content_type="application/geo+json; charset=utf-8",
+                    filename="ireland-geometry-filtered.geojson",
+                    headers=runtime_headers,
+                )
         except (TypeError, ValueError) as exc:
             self._write_json(
                 {"contract": REPORT_EXPORT_CONTRACT, "status": "error", "error": str(exc)},
@@ -1172,12 +2392,28 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                 "error": probe["error"],
             }
 
-        status = "degraded" if errors else ("ok" if records["manifest"] else "not_provided")
+        manifest_alignment = _manifest_artifact_alignment(directory)
+        source_alignment = _report_source_alignment(
+            directory,
+            data_root=getattr(self.server, "data_root", None),
+            project_root=getattr(self.server, "project_root", directory.parent),
+        )
+        status = (
+            "degraded"
+            if (
+                errors
+                or manifest_alignment["status"] in {"fail", "incomplete"}
+                or source_alignment["status"] == "fail"
+            )
+            else ("ok" if records["manifest"] else "not_provided")
+        )
         self._write_json(
             {
                 "contract": METADATA_CONTRACT,
                 "status": status,
                 "errors": errors,
+                "manifest_alignment": manifest_alignment,
+                "source_alignment": source_alignment,
                 "manifest": {
                     "available": records["manifest"] is not None,
                     "url": "/manifest.json",
@@ -1267,7 +2503,14 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         directory = Path(self.directory or ".").resolve()
         path = directory / "interpretation.json"
         payload, error = _read_json_object(path)
-        validation = _validation_status(directory)
+        runtime = _report_runtime_state(
+            directory,
+            data_root=getattr(self.server, "data_root", None),
+            project_root=getattr(self.server, "project_root", directory.parent),
+        )
+        validation = runtime["validation"]
+        manifest_alignment = runtime["manifest_alignment"]
+        source_alignment = runtime["source_alignment"]
         if error:
             self._write_json(
                 {
@@ -1275,6 +2518,8 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                     "status": "error",
                     "available": False,
                     "analysis_ready": False,
+                    "manifest_alignment": manifest_alignment,
+                    "source_alignment": source_alignment,
                     "validation": validation,
                     "interpretation": None,
                     "error": f"interpretation.json: {error}",
@@ -1290,6 +2535,8 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                     "status": "not_provided",
                     "available": False,
                     "analysis_ready": False,
+                    "manifest_alignment": manifest_alignment,
+                    "source_alignment": source_alignment,
                     "validation": validation,
                     "interpretation": None,
                     "source": "/interpretation.json",
@@ -1302,9 +2549,10 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         response = dict(payload)
         response["contract"] = INTERPRETATION_CONTRACT
         response["validation"] = validation
-        response["analysis_ready"] = bool(
-            validation["passed"] and validation["manifest_available"]
-        )
+        response["manifest_alignment"] = manifest_alignment
+        response["source_alignment"] = source_alignment
+        response["analysis_ready"] = runtime["analysis_ready"]
+        _apply_report_runtime(response, runtime, initial=True, attach_runtime=False)
         response.setdefault("source", "/interpretation.json")
         self._write_json(response, cache_control="no-cache")
 
@@ -1316,6 +2564,12 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
         data_pack_required = self.report_name == DEFAULT_REPORT
         ready = report_exists and (not data_pack_required or data_pack_exists)
         validation = _validation_status(directory)
+        manifest_alignment = _manifest_artifact_alignment(directory)
+        source_alignment = _report_source_alignment(
+            directory,
+            data_root=getattr(self.server, "data_root", None),
+            project_root=getattr(self.server, "project_root", directory.parent),
+        )
         graph_path = getattr(self.server, "routing_graph_path", None)
         query_backend_health = _query_backend_health(directory)
         query_readable_backends = [
@@ -1330,7 +2584,19 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                 "contract": CAPABILITIES_CONTRACT,
                 "status": "ok" if ready else "degraded",
                 "ready": ready,
-                "analysis_ready": ready and validation["passed"] and validation["manifest_available"],
+                "analysis_ready": (
+                    ready
+                    and validation["passed"]
+                    and manifest_alignment["passed"]
+                    and source_alignment["status"] != "fail"
+                ),
+                "output_symlink_guard": True,
+                "project_root": str(
+                    getattr(self.server, "project_root", directory.parent)
+                ),
+                "manifest_alignment": manifest_alignment,
+                "source_alignment": source_alignment,
+                "source_alignment_surfaces": list(SOURCE_ALIGNMENT_SURFACES),
                 "validation": validation,
                 "package_version": package_version(),
                 "contracts": dict(API_CONTRACTS),
@@ -1374,12 +2640,21 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                         "pagination": True,
                         "max_limit": REPORT_PAGE_MAX_LIMIT,
                     },
+                    "report_runtime": {
+                        "path": REPORT_RUNTIME_API_PATH,
+                        "method": "GET",
+                        "contract": REPORT_RUNTIME_CONTRACT,
+                        "available": True,
+                        "conditional": True,
+                    },
                     "report_export": {
                         "path": REPORT_EXPORT_API_PATH,
                         "method": "GET",
                         "contract": REPORT_EXPORT_CONTRACT,
                         "available": data_pack_exists,
                         "formats": ["csv", "geojson"],
+                        "runtime_contract": REPORT_RUNTIME_CONTRACT,
+                        "runtime_headers": dict(REPORT_RUNTIME_HEADER_NAMES),
                     },
                     "query": {
                         "path": QUERY_API_PATH,
@@ -1395,11 +2670,40 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                         "invalid_score_cursor": True,
                         "auto_backend_failover": True,
                     },
-                    "route": {
+                        "route": {
                         "path": ROUTE_API_PATH,
                         "method": "GET",
                         "contract": ROUTE_CONTRACT,
                         "available": _graph_available(graph_path),
+                            "objectives": list(ROUTE_OBJECTIVES),
+                            "vehicle_weight_profiles": True,
+                            "vehicle_rating_profiles": True,
+                            "vehicle_height_profiles": True,
+                            "vehicle_width_profiles": True,
+                            "vehicle_length_profiles": True,
+                            "vehicle_axleload_profiles": True,
+                            "maxweight_profiles": True,
+                            "maxweightrating_hgv_profiles": True,
+                            "hgv_destination_profiles": True,
+                            "hgv_destination_delivery_profiles": True,
+                            "maxheight_profiles": True,
+                            "maxwidth_profiles": True,
+                            "maxlength_profiles": True,
+                            "maxaxleload_profiles": True,
+                            "maxspeed_profiles": True,
+                            "maxspeed_conditional_profiles": True,
+                            "oneway_conditional_profiles": True,
+                            "path_segment_explainability": True,
+                            "path_segment_constraints": True,
+                            "path_segment_conditional_rules": True,
+                            "path_segment_transition_rules": True,
+                            "path_segment_way_context": True,
+                            "vehicle_weight_conditional_access_profiles": True,
+                            "conditional_access_profiles": True,
+                            "directional_conditional_access_profiles": True,
+                            "multi_clause_conditional_access_profiles": True,
+                            "vehicle_class_profiles": True,
+                            "vehicle_classes": list(VEHICLE_CLASSES),
                     },
                     "openapi": {
                         "path": OPENAPI_PATH,
@@ -1445,6 +2749,15 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
             speed_kmh = float(speed_text)
             if not math.isfinite(speed_kmh) or speed_kmh <= 0:
                 raise ValueError("speed_kmh must be a finite positive number")
+            objective = validate_route_objective(value("objective"))
+            weight_t = validate_vehicle_weight_t(value("weight_t"))
+            rating_t = validate_vehicle_rating_t(value("rating_t"))
+            height_m = validate_vehicle_height_m(value("height_m"))
+            width_m = validate_vehicle_width_m(value("width_m"))
+            length_m = validate_vehicle_length_m(value("length_m"))
+            axleload_t = validate_vehicle_axleload_t(value("axleload_t"))
+            vehicle_class = validate_vehicle_class(value("vehicle_class"))
+            allow_hgv_destination = boolean("allow_hgv_destination")
             departure = parse_departure(value("departure"))
         except (TypeError, ValueError) as exc:
             self._write_json(
@@ -1494,6 +2807,15 @@ class ReportRequestHandler(SimpleHTTPRequestHandler):
                     speed_kmh=speed_kmh,
                     include_path=boolean("include_path") or value("format") == "geojson",
                     include_ferries=boolean("include_ferries"),
+                    objective=objective,
+                    vehicle_weight_t=weight_t,
+                    vehicle_rating_t=rating_t,
+                    vehicle_height_m=height_m,
+                    vehicle_width_m=width_m,
+                    vehicle_length_m=length_m,
+                    vehicle_axleload_t=axleload_t,
+                    vehicle_class=vehicle_class,
+                    allow_hgv_destination=allow_hgv_destination,
                 )
             finally:
                 if isinstance(graph, SQLiteRoadGraph):
@@ -1564,6 +2886,7 @@ class ReportHTTPServer(ThreadingHTTPServer):
         self._report_data_cache: dict[str, object] | None = None
         self._report_data_lock = threading.Lock()
         self.routing_graph_path: Path | None = None
+        self.data_root: Path | None = None
 
     def compressed_data(self, path: Path) -> bytes:
         """Return deterministic gzip bytes, recompressing only after changes."""
@@ -1607,6 +2930,7 @@ def create_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     report: str = DEFAULT_REPORT,
+    project_root: str | Path | None = None,
     data_root: str | Path | None = None,
     road_graph: str | Path | None = None,
 ) -> ReportHTTPServer:
@@ -1618,11 +2942,28 @@ def create_server(
     """
     if not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
-    output = project_path(out_dir, "output").resolve()
+    configured_project_root = (
+        Path(project_root).expanduser().resolve()
+        if project_root is not None
+        else None
+    )
+    resolution_root = configured_project_root or default_project_root()
+
+    def resolve_path(value: str | Path | None, default: str | Path) -> Path:
+        candidate = Path(value) if value is not None else Path(default)
+        return candidate if candidate.is_absolute() else resolution_root / candidate
+
+    output_input = reject_symlink_root(
+        resolve_path(out_dir, "output").expanduser(),
+        label="Output directory",
+    )
+    output = output_input.resolve()
     if not output.is_dir():
         raise FileNotFoundError(f"Output directory does not exist: {output}")
+    _require_symlink_free_output(output)
     report_path = _relative_file(output, report)
     report_name = str(report_path.relative_to(output))
+    active_project_root = configured_project_root or output.parent
     handler = partial(
         ReportRequestHandler,
         directory=str(output),
@@ -1631,9 +2972,20 @@ def create_server(
     server = ReportHTTPServer((host, port), handler)
     server.report_name = report_name  # type: ignore[attr-defined]
     server.output_dir = output  # type: ignore[attr-defined]
-    default_data = output.parent / "data"
-    data = project_path(data_root, str(default_data)).resolve()
-    server.routing_graph_path = project_path(road_graph, str(data / "roads")).resolve()
+    default_data = active_project_root / "data"
+    data_input = reject_symlink_root(
+        resolve_path(data_root, default_data).expanduser(),
+        label="Data directory",
+    )
+    data_input = reject_symlink_tree(data_input, label="Data directory")
+    graph_input = resolve_path(road_graph, data_input / "roads").expanduser()
+    reject_symlink_path(graph_input, label="Road graph input")
+    if graph_input.exists() and graph_input.is_dir():
+        reject_symlink_tree(graph_input, label="Road graph input")
+    data = data_input.resolve()
+    server.project_root = active_project_root  # type: ignore[attr-defined]
+    server.data_root = data
+    server.routing_graph_path = graph_input.resolve()
     return server
 
 
@@ -1664,6 +3016,11 @@ def main(argv: list[str] | None = None) -> None:
         version=f"%(prog)s {package_version()}",
     )
     parser.add_argument("--out-dir", default=None, help="report output directory; defaults to output/")
+    parser.add_argument(
+        "--project-root",
+        default=None,
+        help="active project root for portable manifest source paths",
+    )
     parser.add_argument("--host", default=DEFAULT_HOST, help="bind address; defaults to localhost")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="TCP port; 0 selects a free port")
     parser.add_argument("--data-root", default=None, help="routing data directory; defaults beside --out-dir")
@@ -1682,6 +3039,7 @@ def main(argv: list[str] | None = None) -> None:
             host=args.host,
             port=args.port,
             report=args.report,
+            project_root=args.project_root,
             data_root=args.data_root,
             road_graph=args.road_graph,
         )

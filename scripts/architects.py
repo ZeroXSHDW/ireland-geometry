@@ -24,10 +24,14 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_data_tree_path, project_output_tree_path
     from stats import compare_proportions, wilson_interval
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_output_tree_path,
+    )
     from scripts.stats import compare_proportions, wilson_interval
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -188,8 +192,8 @@ def main() -> None:
     ap.add_argument("--data-root", default=None, help="data directory; defaults to project data/")
     ap.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
     args = ap.parse_args()
-    DATA = project_path(args.data_root, "data")
-    OUT = project_path(args.out_dir, "output")
+    DATA = project_data_tree_path(args.data_root)
+    OUT = project_output_tree_path(args.out_dir)
     NIAH_JSON = DATA / "niah" / "niah.json"
     JOIN = OUT / "niah_join.csv"
     RESULTS = OUT / "analysis_results.csv"

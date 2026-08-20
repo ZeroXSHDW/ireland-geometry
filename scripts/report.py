@@ -13,20 +13,18 @@ from collections import Counter
 from pathlib import Path
 
 try:
-    from geometry import geometry_from_geojson, iter_polygons
     from runtime import (
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         atomic_write_text,
-        project_path,
+        project_output_tree_path,
     )
 except ImportError:
-    from scripts.geometry import geometry_from_geojson, iter_polygons
     from scripts.runtime import (
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         atomic_write_text,
-        project_path,
+        project_output_tree_path,
     )
 
 
@@ -133,6 +131,11 @@ def json_safe(value):
 
 
 def polygon_rings(feature: dict) -> list[list[list[float]]]:
+    try:
+        from geometry import geometry_from_geojson, iter_polygons
+    except ImportError:
+        from scripts.geometry import geometry_from_geojson, iter_polygons
+
     geom = geometry_from_geojson(feature.get("geometry"))
     rings = []
     for polygon in iter_polygons(geom):
@@ -393,7 +396,11 @@ def report_page_payload(
         },
         "filters": dict(filters),
         "filter_options": report_filter_options(data),
-        "endpoints": {"page": "/api/report/page", "export": "/api/report/export"},
+        "endpoints": {
+            "page": "/api/report/page",
+            "runtime": "/api/report/runtime",
+            "export": "/api/report/export",
+        },
     }
     if include_static:
         payload.update(
@@ -1147,22 +1154,30 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Ireland Geometric Pattern Scan</title>
+<title>Cruth — Ireland Civic Geometry Atlas</title>
 <style>
-:root { color-scheme: light; --ink:#17202a; --muted:#667085; --line:#e5e7eb;
-        --blue:#2563eb; --red:#c2413b; --green:#18805c; --panel:rgba(255,255,255,.97); }
+:root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
+        --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
+        --deep:#103537; --deep-2:#1f514f; --paper:#f7f3ea; --panel:rgba(247,243,234,.97); }
 * { box-sizing:border-box; }
-html,body { margin:0; height:100%; color:var(--ink); font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-#map { position:fixed; inset:0; background:#dfe8ee; }
-#panel { position:fixed; z-index:1000; top:10px; right:10px; bottom:10px; width:min(700px,calc(100vw - 20px));
-         display:flex; flex-direction:column; overflow:hidden; border:1px solid #d9dee5; border-radius:14px;
-         background:var(--panel); box-shadow:0 8px 32px rgba(15,23,42,.22); }
-header { padding:15px 17px 10px; border-bottom:1px solid var(--line); }
-h1 { margin:0; font-size:18px; letter-spacing:-.02em; }
-.subtitle { margin-top:4px; color:var(--muted); font-size:12px; }
-.header-actions { display:flex; gap:7px; margin-top:9px; }
-.header-actions a, .review-link { display:inline-block; color:var(--blue); text-decoration:none; font-size:11px; font-weight:600; }
-.header-actions a { padding:5px 8px; border:1px solid #cfd5dd; border-radius:7px; background:#fff; }
+html,body { margin:0; height:100%; color:var(--ink); background:var(--deep); font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+#map { position:fixed; inset:0; background:linear-gradient(135deg,#173e40 0%,#0d2d31 47%,#1a4745 100%); }
+#map::after { content:""; position:absolute; inset:0; pointer-events:none; opacity:.22; background-image:linear-gradient(rgba(232,218,184,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(232,218,184,.16) 1px,transparent 1px); background-size:64px 64px; mask-image:linear-gradient(90deg,rgba(0,0,0,.95),transparent 68%); }
+#panel { position:fixed; z-index:1000; top:18px; right:18px; bottom:18px; width:min(780px,calc(100vw - 36px));
+         display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; border:1px solid rgba(228,218,193,.78); border-radius:26px;
+         background:var(--panel); box-shadow:0 22px 80px rgba(4,20,23,.38); }
+#panel > header { flex:0 0 auto; padding:24px 26px 22px; border-bottom:1px solid rgba(231,219,193,.2); color:#f7f2e6; background:linear-gradient(135deg,var(--deep) 0%,#154241 54%,#2b5c53 100%); position:relative; overflow:hidden; }
+#panel > header::after { content:"᚛ ᚜"; position:absolute; right:22px; bottom:-26px; color:rgba(231,201,135,.16); font:130px/1 Georgia,serif; letter-spacing:-.18em; transform:rotate(-10deg); }
+#panel > header h1 { margin:0; max-width:620px; font-size:clamp(28px,4vw,44px); line-height:.97; letter-spacing:-.06em; font-weight:760; }
+#panel > header h1 em { color:#e0b962; font-style:normal; }
+#panel > header .subtitle { margin-top:12px; max-width:620px; color:rgba(247,242,230,.76); font-size:13px; line-height:1.55; }
+.hero-topline { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:22px; color:#dac38d; font-size:10px; font-weight:750; letter-spacing:.14em; text-transform:uppercase; }
+.hero-tag { padding:5px 9px; border:1px solid rgba(232,207,148,.34); border-radius:999px; color:#f2db9f; letter-spacing:.08em; }
+.hero-note { max-width:610px; margin:14px 0 0; color:rgba(247,242,230,.58); font-size:11px; }
+.header-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; position:relative; z-index:1; }
+.header-actions a, .review-link { display:inline-block; color:#173637; text-decoration:none; font-size:11px; font-weight:750; }
+.header-actions a { padding:8px 11px; border:1px solid rgba(247,242,230,.26); border-radius:999px; background:#f1d893; }
+.header-actions a:last-child { color:#f7f2e6; background:transparent; }
 .header-actions a:hover, .review-link:hover { text-decoration:underline; }
 .review-state { color:#526071; font-size:10px; white-space:nowrap; }
 .review-state.not_queued { color:var(--muted); font-style:italic; }
@@ -1202,6 +1217,10 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .toolbar-left { display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap; }
 .toolbar-actions { display:flex; align-items:center; gap:5px; flex-wrap:wrap; justify-content:flex-end; }
 .active-filter { color:var(--blue); font-size:11px; font-weight:700; }
+.runtime-status { display:inline-block; max-width:100%; padding:2px 6px; border-radius:5px; color:#526071; background:#eef1f5; font-size:10px; }
+.runtime-status.pass { color:#166534; background:#e8f5ee; font-weight:700; }
+.runtime-status.incomplete { color:#a05a00; background:#fff7e8; font-weight:700; }
+.runtime-status.fail { color:#a5322e; background:#fff1f0; font-weight:700; }
 .clear-button { color:#526071; font-size:11px; }
 .section { padding:10px 12px; border-bottom:1px solid var(--line); }
 .section h2 { margin:0 0 7px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#465467; }
@@ -1243,6 +1262,7 @@ th { position:sticky; top:0; z-index:2; padding:7px 6px; background:#f7f8fa; col
 td { padding:6px; border-top:1px solid #eef0f3; vertical-align:top; }
 tr:hover td { background:#f8fbff; }
 tr[data-id] { cursor:pointer; }
+tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gold); }
 .score { color:var(--red); font-weight:700; }
 .flag { display:inline-block; margin:1px 2px 1px 0; padding:1px 4px; border-radius:4px; background:#eef4ff; color:#2456a6; font-size:10px; }
 .verdict-SIGNAL { color:#a5322e; font-weight:700; }
@@ -1253,6 +1273,10 @@ tr[data-id] { cursor:pointer; }
 .footnote { color:var(--muted); font-size:11px; }
 #map.offline-map { background:linear-gradient(145deg,#eef5f8,#dce8ee); }
 #map.offline-map .offline-map-svg { width:100%; height:100%; display:block; }
+#mapLoading { position:fixed; z-index:650; top:50%; left:50%; display:inline-flex; align-items:center; gap:8px; transform:translate(-50%,-50%); padding:9px 12px; border:1px solid rgba(232,218,184,.38); border-radius:999px; color:#f7f2e6; background:rgba(16,53,55,.86); box-shadow:0 12px 34px rgba(4,20,23,.22); backdrop-filter:blur(12px); font-size:11px; }
+#mapLoading[hidden] { display:none; }
+.map-loading-dot { width:8px; height:8px; border-radius:50%; background:#e1bd66; box-shadow:0 0 0 3px rgba(225,189,102,.15); animation:map-pulse 1.2s ease-in-out infinite; }
+@keyframes map-pulse { 0%,100% { opacity:.42; transform:scale(.82); } 50% { opacity:1; transform:scale(1); } }
 .offline-grid { stroke:#b7c8d2; stroke-width:1; stroke-dasharray:4 8; opacity:.75; }
 .offline-outline { fill:rgba(37,99,235,.08); stroke:#526f80; stroke-width:1.2; }
 .offline-route { fill:none; stroke:#1d4ed8; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; opacity:.9; pointer-events:none; }
@@ -1281,7 +1305,185 @@ tr[data-id] { cursor:pointer; }
 .quality-badge { display:inline-block; padding:1px 4px; border-radius:4px; font-size:10px; white-space:nowrap; }
 .quality-badge.ok, .quality-badge.provided { background:#e8f5ee; color:#166534; }
 .quality-badge.missing, .quality-badge.check { background:#fff1f0; color:#a5322e; }
+#mapLabel { position:fixed; z-index:2; left:30px; bottom:30px; width:260px; color:#f2e8d1; pointer-events:none; }
+#mapLabel .map-label-kicker { display:block; margin-bottom:8px; color:#dfb75d; font-size:10px; font-weight:750; letter-spacing:.16em; text-transform:uppercase; }
+#mapLabel strong { display:block; font:700 30px/.95 Georgia,serif; letter-spacing:-.04em; }
+#mapLabel small { display:block; margin-top:10px; max-width:220px; color:rgba(242,232,209,.62); font-size:11px; line-height:1.45; }
+#mapHud { position:fixed; z-index:700; top:86px; left:24px; width:min(330px,calc(100vw - 48px)); color:#f7f2e6; }
+.map-hud-card { padding:12px 13px 11px; border:1px solid rgba(232,218,184,.38); border-radius:16px; background:rgba(16,53,55,.86); box-shadow:0 12px 34px rgba(4,20,23,.24); backdrop-filter:blur(12px); }
+.map-hud-topline { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#d9c58d; font-size:9px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+.map-live-state { display:inline-flex; align-items:center; gap:5px; color:#dcebd9; font-size:9px; letter-spacing:.04em; white-space:nowrap; text-transform:none; }
+.map-live-state::before { content:""; width:7px; height:7px; border-radius:50%; background:#7fd19a; box-shadow:0 0 0 3px rgba(127,209,154,.15); }
+.map-live-state.loading::before { background:#e1bd66; box-shadow:0 0 0 3px rgba(225,189,102,.15); }
+.map-live-state.offline::before, .map-live-state.error::before { background:#de866e; box-shadow:0 0 0 3px rgba(222,134,110,.15); }
+.map-hud-title { margin-top:7px; font:700 21px/1 Georgia,serif; letter-spacing:-.04em; }
+.map-hud-subtitle { margin-top:6px; color:rgba(247,242,230,.68); font-size:10px; line-height:1.4; }
+.map-layer-switcher { display:flex; gap:4px; margin-top:10px; padding:3px; border:1px solid rgba(247,242,230,.13); border-radius:10px; background:rgba(7,29,32,.42); }
+.map-layer-button { flex:1; min-height:28px; padding:4px 6px; border:0; border-radius:7px; color:rgba(247,242,230,.72); background:transparent; font-size:10px; font-weight:750; }
+.map-layer-button:hover { border:0; color:#f7f2e6; }
+.map-layer-button.active { color:var(--deep); background:#f1d893; }
+.map-hud-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:9px; color:rgba(247,242,230,.58); font-size:9px; }
+.map-hud-meta span:last-child { color:#e0bd6e; font-weight:700; text-align:right; }
+.map-hud-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:9px; }
+.map-hud-action { width:100%; min-height:28px; margin-top:9px; padding:4px 8px; border:1px solid rgba(247,242,230,.2); border-radius:8px; color:#f7f2e6; background:rgba(247,242,230,.08); font-size:10px; }
+.map-hud-actions .map-hud-action { margin-top:0; }
+.map-hud-action:hover { border-color:#e0bd6e; color:#f1d893; }
+.map-hud-action:disabled { cursor:wait; opacity:.52; }
+.map-hud-note { margin-top:8px; color:rgba(247,242,230,.5); font-size:9px; line-height:1.35; }
+.popup-focus { min-height:25px; margin-top:7px; padding:3px 7px; border-color:#d8c89e; color:#315c57; background:#fbf6e8; font-size:10px; }
+.popup-focus:hover { border-color:#315c57; color:#173637; }
+.studio-section { padding:0; border-bottom:1px solid var(--line); background:var(--paper); }
+.studio-head { padding:22px 24px 16px; }
+.studio-kicker { display:flex; align-items:center; gap:8px; margin-bottom:12px; color:var(--blue); font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+.studio-kicker::before { content:""; width:24px; height:1px; background:var(--gold); }
+.studio-head h2 { max-width:620px; margin:0; color:var(--deep); font:700 clamp(26px,3vw,36px)/1.04 Georgia,serif; letter-spacing:-.045em; }
+.studio-head h2 em { color:var(--red); font-style:normal; }
+.studio-head p { max-width:630px; margin:12px 0 0; color:#586764; font-size:12px; line-height:1.6; }
+.studio-disclaimer { display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:5px 8px; border-radius:999px; color:#756c5b; background:#ede5d5; font-size:10px; }
+.studio-disclaimer::before { content:"✳"; color:var(--red); }
+.equation-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0 24px 18px; }
+.equation-card { min-height:150px; padding:12px; border:1px solid #e1d8c7; border-radius:15px; color:var(--ink); background:#fbf8f1; text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.equation-card:hover { transform:translateY(-2px); border-color:#c8b07b; box-shadow:0 7px 18px rgba(31,63,59,.08); }
+.equation-card.is-active { border-color:var(--deep-2); background:var(--deep); color:#f8f2e5; box-shadow:0 8px 20px rgba(16,53,55,.18); }
+.equation-symbol { display:grid; width:34px; height:34px; place-items:center; margin-bottom:12px; border-radius:50%; color:var(--deep); background:#e4bd64; font:700 21px/1 Georgia,serif; }
+.equation-card.is-active .equation-symbol { color:var(--deep); background:#f1d893; }
+.equation-card b { display:block; min-height:29px; font-size:12px; line-height:1.2; }
+.equation { margin-top:6px; color:var(--red); font:700 13px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:-.04em; }
+.equation-card.is-active .equation { color:#e0bd6e; }
+.equation-card p { margin:8px 0 0; color:#6d776f; font-size:10px; line-height:1.45; }
+.equation-card.is-active p { color:rgba(248,242,229,.7); }
+.lab { margin:0 24px 22px; border:1px solid #ded3bf; border-radius:20px; background:#eee7d9; overflow:hidden; }
+.lab-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:14px; padding:13px 15px; border-bottom:1px solid #ddd1bc; background:rgba(255,252,244,.68); }
+.lab-toolbar label { display:flex; flex-direction:column; gap:5px; color:#6b756d; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+.lab-toolbar select, .lab-toolbar input { min-width:0; min-height:32px; border-color:#d6c9b2; border-radius:8px; background:#fffaf0; color:var(--deep); font-size:12px; text-transform:none; }
+.lab-toolbar select { width:190px; }
+.lab-toolbar input[type=range] { width:160px; padding:0; accent-color:var(--red); }
+.module-readout { color:var(--red); font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:none; }
+.scenario-controls { padding:13px 15px 14px; border-bottom:1px solid #ddd1bc; background:#f4edde; }
+.scenario-heading { display:flex; align-items:end; justify-content:space-between; gap:12px; margin-bottom:11px; color:#55645d; font-size:10px; line-height:1.4; }
+.scenario-heading b { color:var(--deep); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+.scenario-heading small { color:#8b7c66; font-size:10px; text-align:right; }
+.scenario-control-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.scenario-control-grid label { display:flex; flex-direction:column; gap:5px; color:#6b756d; font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
+.scenario-control-grid output { color:var(--red); font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; text-transform:none; }
+.scenario-control-grid input[type=range] { width:100%; min-height:18px; padding:0; accent-color:var(--red); }
+.performance-controls { padding:13px 15px 14px; border-bottom:1px solid #d7ded3; background:#e8eee8; }
+.performance-heading { display:flex; align-items:end; justify-content:space-between; gap:12px; margin-bottom:11px; color:#55645d; font-size:10px; line-height:1.4; }
+.performance-heading b { color:var(--deep); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+.performance-heading small { color:#6f806f; font-size:10px; text-align:right; }
+.performance-control-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.performance-control-grid label { display:flex; flex-direction:column; gap:5px; color:#5f7065; font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
+.performance-control-grid output { color:var(--blue); font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; text-transform:none; }
+.performance-control-grid input[type=range] { width:100%; min-height:18px; padding:0; accent-color:var(--blue); }
+.lab-grid { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(210px,.75fr); min-height:285px; }
+.diagram-frame { position:relative; min-height:285px; padding:12px; background:linear-gradient(150deg,#e7ddc9,#f4edde); }
+#designDiagram { display:block; width:100%; height:100%; min-height:260px; }
+.diagram-caption { position:absolute; right:15px; bottom:12px; left:15px; color:#756e60; font-size:10px; }
+.lab-copy { display:flex; flex-direction:column; justify-content:center; padding:20px; border-left:1px solid #ddd1bc; background:#f8f2e6; }
+.lab-copy .lab-index { color:var(--red); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.lab-copy h3 { margin:8px 0 0; color:var(--deep); font:700 23px/1.06 Georgia,serif; letter-spacing:-.04em; }
+.lab-copy .lab-equation { margin:12px 0 0; color:var(--blue); font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.lab-copy p { margin:11px 0 0; color:#64716b; font-size:11px; line-height:1.55; }
+.lab-copy .lab-move { margin-top:13px; padding-top:11px; border-top:1px solid #e0d6c6; color:#4e625b; font-size:10px; line-height:1.45; }
+.lab-copy .lab-move b { color:var(--deep); }
+.lab-copy .lab-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:12px; }
+.lab-copy .lab-tags span { padding:4px 6px; border-radius:999px; color:#52675e; background:#e6eee7; font-size:9px; }
+.design-spec { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; border-top:1px solid #ddd1bc; background:#ddd1bc; }
+.spec-card { min-height:95px; padding:12px; background:#f8f2e6; }
+.spec-card span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.spec-card strong { display:block; margin-top:6px; color:var(--deep); font:700 15px/1.08 Georgia,serif; letter-spacing:-.02em; }
+.spec-card p { margin:6px 0 0; color:#69756e; font-size:10px; line-height:1.35; }
+.spec-card small { display:block; margin-top:7px; color:var(--red); font-size:9px; }
+.typology-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0 24px 22px; }
+.typology-card { min-height:118px; padding:13px; border-top:2px solid var(--gold); background:#f1ebdf; }
+.typology-card:nth-child(2) { border-top-color:var(--red); }
+.typology-card:nth-child(3) { border-top-color:var(--blue); }
+.typology-card:nth-child(4) { border-top-color:var(--green); }
+.typology-card span { color:#897c67; font-size:9px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+.typology-card h3 { margin:7px 0 0; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.typology-card p { margin:7px 0 0; color:#66736d; font-size:10px; line-height:1.45; }
+.typology-move { display:block; margin-top:8px; color:var(--red); font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.studio-metrics { display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:8px; margin:0 24px 22px; padding:13px; border:1px solid #d9cfbd; border-radius:14px; background:#f0e9da; }
+.studio-metric { display:flex; flex-direction:column; gap:4px; padding-right:10px; border-right:1px solid #d8cdb9; }
+.studio-metric:last-child { border-right:0; }
+.studio-metric strong { color:var(--deep); font:700 21px/1 Georgia,serif; }
+.studio-metric span { color:#6d776e; font-size:10px; line-height:1.25; }
+.studio-metric small { color:#8b7c66; font-size:9px; }
+.evidence-bridge { margin:0 24px 24px; padding:16px; border:1px solid #d9cfbd; border-radius:16px; background:#eee7d9; }
+.evidence-bridge-head { display:flex; align-items:start; justify-content:space-between; gap:14px; }
+.evidence-bridge-head .studio-kicker { margin-bottom:7px; }
+.evidence-bridge-head h3 { margin:0; color:var(--deep); font:700 22px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.evidence-badge { padding:5px 8px; border:1px solid #cbbda5; border-radius:999px; color:#6e6456; background:#f8f2e6; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+.evidence-badge.pass { color:#356c69; border-color:#a7c1b0; background:#e6f0e8; }
+.evidence-badge.incomplete { color:#9b632d; border-color:#e2bf8b; background:#fff3dc; }
+.evidence-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:13px; }
+.evidence-grid article { min-height:150px; padding:12px; border:1px solid #ddd2c0; background:#f8f2e6; }
+.evidence-index { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.evidence-grid article b { display:block; margin-top:9px; color:var(--deep); font-size:12px; line-height:1.25; }
+.evidence-grid article p { min-height:45px; margin:7px 0 0; color:#6a766e; font-size:10px; line-height:1.45; }
+.evidence-grid article a { color:var(--blue); font-size:10px; font-weight:750; text-decoration:none; }
+.evidence-grid article a:hover { text-decoration:underline; }
+.evidence-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--red); color:#6d6254; background:#f4e9d8; font-size:10px; line-height:1.45; }
+.diagram-kicker { fill:#857962; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
+.diagram-baseline { stroke:#c7bba6; stroke-width:1; }
+.diagram-outer { fill:rgba(53,108,105,.08); stroke:#356c69; stroke-width:2; }
+.diagram-inner { fill:rgba(191,91,69,.16); stroke:#bf5b45; stroke-width:2; }
+.diagram-ring { fill:none; stroke:#356c69; stroke-width:2; stroke-dasharray:6 7; }
+.diagram-arc { fill:none; stroke:#d0a34c; stroke-width:2; stroke-dasharray:4 5; }
+.diagram-center { fill:#d0a34c; stroke:#103537; stroke-width:2; }
+.diagram-center-label { fill:#103537; font:700 10px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.diagram-ray { fill:none; stroke-width:1.3; opacity:.5; stroke-dasharray:3 5; }
+.diagram-axis { fill:none; stroke:#bf5b45; stroke-width:1.4; opacity:.58; stroke-dasharray:7 5; }
+.diagram-grid { fill:none; stroke:#356c69; stroke-width:1; opacity:.32; }
+.diagram-crux { fill:rgba(191,91,69,.08); stroke:#bf5b45; stroke-width:1.8; opacity:.72; }
+.diagram-route { fill:none; stroke:#103537; stroke-width:4; stroke-linecap:round; stroke-dasharray:2 7; opacity:.58; }
+.diagram-wind { fill:none; stroke:#527b85; stroke-width:1.4; stroke-linecap:round; opacity:.42; marker-end:url(#windArrow); }
+.diagram-rain { fill:none; stroke:#7aa5a1; stroke-width:1.5; stroke-linecap:round; opacity:.55; }
+.diagram-phase { fill:none; stroke:#d0a34c; stroke-width:1; stroke-dasharray:2 4; opacity:.55; }
+.diagram-step { fill:rgba(53,108,105,.08); stroke-width:1.5; }
+.diagram-step-label { fill:#103537; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.diagram-bay { fill:rgba(208,163,76,.14); stroke:#356c69; stroke-width:1.5; }
+.diagram-bay-dot { fill:#bf5b45; opacity:.8; }
+.diagram-canopy { fill:none; stroke:#d0a34c; stroke-width:3; stroke-linecap:round; }
+.diagram-spiral { fill:none; stroke:#4c765f; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+.diagram-water { fill:none; stroke:#7aa5a1; stroke-width:2; stroke-dasharray:8 7; }
+.section { padding:14px 18px; border-bottom:1px solid var(--line); }
+.section h2 { color:var(--deep); }
+.kpis { padding:12px 18px; border-bottom:1px solid var(--line); background:#f1eadc; }
+.kpi { border-color:#dfd4c2; background:#fbf8f1; }
+.kpi b { color:var(--deep); }
+.filters { padding:12px 18px 10px; border-bottom:1px solid var(--line); background:#f5efe4; }
+input,select,button { border-color:#d5cbbd; border-radius:8px; background:#fffdf8; color:var(--ink); }
+button:hover { border-color:var(--blue); color:var(--blue); }
+.pattern-card { border-color:#dfd5c6; background:#fbf8f1; }
+.pattern-card:hover, .pattern-card.active { border-color:var(--blue); box-shadow:0 0 0 2px rgba(53,108,105,.13); }
+.pattern-card.active { background:#eef5ef; }
+.pattern-meter-fill { background:linear-gradient(90deg,#d4a84c,#bf5b45); }
+.bar-track { background:#e5ddcf; }
+.bar-fill { background:var(--blue); }
+.interpretation-headline { border-left-color:var(--red); background:#f1e8d9; }
+.interpretation-card { border-color:#dfd5c6; background:#fbf8f1; }
+.table-wrap { background:#f9f4eb; }
+th { background:#eee7da; color:#5b6c65; }
+td { border-top-color:#ebe3d7; }
+tr:hover td { background:#f1f6f1; }
+.flag { background:#e7f0ea; color:#2d615b; }
+.runtime-status { background:#ece7dd; }
+.offline-map-note, .offline-selection { border-color:#d7ccb9; background:rgba(250,246,237,.94); }
+@media (max-width:900px) {
+  #mapHud { top:78px; left:16px; }
+  #mapLabel { left:22px; bottom:22px; }
+  .equation-grid, .typology-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .lab-toolbar { align-items:stretch; }
+  .lab-toolbar select { width:100%; }
+  .lab-toolbar label { min-width:calc(50% - 10px); }
+  .scenario-control-grid, .performance-control-grid, .design-spec { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .evidence-grid { grid-template-columns:1fr; }
+  .lab-grid { grid-template-columns:1fr; }
+  .lab-copy { border-top:1px solid #ddd1bc; border-left:0; }
+}
 @media (max-width:720px) {
+  #mapHud { top:70px; left:12px; width:min(300px,calc(100vw - 24px)); }
   #panel { top:auto; right:0; bottom:0; left:0; width:100%; max-height:72vh; border-radius:14px 14px 0 0; }
   .kpis { grid-template-columns:repeat(3,1fr); }
   .kpi b { font-size:15px; }
@@ -1296,12 +1498,111 @@ tr[data-id] { cursor:pointer; }
 </head>
 <body>
 <div id="map" aria-label="Map of analysed Irish buildings"></div>
+<div id="mapLoading" role="status" aria-live="polite"><span class="map-loading-dot" aria-hidden="true"></span><span id="mapLoadingText">Loading live basemap…</span></div>
+<div id="mapLabel" aria-hidden="true"><span class="map-label-kicker">Live satellite / measured Ireland</span><strong>Shape makes place.</strong><small>Explore the map as a field of building footprints, then translate the patterns into civic rooms, thresholds and shared space.</small></div>
+<div id="mapHud" aria-label="Live map controls">
+  <div class="map-hud-card">
+    <div class="map-hud-topline"><span>Live cartography</span><span id="mapLiveState" class="map-live-state">Connecting…</span></div>
+    <div class="map-hud-title">Satellite fieldwork</div>
+    <div class="map-hud-subtitle">Streamed imagery for place context · the analysis below remains a dated research snapshot.</div>
+    <div class="map-layer-switcher" role="group" aria-label="Map layer">
+      <button class="map-layer-button active" type="button" data-map-layer="satellite" aria-pressed="true">Satellite</button>
+      <button class="map-layer-button" type="button" data-map-layer="hybrid" aria-pressed="false">Hybrid</button>
+      <button class="map-layer-button" type="button" data-map-layer="streets" aria-pressed="false">Streets</button>
+    </div>
+    <div class="map-hud-meta"><span id="mapTileStatus">Waiting for imagery…</span><span id="mapVisibleCount">— targets in view</span></div>
+    <div class="map-hud-actions">
+      <button id="mapFit" class="map-hud-action" type="button">Fit visible targets</button>
+      <button id="mapReset" class="map-hud-action" type="button">Reset view</button>
+    </div>
+    <button id="mapRefresh" class="map-hud-action" type="button">Refresh imagery</button>
+    <div class="map-hud-note">Map points follow the active filters. Satellite tiles are live; analytical rows are the dated research snapshot shown in the panel.</div>
+  </div>
+</div>
 <div id="panel">
   <header>
-    <h1>Ireland Geometric Pattern Scan</h1>
-    <div class="subtitle">Interactive, significance-tested footprint survey. Scores are search heuristics, not proof of design intent.</div>
-    <div class="header-actions"><a href="#patterns">Browse geometric patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
+    <div class="hero-topline"><span>IRELAND / 01—ATLAS</span><span class="hero-tag">Civic design lab</span></div>
+    <h1><em>Cruth</em>: the shape<br/>of public life</h1>
+    <div class="subtitle">A data-backed Irish building survey expanded into a contemporary architecture studio: equations become bays, courtyards, paths, canopies and places to gather.</div>
+    <p class="hero-note">The scan finds geometric signals. The studio tests how those signals might responsibly inform new civic architecture; it does not claim historic intent.</p>
+    <div class="header-actions"><a href="#studio">Enter the design studio</a><a href="#patterns">Browse measured patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
   </header>
+  <section id="studio" class="studio-section">
+    <div class="studio-head">
+      <div class="studio-kicker">Irish civic geometry / design hypothesis</div>
+      <h2>Four equations. <em>Four ways</em> to make a public room.</h2>
+      <p>Irish places are interesting when landscape, weather, craft and social ritual meet. This design grammar treats mathematics as a legible tool for making space—not as a shortcut to explain culture. Select an equation, then test it against a civic typology.</p>
+      <span class="studio-disclaimer">Contemporary translation inspired by Irish/Celtic visual language · not a historical reconstruction</span>
+    </div>
+    <div class="equation-grid" role="tablist" aria-label="Civic geometry equations">
+      <button class="equation-card is-active" type="button" data-equation="phi" role="tab" aria-selected="true">
+        <span class="equation-symbol">φ</span><b>Golden proportion</b><div class="equation">φ = (1 + √5) / 2 ≈ 1.618</div><p>Sequence chamber, foyer and threshold as a calm-to-active civic gradient.</p>
+      </button>
+      <button class="equation-card" type="button" data-equation="theta" role="tab" aria-selected="false">
+        <span class="equation-symbol">θ</span><b>Golden angle</b><div class="equation">θ = 360° / φ² ≈ 137.5°</div><p>Rotate trees, lanterns or rain gardens to make a porous, non-linear route.</p>
+      </button>
+      <button class="equation-card" type="button" data-equation="fib" role="tab" aria-selected="false">
+        <span class="equation-symbol">F</span><b>Fibonacci modules</b><div class="equation">Fₙ = Fₙ₋₁ + Fₙ₋₂</div><p>Build a kit of 3, 5, 8, 13 and 21 metre bays for adaptable public use.</p>
+      </button>
+      <button class="equation-card" type="button" data-equation="spiral" role="tab" aria-selected="false">
+        <span class="equation-symbol">↻</span><b>Spiral / triskele curve</b><div class="equation">r(θ) = a · e<sup>bθ</sup></div><p>Turn a growing curve into a ramp, canopy edge or gallery that keeps unfolding.</p>
+      </button>
+    </div>
+    <div class="lab" aria-label="Interactive civic test-fit">
+      <div class="lab-toolbar">
+        <label>Prototype typology<select id="typology" aria-label="Prototype typology"><option value="parliament">Parliament / assembly</option><option value="forum">Public forum square</option><option value="market">Market canopy</option><option value="harbour">Harbour garden</option><option value="library">Library courtyard</option><option value="museum">Museum loop</option></select></label>
+        <label>Primary module <span class="module-readout" id="moduleValue">13 m</span><input id="moduleScale" type="range" min="5" max="34" step="1" value="13" aria-label="Primary module in metres"/></label>
+        <label>Seasonal lens<select id="season" aria-label="Seasonal lens"><option value="midsummer">Long-light / midsummer</option><option value="equinox">Equinox / changeover</option><option value="midwinter">Low-light / midwinter</option></select></label>
+        <label>Material study<select id="material" aria-label="Material study"><option value="stone">Stone + lime</option><option value="timber">Timber + cork</option><option value="slate">Slate + rain chain</option><option value="copper">Copper + planted roof</option></select></label>
+        <label>Spatial grammar<select id="grammar" aria-label="Spatial geometry grammar"><option value="radial">Radial field</option><option value="symmetry">Mirror symmetry</option><option value="orthogonal">Orthogonal grid</option><option value="circle">Circular court</option><option value="cruciform">Cruciform plan</option></select></label>
+      </div>
+      <div class="scenario-controls" aria-label="Public space scenario controls">
+        <div class="scenario-heading"><span><b>02 / Public-realm test-fit</b><br/>Tune the shared ground around the building.</span><small id="scenarioSummary">38% court · 8 bays · 137.5° path · 60% public density</small></div>
+        <div class="scenario-control-grid">
+          <label>Courtyard void <output id="courtyardValue">38%</output><input id="courtyardScale" type="range" min="10" max="72" step="1" value="38" aria-label="Courtyard void percentage"/></label>
+          <label>Bay count <output id="bayValue">8</output><input id="bayCount" type="range" min="3" max="13" step="1" value="8" aria-label="Number of public bays"/></label>
+          <label>Path rotation <output id="pathValue">137.5°</output><input id="pathAngle" type="range" min="0" max="180" step="0.5" value="137.5" aria-label="Public path rotation in degrees"/></label>
+          <label>Public density <output id="densityValue">60%</output><input id="publicDensity" type="range" min="20" max="100" step="1" value="60" aria-label="Public-space density percentage"/></label>
+        </div>
+      </div>
+      <div class="performance-controls" aria-label="Climate accessibility and phasing controls">
+        <div class="performance-heading"><span><b>03 / Performance + delivery</b><br/>Make the architectural idea answer to weather, access and time.</span><small id="performanceSummary">64% shelter · 72% rain capture · 1.8 m clear route · 2 phases</small></div>
+        <div class="performance-control-grid">
+          <label>Wind shelter <output id="windValue">64%</output><input id="windShelter" type="range" min="0" max="100" step="1" value="64" aria-label="Wind shelter emphasis percentage"/></label>
+          <label>Rain capture <output id="rainValue">72%</output><input id="rainCapture" type="range" min="0" max="100" step="1" value="72" aria-label="Rainwater capture emphasis percentage"/></label>
+          <label>Accessible route <output id="accessValue">1.8 m</output><input id="accessWidth" type="range" min="1.2" max="2.4" step="0.1" value="1.8" aria-label="Clear accessible route width in metres"/></label>
+          <label>Future phases <output id="phaseValue">2 phases</output><input id="futurePhases" type="range" min="1" max="3" step="1" value="2" aria-label="Number of future building phases"/></label>
+        </div>
+      </div>
+      <div class="lab-grid">
+        <div class="diagram-frame"><svg id="designDiagram" viewBox="0 0 600 330" role="img" aria-label="Schematic civic building geometry"></svg><div class="diagram-caption" id="diagramCaption">Schematic only · dimensions are a test-fit, not a construction drawing.</div></div>
+        <div class="lab-copy" id="labCopy"></div>
+      </div>
+      <div id="designSpec" class="design-spec" aria-live="polite"></div>
+    </div>
+    <div class="typology-grid" aria-label="Civic typology translations">
+      <article class="typology-card"><span>01 / Representation</span><h3>Parliament</h3><p>A central chamber opens to a public foyer, gallery and planted threshold.</p><b class="typology-move">13 × φ ≈ 21 m</b></article>
+      <article class="typology-card"><span>02 / Encounter</span><h3>Forum square</h3><p>A shared center is framed by a rotated path so no edge becomes a dead end.</p><b class="typology-move">12 turns × 137.5°</b></article>
+      <article class="typology-card"><span>03 / Exchange</span><h3>Market canopy</h3><p>Small stalls aggregate into a weather-ready civic room with flexible edges.</p><b class="typology-move">3 · 5 · 8 · 13 bays</b></article>
+      <article class="typology-card"><span>04 / Belonging</span><h3>Harbour garden</h3><p>A spiral walk slows the threshold between town, water, wind and gathering.</p><b class="typology-move">r = a · e<sup>bθ</sup></b></article>
+      <article class="typology-card"><span>05 / Learning</span><h3>Library courtyard</h3><p>Quiet reading rooms gather around a daylit court with a visible public route.</p><b class="typology-move">grid × circle × pause</b></article>
+      <article class="typology-card"><span>06 / Interpretation</span><h3>Museum loop</h3><p>A sequence of galleries, thresholds and rest points turns evidence into shared memory.</p><b class="typology-move">ring + spiral + threshold</b></article>
+    </div>
+    <div class="studio-metrics" aria-label="Data signals supporting the design studio">
+      <div class="studio-metric"><strong id="studioSignalRate">7.09%</strong><span>golden-angle flag in worship targets</span><small id="studioSignalCompare">vs 0.69% in controls</small></div>
+      <div class="studio-metric"><strong id="studioGovernmentRate">6.65%</strong><span>golden-angle flag in government targets</span><small>public buildings deserve a closer look</small></div>
+      <div class="studio-metric"><strong id="studioTargetCount">33,416</strong><span>target footprints in the current pack</span><small>screening evidence, not proof of intent</small></div>
+    </div>
+    <div class="evidence-bridge" aria-label="Evidence bridge for the design studio">
+      <div class="evidence-bridge-head"><div><span class="studio-kicker">Evidence bridge</span><h3>Design from signals, then check the source.</h3></div><span id="studioValidation" class="evidence-badge">validation pending</span></div>
+      <div class="evidence-grid">
+        <article><span class="evidence-index">01 / measured signal</span><b id="studioEvidenceSignal">Golden-angle flags are exploratory geometry screens.</b><p id="studioEvidenceText">A signal can suggest where to look; it cannot establish who designed a building or why.</p><a href="#patterns">Inspect the pattern catalogue →</a></article>
+        <article><span class="evidence-index">02 / heritage inventory</span><b id="studioEvidenceNiah">NIAH joins connect footprints to named places.</b><p>Use the inventory to form questions about date, type, rating and context—not to infer a single Irish design tradition.</p><a href="https://www.buildingsofireland.ie/niah-data-download/" target="_blank" rel="noopener">Open Buildings of Ireland →</a></article>
+        <article><span class="evidence-index">03 / open map</span><b id="studioEvidenceMap">OSM footprints keep the test-fit grounded in place.</b><p>Open the source geometry, review the map context, then adapt the proposal to roads, water, weather and access.</p><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap contributors →</a></article>
+      </div>
+      <p id="studioCaveat" class="evidence-caveat">Evidence caveats will appear here once the report pack is loaded.</p>
+    </div>
+  </section>
   <div class="kpis" aria-live="polite">
     <div class="kpi"><b id="kTargets">—</b><span>visible targets</span></div>
     <div class="kpi"><b id="kControls">—</b><span>controls</span></div>
@@ -1325,7 +1626,7 @@ tr[data-id] { cursor:pointer; }
       <label><input id="onlyMulti" type="checkbox"/> multipart/repaired</label>
     </div>
   </div>
-  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activePattern" class="active-filter" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
   <div id="patterns" class="section pattern-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
     <div class="route-grid">
@@ -1333,10 +1634,18 @@ tr[data-id] { cursor:pointer; }
       <label>Start longitude<input id="routeStartLon" inputmode="decimal" placeholder="-6.2603"/></label>
       <label>Goal latitude<input id="routeGoalLat" inputmode="decimal" placeholder="53.3438"/></label>
       <label>Goal longitude<input id="routeGoalLon" inputmode="decimal" placeholder="-6.2546"/></label>
-      <label>Speed km/h<input id="routeSpeed" inputmode="decimal" value="50"/></label>
+      <label>Fallback speed km/h<input id="routeSpeed" inputmode="decimal" value="50"/></label>
+      <label>Vehicle weight t (optional)<input id="routeWeight" inputmode="decimal" placeholder="7.5"/></label>
+      <label>HGV permitted rating t (optional)<input id="routeRating" inputmode="decimal" placeholder="18"/></label>
+      <label>Vehicle height m (optional)<input id="routeHeight" inputmode="decimal" placeholder="3.8"/></label>
+      <label>Vehicle width m (optional)<input id="routeWidth" inputmode="decimal" placeholder="2.5"/></label>
+      <label>Vehicle length m (optional)<input id="routeLength" inputmode="decimal" placeholder="12"/></label>
+      <label>Vehicle axle load t (optional)<input id="routeAxleload" inputmode="decimal" placeholder="10"/></label>
+      <label>Vehicle class<select id="routeVehicleClass"><option value="general">General traffic</option><option value="delivery">Delivery</option><option value="hgv">Heavy goods vehicle</option><option value="psv">Public service vehicle</option><option value="taxi">Taxi</option></select></label>
       <label>Departure (optional)<input id="routeDeparture" placeholder="2026-08-17T08:00:00+00:00"/></label>
+      <label>Objective<select id="routeObjective"><option value="distance">Shortest distance</option><option value="duration">Fastest duration</option></select></label>
       <label>Response<select id="routeFormat"><option value="json">JSON</option><option value="geojson">GeoJSON</option></select></label>
-      <div class="route-actions"><button id="routeRun" type="button">Route</button><label class="route-check"><input id="routeIncludePath" type="checkbox" checked/> include path</label><label class="route-check"><input id="routeIncludeFerries" type="checkbox"/> include static ferries</label></div>
+      <div class="route-actions"><button id="routeRun" type="button">Route</button><label class="route-check"><input id="routeIncludePath" type="checkbox" checked/> include path</label><label class="route-check"><input id="routeIncludeFerries" type="checkbox"/> include static ferries</label><label class="route-check"><input id="routeAllowHgvDestination" type="checkbox"/> allow HGV destination access</label></div>
     </div>
     <div id="routeStatus" class="footnote route-status" role="status" aria-live="polite">Serve this dashboard with ireland-geometry-serve to enable routing.</div>
     <pre id="routeResult" class="route-result" aria-live="polite" hidden></pre>
@@ -1358,8 +1667,10 @@ const OFFLINE_REQUESTED = new URLSearchParams(location.search).get('offline') ==
 const SERVER_MODE = Boolean(PACK && PACK.paged) && !OFFLINE_REQUESTED;
 let DATA = PACK.targets || [];
 const OUTLINES = PACK.outlines || [];
-const SUMMARY = PACK.summary || {};
-const INTERPRETATION = PACK.interpretation || {};
+let SUMMARY = PACK.summary || {};
+const BASE_INTERPRETATION = PACK.interpretation || {};
+let INTERPRETATION = {...BASE_INTERPRETATION};
+let REPORT_RUNTIME = PACK.runtime || null;
 const SIG = PACK.significance || [];
 const NEGATIVE = PACK.negative_controls || [];
 const NIAH_SIG = PACK.niah_significance || [];
@@ -1380,16 +1691,365 @@ let page = 1;
 let pageStats = PACK.page || {total: DATA.length, matching_golden_angle: 0, matching_niah: 0};
 let serverPageReady = Boolean(PACK.initial);
 let serverRequestId = 0;
+let runtimePollTimer = null;
+let runtimePollInFlight = false;
+let runtimeRefreshError = '';
+const RUNTIME_REFRESH_MS = 30000;
 let filterTimer = null;
 let sortKey = 'score';
 let sortDesc = true;
 let map = null;
 let markerLayer = null;
+let mapBaseLayers = {};
+let mapReferenceLayer = null;
+let activeMapLayer = 'satellite';
+let lastTileLoadedAt = 0;
+let mapTileErrorCount = 0;
+let mapLiveTimer = null;
 let offlineMap = false;
 let offlineSelection = null;
 let routeGeometry = null;
 let routeLine = null;
 const markerById = new Map();
+const DEFAULT_MAP_CENTER = [53.35,-8.05];
+const DEFAULT_MAP_ZOOM = 7;
+let selectedMarkerId = null;
+
+const DESIGN_EQUATIONS = {
+  phi: {
+    index: '01 / proportion',
+    title: 'A chamber that opens outward',
+    equation: 'φ = (1 + √5) / 2 ≈ 1.618',
+    description: 'Use φ as a proportion guide: a 13 m chamber can open into a foyer of roughly 21 m. The changing scale gives representation a visible civic gradient—from focused debate to public welcome.',
+    move: 'Architecture move: 13 m chamber → 21 m foyer → planted threshold.',
+    caption: 'Nested rooms use a golden-proportion relationship to move from debate to welcome.'
+  },
+  theta: {
+    index: '02 / orientation',
+    title: 'A route that keeps unfolding',
+    equation: 'θ = 360° / φ² ≈ 137.5°',
+    description: 'Rotate trees, lanterns, rain gardens or seating pockets by the golden angle. The result is a porous path with repeated encounters rather than one front door and one back door.',
+    move: 'Architecture move: 12 small turns frame wind, light and social pause.',
+    caption: 'Golden-angle rays become a sequence of thresholds, shade and sightlines.'
+  },
+  fib: {
+    index: '03 / kit of parts',
+    title: 'A building that can grow',
+    equation: 'Fₙ = Fₙ₋₁ + Fₙ₋₂',
+    description: 'Treat 3, 5, 8, 13 and 21 m as a kit of civic bays. A market, library or assembly hall can expand without losing its rhythm, making the public realm adaptable over time.',
+    move: 'Architecture move: 3 m threshold + 5 m stall + 8 m hall + 13 m canopy.',
+    caption: 'Fibonacci steps turn one large hall into a legible family of public bays.'
+  },
+  spiral: {
+    index: '04 / continuity',
+    title: 'A threshold that remembers the landscape',
+    equation: 'r(θ) = a · eᵇᶿ',
+    description: 'A logarithmic spiral can shape a ramp, gallery or canopy edge. Its changing radius makes movement feel continuous, like a path between town, water, weather and gathering.',
+    move: 'Architecture move: slow the edge; widen the turn; keep the horizon visible.',
+    caption: 'A growing spiral becomes a civic promenade rather than a decorative motif.'
+  }
+};
+const DESIGN_TYPOLOGIES = {
+  parliament: {
+    label: 'Parliament / assembly', kind: 'chamber',
+    tags: ['representation', 'public gallery', 'rain court'],
+    access: '1.8 m continuous public loop',
+    water: 'Roof → rill → planted court',
+    wind: 'Sheltered foyer + cross-ventilated chamber',
+    public: 'debate · welcome · visible threshold'
+  },
+  forum: {
+    label: 'Public forum square', kind: 'forum',
+    tags: ['encounter', 'shared ground', 'all-weather edge'],
+    access: '1.8 m level route around the court',
+    water: 'Perimeter swale → shared rain garden',
+    wind: 'Porous edge + sheltered sitting pockets',
+    public: 'pause · play · gathering'
+  },
+  market: {
+    label: 'Market canopy', kind: 'market',
+    tags: ['exchange', 'adaptable bays', 'weather canopy'],
+    access: '1.8 m clear market aisle',
+    water: 'Canopy gutters → visible rain chain',
+    wind: 'Lifted canopy + protected stall backs',
+    public: 'trade · food · informal meeting'
+  },
+  harbour: {
+    label: 'Harbour garden', kind: 'harbour',
+    tags: ['belonging', 'water edge', 'wind garden'],
+    access: '1.8 m readable promenade to the water',
+    water: 'Rain garden → tidal-edge planting study',
+    wind: 'Layered planting + low sheltered pauses',
+    public: 'walk · look · linger'
+  },
+  library: {
+    label: 'Library courtyard', kind: 'library',
+    tags: ['learning', 'reading court', 'quiet threshold'],
+    access: '1.8 m level route through the court',
+    water: 'Roof garden → planted reading court',
+    wind: 'Deep reveal + calm, filtered ventilation',
+    public: 'read · learn · exchange'
+  },
+  museum: {
+    label: 'Museum loop', kind: 'museum',
+    tags: ['interpretation', 'gallery loop', 'rest points'],
+    access: '1.8 m loop with frequent rest points',
+    water: 'Roof valley → visible collection garden',
+    wind: 'Buffered gallery edge + controlled daylight',
+    public: 'encounter · interpret · return'
+  }
+};
+const DESIGN_SEASONS = {
+  midsummer: { label: 'Long-light / midsummer', sky: '#f1d893', light: 'High sun · shade and filtered glare', weather: 'Cross-ventilated court · seasonal canopy' },
+  equinox: { label: 'Equinox / changeover', sky: '#c9d8c5', light: 'Balanced light · test both orientations', weather: 'Adjustable threshold · rain-ready edge' },
+  midwinter: { label: 'Low-light / midwinter', sky: '#aabec5', light: 'Low sun · south-facing warmth', weather: 'Sheltered route · wind-buffered court' }
+};
+const DESIGN_MATERIALS = {
+  stone: { label: 'Stone + lime', tone: '#356c69', note: 'Durable civic base; verify local quarry, repair and carbon data.' },
+  timber: { label: 'Timber + cork', tone: '#987044', note: 'Warm interior structure; verify moisture, fire and carbon data.' },
+  slate: { label: 'Slate + rain chain', tone: '#334c62', note: 'Rain-ready roof language; verify sourcing, runoff and maintenance.' },
+  copper: { label: 'Copper + planted roof', tone: '#a66b4e', note: 'Patinating roof study; verify runoff, biodiversity and material impacts.' }
+};
+const DESIGN_GRAMMARS = {
+  radial: { label: 'Radial field', equation: 'rᵢ = r₀ + i·Δr', description: 'Distribute entries, trees, lights or seats around a shared centre so the public realm has more than one address.' },
+  symmetry: { label: 'Mirror symmetry', equation: 'f(x,y) = f(−x,y)', description: 'Use a readable axis for arrival and ceremony, then let the landscape soften the balance on either side.' },
+  orthogonal: { label: 'Orthogonal grid', equation: 'G = {(i·m, j·m)}', description: 'Set out bays, paving and furniture on a clear module so the building can be built, repaired and extended.' },
+  circle: { label: 'Circular court', equation: '(x−h)² + (y−k)² = r²', description: 'Make a shared centre legible through a circular room, court, canopy or ring of public pause.' },
+  cruciform: { label: 'Cruciform plan', equation: 'C = axes + shared centre', description: 'Cross two civic routes at a common room so representation, learning, water and public life meet visibly.' }
+};
+let selectedEquation = 'phi';
+
+function scenarioNumber(id, fallback) {
+  const value=Number($(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+function scenarioValues() {
+  return {
+    module: scenarioNumber('moduleScale',13),
+    courtyard: scenarioNumber('courtyardScale',38),
+    bays: Math.round(scenarioNumber('bayCount',8)),
+    angle: scenarioNumber('pathAngle',137.5),
+    density: scenarioNumber('publicDensity',60),
+    wind: scenarioNumber('windShelter',64),
+    rain: scenarioNumber('rainCapture',72),
+    accessWidth: scenarioNumber('accessWidth',1.8),
+    phases: Math.round(scenarioNumber('futurePhases',2)),
+    season: $('season')?.value || 'midsummer',
+    material: $('material')?.value || 'stone',
+    grammar: $('grammar')?.value || 'radial'
+  };
+}
+function scenarioSummaryText(values) {
+  return `${fmt(values.courtyard,0)}% court · ${fmt(values.bays,0)} bays · ${fmt(values.angle,1)}° path · ${fmt(values.density,0)}% public density`;
+}
+function performanceSummaryText(values) {
+  return `${fmt(values.wind,0)}% shelter · ${fmt(values.rain,0)}% rain capture · ${fmt(values.accessWidth,1)} m clear route · ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`;
+}
+function radialNodes(count, radius, angleOffset, tone, opacity, className='diagram-bay-dot') {
+  const safeCount=Math.max(1,Math.round(count));
+  const safeRadius=Number(radius)||0;
+  const safeOpacity=Number(opacity)||.5;
+  return Array.from({length:safeCount},(_,i)=>{
+    const angle=(-90+angleOffset+i*(360/safeCount))*Math.PI/180;
+    const nodeRadius=3.1+safeOpacity*2.8;
+    const x=300+Math.cos(angle)*safeRadius;
+    const y=156+Math.sin(angle)*safeRadius*.72;
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${nodeRadius.toFixed(1)}" class="${className}" style="fill:${tone};opacity:${safeOpacity.toFixed(2)}"/>`;
+  }).join('');
+}
+function renderGrammarOverlay(key, values, tone, accent) {
+  if(key==='symmetry') {
+    return `<line x1="300" y1="48" x2="300" y2="264" class="diagram-axis"/><line x1="196" y1="156" x2="404" y2="156" class="diagram-axis"/><path d="M214 80 Q258 114 300 80 Q342 114 386 80" class="diagram-axis" style="stroke:${tone}"/>`;
+  }
+  if(key==='orthogonal') {
+    const lines=Array.from({length:7},(_,i)=>{
+      const x=174+i*42, y=62+i*31;
+      return `<line x1="${x}" y1="48" x2="${x}" y2="264" class="diagram-grid" style="stroke:${tone}"/><line x1="164" y1="${y}" x2="436" y2="${y}" class="diagram-grid" style="stroke:${tone}"/>`;
+    }).join('');
+    return `<g aria-label="orthogonal grid">${lines}</g>`;
+  }
+  if(key==='circle') {
+    const radii=[42,68,94].map((radius,index)=>`<circle cx="300" cy="156" r="${radius}" class="diagram-ring" style="stroke:${index===1?accent:tone};opacity:${index===1?.82:.5}"/>`).join('');
+    return `${radii}<circle cx="300" cy="156" r="7" class="diagram-center" style="fill:${tone}"/>`;
+  }
+  if(key==='cruciform') {
+    return `<path d="M260 48 H340 V116 H408 V196 H340 V264 H260 V196 H192 V116 H260 Z" class="diagram-crux" style="stroke:${accent}"/><line x1="300" y1="48" x2="300" y2="264" class="diagram-axis" style="stroke:${tone}"/><line x1="192" y1="156" x2="408" y2="156" class="diagram-axis" style="stroke:${tone}"/>`;
+  }
+  const rings=[52,82,112].map(radius=>`<circle cx="300" cy="156" r="${radius}" class="diagram-ring" style="stroke:${tone};opacity:.45"/>`).join('');
+  return `${rings}${radialNodes(Math.max(5,values.bays),104,values.angle,tone,.56)}`;
+}
+function renderPerformanceOverlay(values, tone) {
+  const exposure=(100-Math.max(0,Math.min(100,values.wind)))/100;
+  const windLines=Array.from({length:4},(_,i)=>{
+    const y=72+i*34, length=34+exposure*88, bend=8+(i%2)*6;
+    return `<path d="M${(62-i*4).toFixed(1)} ${y} Q ${(62+length*.45).toFixed(1)} ${(y-bend).toFixed(1)} ${(62+length).toFixed(1)} ${y}" class="diagram-wind" style="opacity:${(.16+exposure*.55).toFixed(2)}"/>`;
+  }).join('');
+  const rainCount=Math.max(2,Math.round(values.rain/18));
+  const rainLines=Array.from({length:rainCount},(_,i)=>{
+    const x=424+i*13, length=10+(values.rain/100)*18;
+    return `<path d="M${x} 42 l-4 ${length.toFixed(1)}" class="diagram-rain" style="opacity:${(.15+values.rain/150).toFixed(2)}"/>`;
+  }).join('');
+  const routeWidth=Math.max(3,Math.min(8,values.accessWidth*2.4));
+  const route=`<path d="M92 278 Q300 ${(286-values.density*.08).toFixed(1)} 508 278" class="diagram-route" style="stroke:${tone};stroke-width:${routeWidth.toFixed(1)}"/>`;
+  const phaseLines=Array.from({length:Math.max(0,values.phases-1)},(_,i)=>{
+    const x=210+i*90;
+    return `<line x1="${x}" y1="278" x2="${x}" y2="304" class="diagram-phase"/>`;
+  }).join('');
+  return `${windLines}${rainLines}${route}${phaseLines}`;
+}
+
+function designSvgText(x, y, text, className='diagram-label', anchor='start') {
+  return `<text x="${x}" y="${y}" class="${className}" text-anchor="${anchor}">${esc(text)}</text>`;
+}
+function renderDesignDiagram() {
+  const svg=$('designDiagram');
+  if(!svg) return;
+  const equation=DESIGN_EQUATIONS[selectedEquation] || DESIGN_EQUATIONS.phi;
+  const type=DESIGN_TYPOLOGIES[$('typology')?.value || 'parliament'] || DESIGN_TYPOLOGIES.parliament;
+  const values=scenarioValues();
+  const season=DESIGN_SEASONS[values.season] || DESIGN_SEASONS.midsummer;
+  const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
+  const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
+  const module=Math.max(5,values.module);
+  const accent=selectedEquation==='theta'?'#bf5b45':selectedEquation==='fib'?'#356c69':selectedEquation==='spiral'?'#4c765f':'#d0a34c';
+  const phi=1.618;
+  const cx=300, cy=156;
+  const rays=Array.from({length:12},(_,i)=>{
+    const angle=(-90+i*values.angle)*Math.PI/180;
+    const length=94+values.density*.35+(i%3)*12;
+    return `<line x1="${cx}" y1="${cy}" x2="${(cx+Math.cos(angle)*length).toFixed(1)}" y2="${(cy+Math.sin(angle)*length).toFixed(1)}" class="diagram-ray" style="stroke:${accent}"/>`;
+  }).join('');
+  const steps=[3,5,8,13,21].map((value,index)=>{
+    const width=36+value*3.2, height=18+value*1.8;
+    const x=38+index*30, y=238-index*14;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${width.toFixed(1)}" height="${height.toFixed(1)}" class="diagram-step" style="stroke:${accent}"/><text x="${(x+width/2).toFixed(1)}" y="${(y+height/2+3).toFixed(1)}" class="diagram-step-label" text-anchor="middle">${value}</text>`;
+  }).join('');
+  const groundNodes=radialNodes(values.bays,78,values.angle,material.tone,.32+values.density/150);
+  let drawing='';
+  if(type.kind==='chamber') {
+    const chamber=70+module*1.2, foyer=chamber*phi;
+    const courtRx=Math.min(91,38+values.courtyard*.66);
+    const courtRy=Math.min(55,22+values.courtyard*.34);
+    const seats=radialNodes(Math.max(4,Math.min(13,Math.round(values.bays*(.55+values.density/240)))),Math.min(118,foyer*.48),values.angle,material.tone,.45+values.density/180);
+    drawing=`<rect x="${(cx-foyer/2).toFixed(1)}" y="${(cy-foyer*.28).toFixed(1)}" width="${foyer.toFixed(1)}" height="${(foyer*.56).toFixed(1)}" rx="16" class="diagram-outer" style="stroke:${material.tone}"/><ellipse cx="${cx}" cy="${(cy+6).toFixed(1)}" rx="${courtRx.toFixed(1)}" ry="${courtRy.toFixed(1)}" class="diagram-ring" style="stroke:${material.tone}"/><ellipse cx="${cx}" cy="${cy}" rx="${(chamber*.63).toFixed(1)}" ry="${(chamber*.46).toFixed(1)}" class="diagram-inner"/><path d="M${cx-foyer/2} ${cy-foyer*.28} Q ${cx} ${cy-foyer*.54} ${cx+foyer/2} ${cy-foyer*.28}" class="diagram-arc"/><circle cx="${cx}" cy="${cy}" r="${(chamber*.13).toFixed(1)}" class="diagram-center"/>${seats}${selectedEquation==='phi'?designSvgText(cx,cy+4,'public chamber','diagram-center-label','middle'):''}${groundNodes}`;
+  } else if(type.kind==='forum') {
+    const frameW=340+Math.min(80,module*1.5);
+    const frameX=cx-frameW/2;
+    const courtRadius=Math.min(90,32+values.courtyard*.8);
+    const forumNodes=radialNodes(values.bays,78,values.angle,material.tone,.42+values.density/170);
+    drawing=`<rect x="${frameX.toFixed(1)}" y="48" width="${frameW.toFixed(1)}" height="216" rx="8" class="diagram-outer" style="stroke:${material.tone}"/><circle cx="${cx}" cy="${cy}" r="90" class="diagram-ring"/><circle cx="${cx}" cy="${cy}" r="${courtRadius.toFixed(1)}" class="diagram-inner"/><circle cx="${cx}" cy="${cy}" r="15" class="diagram-center"/>${forumNodes}${designSvgText(cx,cy+4,'shared ground','diagram-center-label','middle')}`;
+  } else if(type.kind==='market') {
+    const columns=Math.ceil(Math.sqrt(values.bays));
+    const rows=Math.ceil(values.bays/columns);
+    const baySize=Math.min(52,Math.max(24,230/Math.max(columns,rows)));
+    const gap=Math.min(13,Math.max(6,baySize*.18));
+    const totalW=columns*baySize+(columns-1)*gap;
+    const totalH=rows*baySize+(rows-1)*gap;
+    const startX=cx-totalW/2, startY=154-totalH/2;
+    const modules=Array.from({length:values.bays},(_,i)=>{
+      const x=startX+(i%columns)*(baySize+gap), y=startY+Math.floor(i/columns)*(baySize+gap);
+      const dot=6+values.density*.045;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${baySize.toFixed(1)}" height="${baySize.toFixed(1)}" rx="7" class="diagram-bay" style="stroke:${material.tone}"/><circle cx="${(x+baySize/2).toFixed(1)}" cy="${(y+baySize/2).toFixed(1)}" r="${dot.toFixed(1)}" class="diagram-bay-dot" style="fill:${accent}"/>`;
+    }).join('');
+    drawing=`<path d="M82 210 Q300 26 518 210" class="diagram-canopy" style="stroke:${material.tone}"/>${modules}${designSvgText(cx,285,'adaptable bay field','diagram-center-label','middle')}`;
+  } else if(type.kind==='library') {
+    const columns=4, rows=Math.ceil(values.bays/columns);
+    const bayW=64, bayH=Math.min(42,Math.max(28,124/rows));
+    const totalW=columns*bayW+(columns-1)*8, totalH=rows*bayH+(rows-1)*8;
+    const startX=cx-totalW/2, startY=154-totalH/2;
+    const shelves=Array.from({length:values.bays},(_,i)=>{
+      const x=startX+(i%columns)*(bayW+8), y=startY+Math.floor(i/columns)*(bayH+8);
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bayW}" height="${bayH.toFixed(1)}" rx="5" class="diagram-bay" style="stroke:${material.tone}"/><line x1="${(x+8).toFixed(1)}" y1="${(y+bayH*.66).toFixed(1)}" x2="${(x+bayW-8).toFixed(1)}" y2="${(y+bayH*.66).toFixed(1)}" class="diagram-grid" style="stroke:${accent}"/>`;
+    }).join('');
+    const courtRadius=Math.min(52,28+values.courtyard*.42);
+    drawing=`<rect x="92" y="48" width="416" height="216" rx="9" class="diagram-outer" style="stroke:${material.tone}"/>${shelves}<circle cx="${cx}" cy="${cy}" r="${courtRadius.toFixed(1)}" class="diagram-inner"/><circle cx="${cx}" cy="${cy}" r="13" class="diagram-center"/>${designSvgText(cx,cy+4,'reading court','diagram-center-label','middle')}`;
+  } else if(type.kind==='museum') {
+    const outerRadius=Math.min(112,84+values.courtyard*.28);
+    const innerRadius=Math.max(30,outerRadius*.46);
+    const exhibitNodes=radialNodes(values.bays,Math.max(48,outerRadius*.72),values.angle,material.tone,.45+values.density/190);
+    const loopPoints=Array.from({length:38},(_,i)=>{ const t=i*.22, radius=innerRadius+i*.8, angle=t+values.angle*Math.PI/180-1.8; return `${(cx+Math.cos(angle)*radius).toFixed(1)},${(cy+Math.sin(angle)*radius*.72).toFixed(1)}`; }).join(' ');
+    drawing=`<circle cx="${cx}" cy="${cy}" r="${outerRadius.toFixed(1)}" class="diagram-outer" style="stroke:${material.tone}"/><circle cx="${cx}" cy="${cy}" r="${innerRadius.toFixed(1)}" class="diagram-inner"/><polyline points="${loopPoints}" class="diagram-spiral" style="stroke:${accent}"/><circle cx="${cx}" cy="${cy}" r="13" class="diagram-center"/>${exhibitNodes}${designSvgText(cx,cy+4,'shared memory','diagram-center-label','middle')}`;
+  } else {
+    const spiralCount=Math.round(42+values.density*.34);
+    const points=Array.from({length:spiralCount},(_,i)=>{ const t=i*.25, radius=8+i*(.82+values.courtyard/230), angle=t+values.angle*Math.PI/180-2.7; return `${(cx+Math.cos(angle)*radius).toFixed(1)},${(cy+Math.sin(angle)*radius*.74).toFixed(1)}`; }).join(' ');
+    drawing=`<polyline points="${points}" class="diagram-spiral" style="stroke:${accent}"/><circle cx="${cx}" cy="${cy}" r="13" class="diagram-center"/>${designSvgText(cx,cy+4,'pause','diagram-center-label','middle')}<path d="M96 246 Q300 284 510 240" class="diagram-water" style="stroke:${material.tone}"/>${groundNodes}`;
+  }
+  const equationOverlay=selectedEquation==='theta'?rays:selectedEquation==='fib'?steps:selectedEquation==='spiral'?`<path d="M134 242 Q245 ${42+values.courtyard*.25} 450 ${98-values.density*.08} Q536 131 480 230" class="diagram-spiral" style="stroke:${accent}"/>`:'';
+  const grammarOverlay=renderGrammarOverlay(values.grammar,values,material.tone,accent);
+  const performanceOverlay=renderPerformanceOverlay(values,material.tone);
+  svg.innerHTML=`<defs><pattern id="diagramGrid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#d7ccb8" stroke-width=".7"/></pattern><marker id="windArrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0L6 3L0 6Z" fill="#527b85"/></marker></defs><rect width="600" height="330" fill="${season.sky}" opacity=".16"/><rect width="600" height="330" fill="url(#diagramGrid)"/><text x="26" y="27" class="diagram-kicker">SCHEMATIC / ${esc(type.label).toUpperCase()}</text><text x="574" y="27" class="diagram-kicker" text-anchor="end">${esc(equation.equation)}</text><text x="574" y="42" class="diagram-kicker" text-anchor="end">${esc(grammar.label.toUpperCase())} · ${esc(grammar.equation)}</text>${drawing}${grammarOverlay}${equationOverlay}${performanceOverlay}<line x1="28" y1="305" x2="572" y2="305" class="diagram-baseline"/>`;
+  if($('diagramCaption')) $('diagramCaption').textContent=`${equation.caption} ${grammar.label.toLowerCase()} · ${scenarioSummaryText(values)} · ${season.label}.`;
+}
+function renderScenarioReadout(values=scenarioValues()) {
+  const outputs=[['moduleValue',`${fmt(values.module,0)} m`],['courtyardValue',`${fmt(values.courtyard,0)}%`],['bayValue',fmt(values.bays,0)],['pathValue',`${fmt(values.angle,1)}°`],['densityValue',`${fmt(values.density,0)}%`],['windValue',`${fmt(values.wind,0)}%`],['rainValue',`${fmt(values.rain,0)}%`],['accessValue',`${fmt(values.accessWidth,1)} m`],['phaseValue',`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`]];
+  outputs.forEach(([id,text])=>{ if($(id)) $(id).textContent=text; });
+  if($('scenarioSummary')) $('scenarioSummary').textContent=scenarioSummaryText(values);
+  if($('performanceSummary')) $('performanceSummary').textContent=performanceSummaryText(values);
+}
+function renderDesignSpec(typology, season, material, values) {
+  const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
+  const specs=[
+    {label:'Universal access', strong:`${fmt(values.accessWidth,1)} m clear route`, copy:`${typology.access}. Verify gradients, door clearances, tactile cues and resting places locally.`, note:`Concept setting · ${fmt(values.module,0)} m module rhythm`},
+    {label:'Rain + water', strong:`${fmt(values.rain,0)}% capture emphasis`, copy:`${typology.water}. Keep roof, rill and planted court readable as one public sequence.`, note:'Design setting · test overflow, storage and maintenance'},
+    {label:'Weather + season', strong:`${fmt(values.wind,0)}% shelter emphasis`, copy:`${season.light}. ${typology.wind}.`, note:`${season.weather} · verify with local wind/daylight studies`},
+    {label:'Material + carbon', strong:material.label, copy:material.note, note:'Concept palette · LCA, sourcing and maintenance check required'},
+    {label:'Future capacity', strong:`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'} · ${fmt(values.bays,0)} bays`, copy:'Keep the civic room legible while allowing the public edge, planting and services to grow in stages.', note:`${fmt(values.density,0)}% public-density setting · test a future phase`},
+    {label:'Spatial grammar', strong:grammar.label, copy:grammar.description, note:`${grammar.equation} · contemporary hypothesis`}
+  ];
+  if($('designSpec')) $('designSpec').innerHTML=specs.map(spec=>`<article class="spec-card"><span>${esc(spec.label)}</span><strong>${esc(spec.strong)}</strong><p>${esc(spec.copy)}</p><small>${esc(spec.note)}</small></article>`).join('');
+}
+function renderEvidenceBridge() {
+  const validation=String(SUMMARY.validation?.status || (SUMMARY.analysis_ready?'pass':'incomplete')).toLowerCase();
+  const badge=$('studioValidation');
+  if(badge) {
+    badge.textContent=`validation ${validation}`;
+    badge.classList.toggle('pass',validation==='pass');
+    badge.classList.toggle('incomplete',validation!=='pass');
+  }
+  const worship=SIG.find(row=>row.signal==='golden_angle'&&row.group==='worship') || {};
+  const worshipRate=Number.isFinite(Number(worship.observed_rate))?fmt(worship.observed_rate,2):'7.09';
+  const controlRate=Number.isFinite(Number(worship.control_rate))?fmt(worship.control_rate,2):'0.69';
+  const adjusted=Number(worship.p_adjusted);
+  const adjustedText=Number.isFinite(adjusted)?(adjusted<.0001?'Holm-adjusted p <0.0001':`Holm-adjusted p ${fmt(adjusted,4)}`):'adjusted significance reported in the pack';
+  const verdict=String(worship.verdict||'screening result').toLowerCase();
+  if($('studioEvidenceSignal')) $('studioEvidenceSignal').textContent=`${worshipRate}% worship targets vs ${controlRate}% controls`;
+  if($('studioEvidenceText')) $('studioEvidenceText').textContent=`The pack calls this a ${verdict} (${adjustedText}); use it to choose questions for review, never as proof of historic intent.`;
+  if($('studioEvidenceNiah')) $('studioEvidenceNiah').textContent=`${Number(SUMMARY.niah_matches||0).toLocaleString()} NIAH-linked joins`;
+  if($('studioEvidenceMap')) $('studioEvidenceMap').textContent=`${Number(SUMMARY.targets||0).toLocaleString()} target footprints in context`;
+  const caveats=Array.isArray(INTERPRETATION.caveats)?INTERPRETATION.caveats:[];
+  const caveat=caveats[0] || 'Geometry flags are screening evidence, not evidence of design intent.';
+  if($('studioCaveat')) $('studioCaveat').textContent=`Evidence caveat: ${caveat} Design outputs remain conceptual test-fits; verify standards and site conditions separately.`;
+}
+function renderStudio() {
+  const equation=DESIGN_EQUATIONS[selectedEquation] || DESIGN_EQUATIONS.phi;
+  document.querySelectorAll('.equation-card').forEach(card=>{ const active=card.dataset.equation===selectedEquation; card.classList.toggle('is-active',active); card.setAttribute('aria-selected',String(active)); });
+  const typology=DESIGN_TYPOLOGIES[$('typology')?.value || 'parliament'] || DESIGN_TYPOLOGIES.parliament;
+  const values=scenarioValues();
+  const season=DESIGN_SEASONS[values.season] || DESIGN_SEASONS.midsummer;
+  const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
+  const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
+  renderScenarioReadout(values);
+  const tags=[...(typology.tags||[]),grammar.label,season.label.split('/')[0].trim(),material.label];
+  if($('labCopy')) $('labCopy').innerHTML=`<span class="lab-index">${esc(equation.index)} · ${esc(typology.label)}</span><h3>${esc(equation.title)}</h3><div class="lab-equation">${esc(equation.equation)}</div><p>${esc(equation.description)}</p><div class="lab-move"><b>Spatial translation</b><br/>${esc(equation.move)}<br/><b>Geometry grammar</b><br/>${esc(grammar.description)}<br/><b>Public edge</b><br/>${esc(typology.public)}</div><div class="lab-tags">${tags.map(tag=>`<span>${esc(tag)}</span>`).join('')}</div>`;
+  const worship=SIG.find(row=>row.signal==='golden_angle'&&row.group==='worship') || {};
+  const government=SIG.find(row=>row.signal==='golden_angle'&&row.group==='government') || {};
+  if($('studioSignalRate')) $('studioSignalRate').textContent=Number.isFinite(Number(worship.observed_rate))?`${fmt(worship.observed_rate,2)}%`:'7.09%';
+  if($('studioSignalCompare')) $('studioSignalCompare').textContent=Number.isFinite(Number(worship.control_rate))?`vs ${fmt(worship.control_rate,2)}% in controls`:'vs 0.69% in controls';
+  if($('studioGovernmentRate')) $('studioGovernmentRate').textContent=Number.isFinite(Number(government.observed_rate))?`${fmt(government.observed_rate,2)}%`:'6.65%';
+  if($('studioTargetCount')) $('studioTargetCount').textContent=Number(SUMMARY.targets||33416).toLocaleString();
+  renderDesignSpec(typology,season,material,values);
+  renderEvidenceBridge();
+  renderDesignDiagram();
+}
+function initStudio() {
+  document.querySelectorAll('.equation-card').forEach(card=>card.addEventListener('click',()=>{ selectedEquation=card.dataset.equation || 'phi'; renderStudio(); }));
+  $('typology')?.addEventListener('change',renderStudio);
+  $('season')?.addEventListener('change',renderStudio);
+  $('material')?.addEventListener('change',renderStudio);
+  $('grammar')?.addEventListener('change',renderStudio);
+  ['moduleScale','courtyardScale','bayCount','pathAngle','publicDensity','windShelter','rainCapture','accessWidth','futurePhases'].forEach(id=>$(id)?.addEventListener('input',renderStudio));
+  renderStudio();
+}
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1461,6 +2121,106 @@ function currentFilterParameters() {
 }
 function hasActiveViewState() { const params=currentFilterParameters(); return !sortDesc || [...params.keys()].some(key=>key!=='desc'); }
 function sortBy(key) { sortDesc=sortKey===key?!sortDesc:key==='score'; sortKey=key; applyFilters(); }
+function applyRuntime(runtime) {
+  if(!runtime || typeof runtime!=='object') return false;
+  REPORT_RUNTIME=runtime;
+  const validation=runtime.validation && typeof runtime.validation==='object' ? runtime.validation : {};
+  const alignment=runtime.manifest_alignment && typeof runtime.manifest_alignment==='object' ? runtime.manifest_alignment : {};
+  const sourceAlignment=runtime.source_alignment && typeof runtime.source_alignment==='object' ? runtime.source_alignment : {};
+  SUMMARY={...SUMMARY,analysis_ready:runtime.analysis_ready===true,validation,manifest_alignment:alignment,source_alignment:sourceAlignment};
+  if(runtime.analysis_ready===true) {
+    INTERPRETATION={...BASE_INTERPRETATION};
+    return true;
+  }
+  const validationStatus=String(validation.status||'incomplete');
+  const alignmentStatus=String(alignment.status||'incomplete');
+  const sourceStatus=String(sourceAlignment.status||'not_reported');
+  const validationText=sourceStatus==='fail'
+    ? 'Current input source alignment is '+sourceStatus+'; numerical findings should be treated as provisional.'
+    : alignmentStatus!=='pass'
+    ? 'Current output artifact alignment is '+alignmentStatus+'; numerical findings should be treated as provisional.'
+    : 'Analytical validation is '+validationStatus+'; numerical findings should be treated as provisional.';
+  const interpretation={...BASE_INTERPRETATION};
+  const findings=Array.isArray(interpretation.findings)?interpretation.findings:[];
+  const patchedFindings=findings.map(item=>{
+    if(!item || typeof item!=='object' || item.id!=='validation') return item;
+    return {...item,status:sourceStatus==='fail'?sourceStatus:alignmentStatus!=='pass'?alignmentStatus:validationStatus,text:validationText};
+  });
+  const caveats=Array.isArray(interpretation.caveats)?[...interpretation.caveats]:[];
+  const caveat='Current output artifacts are not aligned with the manifest; numerical findings should be treated as provisional.';
+  if(alignmentStatus!=='pass' && !caveats.includes(caveat)) caveats.push(caveat);
+  const sourceCaveat='Current input sources are not aligned with the output manifest; numerical findings should be treated as provisional.';
+  if(sourceStatus==='fail' && !caveats.includes(sourceCaveat)) caveats.push(sourceCaveat);
+  INTERPRETATION={...interpretation,findings:patchedFindings,caveats};
+  return true;
+}
+function applyRuntimeHeaders(headers) {
+  if(!headers || typeof headers.get!=='function') return false;
+  const runtimeStatus=headers.get('X-Ireland-Geometry-Runtime-Status');
+  if(!runtimeStatus) return false;
+  const validationStatus=headers.get('X-Ireland-Geometry-Validation')||runtimeStatus;
+  const alignmentStatus=headers.get('X-Ireland-Geometry-Manifest-Alignment')||runtimeStatus;
+  const sourceStatus=headers.get('X-Ireland-Geometry-Source-Alignment')||runtimeStatus;
+  return applyRuntime({
+    ...(REPORT_RUNTIME||{}),
+    contract:headers.get('X-Ireland-Geometry-Runtime-Contract')||'ireland-geometry.report-runtime.v1',
+    status:runtimeStatus,
+    analysis_ready:headers.get('X-Ireland-Geometry-Analysis-Ready')==='true',
+    validation:{...(REPORT_RUNTIME?.validation||{}),status:validationStatus,passed:validationStatus==='pass'},
+    manifest_alignment:{...(REPORT_RUNTIME?.manifest_alignment||{}),status:alignmentStatus,passed:alignmentStatus==='pass'},
+    source_alignment:{...(REPORT_RUNTIME?.source_alignment||{}),status:sourceStatus,passed:sourceStatus==='pass'}
+  });
+}
+function runtimeIdentityText() {
+  const snapshot=REPORT_RUNTIME?.snapshot;
+  if(!snapshot || snapshot.available!==true) return '';
+  const revision=String(snapshot.git_revision||'').trim();
+  if(!revision) return '';
+  const dirty=snapshot.git_dirty===true?' · dirty':'';
+  return ` · build ${revision.slice(0,12)}${dirty}`;
+}
+function renderRuntimeStatus() {
+  const element=$('runtimeStatus');
+  if(!element) return;
+  if(!SERVER_MODE || !REPORT_RUNTIME) { element.hidden=true; element.textContent=''; element.className='runtime-status'; return; }
+  const status=String(REPORT_RUNTIME.status||'incomplete');
+  const validation=String(REPORT_RUNTIME.validation?.status||'not_reported');
+  const alignment=String(REPORT_RUNTIME.manifest_alignment?.status||'not_reported');
+  const source=String(REPORT_RUNTIME.source_alignment?.status||'not_reported');
+  element.hidden=false;
+  if(runtimeRefreshError) {
+    element.className='runtime-status incomplete';
+    element.textContent=`Runtime check unavailable · last known ${status}`;
+    element.title=runtimeRefreshError;
+    return;
+  }
+  element.removeAttribute('title');
+  element.className='runtime-status '+status;
+  const identity=runtimeIdentityText();
+  element.textContent=REPORT_RUNTIME.analysis_ready===true
+    ? 'Validated runtime · current output'+identity
+    : 'Provisional runtime · '+status+'; validation '+validation+'; manifest '+alignment+'; sources '+source+identity;
+}
+async function refreshRuntime() {
+  if(!SERVER_MODE || runtimePollInFlight) return;
+  runtimePollInFlight=true;
+  try {
+    const endpoint=PACK.endpoints?.runtime || '/api/report/runtime';
+    const response=await fetch(endpoint,{cache:'no-cache'});
+    const payload=await response.json();
+    if(!response.ok) throw new Error(payload.error || `Runtime request failed (${response.status})`);
+    runtimeRefreshError='';
+    const runtimeChanged=applyRuntime(payload);
+    if(runtimeChanged) { renderSummary(); renderMethod(); renderRuntimeStatus(); renderInterpretation(); renderStudio(); }
+  } catch(error) {
+    runtimeRefreshError=error.message;
+    renderRuntimeStatus();
+  } finally { runtimePollInFlight=false; }
+}
+function startRuntimeRefresh() {
+  if(!SERVER_MODE || runtimePollTimer!==null) return;
+  runtimePollTimer=setInterval(refreshRuntime,RUNTIME_REFRESH_MS);
+}
 async function fetchServerPage() {
   const requestId=++serverRequestId;
   const params=currentFilterParameters(); params.set('limit',String(PAGE_SIZE)); params.set('offset',String((page-1)*PAGE_SIZE));
@@ -1470,7 +2230,9 @@ async function fetchServerPage() {
     const payload=await response.json();
     if(!response.ok) throw new Error(payload.error || `Report page request failed (${response.status})`);
     if(requestId!==serverRequestId) return;
+    const runtimeChanged=applyRuntime(payload.runtime);
     DATA=payload.targets || []; filtered=DATA.slice(); pageStats=payload.page || {total:0}; renderAll();
+    if(runtimeChanged) { renderInterpretation(); renderStudio(); }
   } catch(error) {
     if(requestId!==serverRequestId) return;
     $('count').textContent=`Report API unavailable: ${error.message}`;
@@ -1486,7 +2248,14 @@ function applyFilters() {
   filtered=sortRows(DATA.filter(matches)); renderAll();
 }
 function queueFilters() { clearTimeout(filterTimer); filterTimer=setTimeout(()=>applyFilters(), $('query')===document.activeElement ? 180 : 0); }
-function renderAll() { renderSummary(); renderPatternCatalog(); renderTable(); renderMap(); }
+function renderMethod() {
+  const element=$('method');
+  if(!element) return;
+  const paragraphs=element.querySelectorAll('p');
+  if(paragraphs.length<3) return;
+  paragraphs[2].innerHTML=`Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.`;
+}
+function renderAll() { renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
 
 function renderSummary() {
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
@@ -1556,14 +2325,14 @@ function renderQualityAuditTable() { const scope=$('qualityAuditScope').value; c
 function renderQualityAudit() { if(!QUALITY_AUDIT.length) { $('qualityAudit').innerHTML='<p class="footnote">No field or source audit rows were reported.</p>'; return; } $('qualityAudit').innerHTML=`<details class="quality-details"><summary>Inspect field and source audit (${QUALITY_AUDIT.length.toLocaleString()} rows)</summary><div class="quality-audit-controls"><label>Scope <select id="qualityAuditScope"><option value="">All</option><option value="analysis">Analysis</option><option value="source">Source</option></select></label><label>Status <select id="qualityAuditStatus"><option value="">All</option><option value="ok">OK</option><option value="provided">Provided</option><option value="missing">Not provided</option><option value="check">Check</option></select></label><button id="downloadQuality" type="button">Download audit CSV</button><span id="qualityAuditCount" class="quality-audit-count footnote"></span></div><div id="qualityAuditTable" class="quality-audit-table"></div></details>`; $('qualityAuditScope').addEventListener('change',renderQualityAuditTable); $('qualityAuditStatus').addEventListener('change',renderQualityAuditTable); $('downloadQuality').addEventListener('click',downloadQualityAudit); renderQualityAuditTable(); }
 function renderTable() {
   const visible=SERVER_MODE ? filtered : filtered.slice((page-1)*PAGE_SIZE,(page-1)*PAGE_SIZE+PAGE_SIZE);
-  $('tbody').innerHTML=visible.map(row=>`<tr data-id="${esc(row.osm_id)}" tabindex="0" aria-label="Focus ${esc(row.name||'Unnamed')} ${esc(row.osm_id)}"><td><b>${esc(row.name||'Unnamed')}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`).join('');
+  $('tbody').innerHTML=visible.map(row=>`<tr data-id="${esc(row.osm_id)}" class="${selectedMarkerId===row.osm_id?'selected':''}" tabindex="0" aria-selected="${selectedMarkerId===row.osm_id}" aria-label="Focus ${esc(row.name||'Unnamed')} ${esc(row.osm_id)}"><td><b>${esc(row.name||'Unnamed')}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`).join('');
   $('empty').hidden=visible.length>0;
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
   const pages=Math.max(1,Math.ceil(total/PAGE_SIZE)); $('page').textContent=`${Math.min(page,pages)} / ${pages}`; $('prev').disabled=page<=1; $('next').disabled=page>=pages;
   document.querySelectorAll('#tbody tr[data-id]').forEach(tr=>{ tr.addEventListener('click',()=>focusRow(tr.dataset.id)); tr.addEventListener('keydown',event=>{ if((event.key==='Enter'||event.key===' ')&&!event.target.closest('a,button,input,select,textarea')){ event.preventDefault(); focusRow(tr.dataset.id); } }); });
   document.querySelectorAll('#tbody a.review-link').forEach(link=>link.addEventListener('click',event=>event.stopPropagation()));
 }
-function popup(row) { const reviewLabel=row.review?.in_queue?'Review queue':'Not in review queue'; return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a> · ${reviewLink(row,reviewLabel)}`; }
+function popup(row) { const reviewLabel=row.review?.in_queue?'Review queue':'Not in review queue'; return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a> · ${reviewLink(row,reviewLabel)}<br><button class="popup-focus" type="button" data-focus-id="${esc(row.osm_id)}">Focus in list</button>`; }
 function offlineBounds() {
   let minLat=Infinity,maxLat=-Infinity,minLon=Infinity,maxLon=-Infinity;
   const points=routeGeometry&&routeGeometry.length>1?routeGeometry.map(([lon,lat])=>({lat,lon})):DATA;
@@ -1579,7 +2348,47 @@ function offlinePoint(row,bounds) {
   const y=650-(Number(row.lat)-bounds.minLat)/(bounds.maxLat-bounds.minLat)*600;
   return {x,y};
 }
+function setMapLoading(visible,text) {
+  const loading=$('mapLoading');
+  if(!loading) return;
+  if(text) $('mapLoadingText').textContent=text;
+  loading.hidden=!visible;
+}
+function setMarkerSelected(marker,selected) {
+  if(!marker || typeof marker.setStyle!=='function') return;
+  marker.setStyle(selected
+    ? {radius:8,color:'#fff',weight:2.5,fillColor:'#e0bd6e',fillOpacity:1}
+    : {radius:5,color:'#17324d',weight:1,fillColor:color(marker.__score),fillOpacity:.86});
+}
+function selectMapTarget(id,{scroll=false}={}) {
+  if(!id) return;
+  if(selectedMarkerId && selectedMarkerId!==id) setMarkerSelected(markerById.get(selectedMarkerId),false);
+  selectedMarkerId=id;
+  setMarkerSelected(markerById.get(id),true);
+  document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
+    const active=row.dataset.id===id;
+    row.classList.toggle('selected',active);
+    row.setAttribute('aria-selected',String(active));
+    if(active && scroll) row.scrollIntoView({block:'nearest'});
+  });
+}
+function fitMapToResults() {
+  if(offlineMap) { renderOfflineMap(); return; }
+  if(!map || !markerLayer) return;
+  const bounds=typeof markerLayer.getBounds==='function'?markerLayer.getBounds():null;
+  if(bounds && bounds.isValid && bounds.isValid()) {
+    if(routeLine) bounds.extend(routeLine.getBounds());
+    map.fitBounds(bounds,{padding:[36,36],maxZoom:17});
+  } else {
+    resetMapView();
+  }
+}
+function resetMapView() {
+  if(map) map.setView(DEFAULT_MAP_CENTER,DEFAULT_MAP_ZOOM);
+  if(offlineMap) { offlineSelection=null; renderOfflineMap(); }
+}
 function renderOfflineMap() {
+  setMapLoading(false);
   const el=$('map'), bounds=offlineBounds();
   if(!bounds){ el.className='offline-map'; el.innerHTML='<div class="offline-map-note">Offline map fallback · no coordinates available.</div>'; return; }
   const grid=Array.from({length:6},(_,i)=>{ const x=50+i*180, y=50+i*120; return `<line class="offline-grid" x1="${x}" y1="50" x2="${x}" y2="650"/><line class="offline-grid" x1="50" y1="${y}" x2="950" y2="${y}"/>`; }).join('');
@@ -1591,16 +2400,122 @@ function renderOfflineMap() {
   const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
   el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
   el.querySelectorAll('.offline-point').forEach(point=>point.addEventListener('click',()=>{offlineSelection=point.dataset.id;renderOfflineMap();}));
+  updateMapHud();
 }
 function renderMap() {
   if(offlineMap){ renderOfflineMap(); return; }
   if (!map || !markerLayer) return;
+  if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) selectedMarkerId=null;
   if(routeLine){ routeLine.remove(); routeLine=null; }
   markerLayer.clearLayers(); markerById.clear();
-  filtered.slice(0,__MARKER_LIMIT__).forEach(row=>{ const marker=L.circleMarker([row.lat,row.lon],{radius:5,color:'#17324d',weight:1,fillColor:color(row.score),fillOpacity:.86}); marker.bindPopup(popup(row)); markerLayer.addLayer(marker); markerById.set(row.osm_id,marker); });
+  filtered.slice(0,__MARKER_LIMIT__).forEach(row=>{
+    const marker=L.circleMarker([row.lat,row.lon],{radius:5,color:'#17324d',weight:1,fillColor:color(row.score),fillOpacity:.86});
+    marker.__score=row.score;
+    marker.bindPopup(popup(row));
+    marker.on('click',()=>selectMapTarget(row.osm_id,{scroll:true}));
+    marker.on('popupopen',event=>{
+      const button=event.popup.getElement()?.querySelector('[data-focus-id]');
+      if(button) button.addEventListener('click',()=>focusRow(row.osm_id,{scroll:true,openPopup:false}),{once:true});
+    });
+    markerLayer.addLayer(marker); markerById.set(row.osm_id,marker);
+    if(selectedMarkerId===row.osm_id) setMarkerSelected(marker,true);
+  });
   if(routeGeometry&&routeGeometry.length>1){ routeLine=L.polyline(routeGeometry.map(([lon,lat])=>[lat,lon]),{color:'#1d4ed8',weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map); routeLine.bringToFront(); }
+  updateMapHud();
 }
-function focusRow(id) { const row=DATA.find(item=>item.osm_id===id); if(!row) return; if(map){ map.setView([row.lat,row.lon],17); const marker=markerById.get(id); if(marker) marker.openPopup(); } else if(offlineMap){ offlineSelection=id; renderOfflineMap(); } }
+function mapTime(value) {
+  const date=value?new Date(value):new Date();
+  return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+function mapSnapshotText() {
+  const generated=String(SUMMARY.generated_at||'').replace('T',' ').replace('Z','');
+  return generated ? `snapshot ${generated.slice(0,16)}` : 'snapshot date unavailable';
+}
+function updateMapHud() {
+  const live=$('mapLiveState'), tile=$('mapTileStatus'), count=$('mapVisibleCount');
+  if(!live||!tile||!count) return;
+  const online=typeof navigator==='undefined'||navigator.onLine!==false;
+  const total=SERVER_MODE?Number(pageStats.total||0):filtered.length;
+  const plotted=Math.min(filtered.length,__MARKER_LIMIT__);
+  count.textContent=SERVER_MODE
+    ? `${Number.isFinite(total)?total.toLocaleString():'—'} targets · ${plotted.toLocaleString()} plotted`
+    : `${Number.isFinite(total)?total.toLocaleString():'—'} targets`;
+  const fit=$('mapFit');
+  if(fit) fit.disabled=plotted===0;
+  if(offlineMap) {
+    live.className='map-live-state offline'; live.textContent='Offline fallback';
+    tile.textContent=`Basemap unavailable · ${mapSnapshotText()}`;
+  } else if(!online) {
+    live.className='map-live-state offline'; live.textContent='Offline';
+    tile.textContent=`Waiting for connection · ${mapSnapshotText()}`;
+  } else if(mapTileErrorCount>2) {
+    live.className='map-live-state error'; live.textContent='Imagery retrying';
+    tile.textContent=`Tile errors detected · ${mapSnapshotText()}`;
+  } else if(!lastTileLoadedAt) {
+    live.className='map-live-state loading'; live.textContent='Loading live tiles';
+    tile.textContent=`Requesting ${activeMapLayer} · ${mapSnapshotText()}`;
+  } else {
+    live.className='map-live-state'; live.textContent=`Live · ${mapTime()}`;
+    tile.textContent=`Tiles synced ${mapTime(lastTileLoadedAt)} · ${mapSnapshotText()}`;
+  }
+}
+function syncMapLayerButtons() {
+  document.querySelectorAll('[data-map-layer]').forEach(button=>{
+    const active=button.dataset.mapLayer===activeMapLayer;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
+}
+function setMapLayer(name) {
+  if(!map||!mapBaseLayers[name]) return;
+  Object.values(mapBaseLayers).forEach(layer=>{ if(map.hasLayer(layer)) map.removeLayer(layer); });
+  mapBaseLayers[name].addTo(map);
+  activeMapLayer=name;
+  lastTileLoadedAt=0; mapTileErrorCount=0; setMapLoading(true,`Loading ${name} imagery…`);
+  syncMapLayerButtons();
+  updateMapHud();
+}
+function refreshMapImagery() {
+  if(!map||offlineMap) { updateMapHud(); return; }
+  lastTileLoadedAt=0; mapTileErrorCount=0;
+  setMapLoading(true,`Refreshing ${activeMapLayer} imagery…`);
+  const layers=activeMapLayer==='hybrid'
+    ? [mapBaseLayers.satellite,mapReferenceLayer]
+    : [mapBaseLayers[activeMapLayer]];
+  layers.filter(Boolean).forEach(layer=>{ if(typeof layer.redraw==='function') layer.redraw(); });
+  updateMapHud();
+}
+function bindMapTileSignals(layer) {
+  if(!layer) return;
+  layer.on('tileloadstart',()=>{ setMapLoading(true,`Loading ${activeMapLayer} imagery…`); updateMapHud(); });
+  layer.on('tileload',()=>{ lastTileLoadedAt=Date.now(); mapTileErrorCount=0; setMapLoading(false); updateMapHud(); });
+  layer.on('tileerror',()=>{ mapTileErrorCount+=1; if(mapTileErrorCount>=3) setMapLoading(false); updateMapHud(); });
+}
+function initMapHud() {
+  document.querySelectorAll('[data-map-layer]').forEach(button=>button.addEventListener('click',()=>setMapLayer(button.dataset.mapLayer)));
+  $('mapRefresh')?.addEventListener('click',refreshMapImagery);
+  $('mapFit')?.addEventListener('click',fitMapToResults);
+  $('mapReset')?.addEventListener('click',resetMapView);
+  window.addEventListener('online',updateMapHud);
+  window.addEventListener('offline',updateMapHud);
+  if(mapLiveTimer===null) mapLiveTimer=setInterval(updateMapHud,1000);
+  updateMapHud();
+}
+function focusRow(id,{scroll=true,openPopup=true}={}) {
+  const row=DATA.find(item=>item.osm_id===id);
+  if(!row) return;
+  selectMapTarget(id,{scroll});
+  if(map){
+    map.setView([row.lat,row.lon],17);
+    const marker=markerById.get(id);
+    if(marker && openPopup){
+      let opened=false;
+      const open=()=>{ if(opened) return; opened=true; marker.openPopup(); };
+      if(markerLayer?.zoomToShowLayer) markerLayer.zoomToShowLayer(marker,open); else open();
+      setTimeout(open,250);
+    }
+  } else if(offlineMap){ offlineSelection=id; renderOfflineMap(); }
+}
 function renderBars() {
   const groups=SIG.filter(row=>row.signal==='golden_angle' && row.group);
   $('groupBars').innerHTML=groups.length?groups.map(row=>`<div class="bar-row"><span>${esc(row.group)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100,Number(row.observed_rate)||0)}%"></div></div><span>${fmt(row.observed_rate,2)}% / ${fmt(row.control_rate,2)}%</span></div>`).join(''):'<span class="footnote">No global significance file available.</span>';
@@ -1645,18 +2560,99 @@ function routeCoordinates(payload) {
   const coordinates=raw.filter(pair=>Array.isArray(pair)&&pair.length>=2&&Number.isFinite(Number(pair[0]))&&Number.isFinite(Number(pair[1]))).map(pair=>[Number(pair[0]),Number(pair[1])]);
   return coordinates.length>1 ? coordinates : null;
 }
+function routeDurationText(value) {
+  const seconds=Number(value);
+  if(!Number.isFinite(seconds)||seconds<0) return '—';
+  const whole=Math.round(seconds), hours=Math.floor(whole/3600), minutes=Math.floor((whole%3600)/60), remainder=whole%60;
+  if(hours) return `${hours}h${minutes?` ${minutes}m`:''}`;
+  if(minutes) return `${minutes}m${remainder?` ${remainder}s`:''}`;
+  return `${remainder}s`;
+}
+function routeWaitText(route) {
+  const wait=Number(route.ferry_wait_s), count=Number(route.ferry_wait_n);
+  if(!Number.isFinite(wait)||!Number.isFinite(count)) return 'ferry wait unavailable';
+  if(wait<=0||count<=0) return 'no ferry wait';
+  return `ferry wait ${routeDurationText(wait)} (${count} ${count===1?'wait':'waits'})`;
+}
+function routeObjectiveText(route) {
+  return route.objective==='duration' ? 'fastest duration' : 'shortest distance';
+}
+function routeFerryText(route) {
+  const edges=Number(route.ferry_edge_n), distance=Number(route.ferry_distance_m), crossing=Number(route.ferry_crossing_s), ways=Array.isArray(route.ferry_way_ids)?route.ferry_way_ids.length:0;
+  if(!Number.isFinite(edges)||edges<=0) return 'no ferry segment';
+  return `ferry ${fmt(distance,0)} m / ${routeDurationText(crossing)} crossing (${ways} ${ways===1?'way':'ways'})`;
+}
+function routeSegmentText(route) {
+  if(!Object.prototype.hasOwnProperty.call(route,'path_segment_source')) return 'path details not requested';
+  const segments=Number(route.path_segment_n);
+  if(route.path_segment_source==='sqlite_edges'&&Number.isFinite(segments)) {
+    const distance=Number(route.path_segment_total_distance_m), duration=Number(route.path_segment_total_duration_s), wait=Number(route.path_segment_total_wait_s);
+    const constraints=Array.isArray(route.path_segments) ? route.path_segments.reduce((total, segment)=>total+(Array.isArray(segment.constraints)?segment.constraints.length:0),0) : 0;
+    const constraintDetail=constraints>0 ? ` · ${constraints} static ${constraints===1?'edge constraint':'edge constraints'}` : '';
+    const conditionalRules=Array.isArray(route.path_segments) ? route.path_segments.reduce((total, segment)=>total+(Array.isArray(segment.conditional_rules)?segment.conditional_rules.length:0),0) : 0;
+    const conditionalDetail=conditionalRules>0 ? ` · ${conditionalRules} conditional ${conditionalRules===1?'rule':'rules'}` : '';
+    const transitionRules=Array.isArray(route.path_segments) ? route.path_segments.reduce((total, segment)=>total+(Array.isArray(segment.transition_rules)?segment.transition_rules.length:0),0) : 0;
+    const transitionDetail=transitionRules>0 ? ` · ${transitionRules} turn ${transitionRules===1?'rule':'rules'}` : '';
+    const wayContext=Array.isArray(route.path_segments) ? route.path_segments.reduce((total, segment)=>{
+      const context=segment&&segment.road_context;
+      return total+(context&&(context.name||context.ref)?1:0);
+    },0) : 0;
+    const wayContextDetail=wayContext>0 ? ` · ${wayContext} named ${wayContext===1?'way':'ways'}` : '';
+    const detail=Number.isFinite(distance)&&Number.isFinite(duration) ? ` · ${fmt(distance,0)} m / ${routeDurationText(duration)}${Number.isFinite(wait)&&wait>0?` · ${routeDurationText(wait)} wait`:''}${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}` : `${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}`;
+    return `${segments} mapped road ${segments===1?'segment':'segments'}${detail}`;
+  }
+  return 'mapped segment IDs unavailable';
+}
+function routeWeightText(route) {
+  const weight=Number(route.vehicle_weight_t);
+  return Number.isFinite(weight)&&weight>0 ? `vehicle-weight profile ${fmt(weight,1)} t` : 'vehicle weight unspecified';
+}
+function routeRatingText(route) {
+  const rating=Number(route.vehicle_rating_t);
+  return Number.isFinite(rating)&&rating>0 ? `HGV rating profile ${fmt(rating,1)} t` : 'HGV rating unspecified';
+}
+function routeHeightText(route) {
+  const height=Number(route.vehicle_height_m);
+  return Number.isFinite(height)&&height>0 ? `vehicle-height profile ${fmt(height,2)} m` : 'vehicle height unspecified';
+}
+function routeWidthText(route) {
+  const width=Number(route.vehicle_width_m);
+  return Number.isFinite(width)&&width>0 ? `vehicle-width profile ${fmt(width,2)} m` : 'vehicle width unspecified';
+}
+function routeLengthText(route) {
+  const length=Number(route.vehicle_length_m);
+  return Number.isFinite(length)&&length>0 ? `vehicle-length profile ${fmt(length,2)} m` : 'vehicle length unspecified';
+}
+function routeAxleloadText(route) {
+  const axleload=Number(route.vehicle_axleload_t);
+  return Number.isFinite(axleload)&&axleload>0 ? `vehicle-axle-load profile ${fmt(axleload,2)} t` : 'vehicle axle load unspecified';
+}
+function routeVehicleClassText(route) {
+  if(route.vehicle_class==='delivery') return 'delivery profile';
+  if(route.vehicle_class==='hgv') return 'HGV profile';
+  if(route.vehicle_class==='psv') return 'psv profile';
+  if(route.vehicle_class==='taxi') return 'taxi profile';
+  return 'general profile';
+}
+function routeDestinationText(route) { return route.vehicle_class==='hgv' && route.allow_hgv_destination ? 'destination access enabled' : 'destination access default'; }
 function routeStatusText(payload) {
   const route=routePayloadDetails(payload);
-  if(route.reachable) return `Reachable · ${fmt(route.route_distance_m,0)} m · ${fmt(route.estimated_duration_s,1)} s`;
+  if(route.reachable) return `Reachable · ${routeObjectiveText(route)} · ${fmt(route.route_distance_m,0)} m · ${fmt(route.estimated_duration_s,1)} s · ${routeVehicleClassText(route)} · ${routeDestinationText(route)} · ${routeWeightText(route)} · ${routeRatingText(route)} · ${routeHeightText(route)} · ${routeWidthText(route)} · ${routeLengthText(route)} · ${routeAxleloadText(route)} · ${routeSegmentText(route)} · ${routeFerryText(route)} · ${routeWaitText(route)}`;
   return route.error || route.status || 'Route unavailable';
 }
 async function runRoute() {
   const fields={
     start_lat:$('routeStartLat').value.trim(), start_lon:$('routeStartLon').value.trim(),
     goal_lat:$('routeGoalLat').value.trim(), goal_lon:$('routeGoalLon').value.trim(),
-    speed_kmh:$('routeSpeed').value.trim()
+    speed_kmh:$('routeSpeed').value.trim(), weight_t:$('routeWeight').value.trim(), rating_t:$('routeRating').value.trim(), height_m:$('routeHeight').value.trim(), width_m:$('routeWidth').value.trim(), length_m:$('routeLength').value.trim(), axleload_t:$('routeAxleload').value.trim(), vehicle_class:$('routeVehicleClass').value, allow_hgv_destination:$('routeAllowHgvDestination').checked?'1':'0', objective:$('routeObjective').value
   };
   if($('routeDeparture').value.trim()) fields.departure=$('routeDeparture').value.trim();
+  if(!fields.weight_t) delete fields.weight_t;
+  if(!fields.rating_t) delete fields.rating_t;
+  if(!fields.height_m) delete fields.height_m;
+  if(!fields.width_m) delete fields.width_m;
+  if(!fields.length_m) delete fields.length_m;
+  if(!fields.axleload_t) delete fields.axleload_t;
   if($('routeIncludePath').checked) fields.include_path='1';
   if($('routeIncludeFerries').checked) fields.include_ferries='1';
   if($('routeFormat').value==='geojson') fields.format='geojson';
@@ -1687,6 +2683,9 @@ async function downloadFiltered(format) {
   const endpoint=PACK.endpoints?.export || '/api/report/export';
   const response=await fetch(`${endpoint}?${params}`); const body=await response.text();
   if(!response.ok) { let message=body; try { message=JSON.parse(body).error || body; } catch(error) {} throw new Error(message || `Export failed (${response.status})`); }
+  const runtimeStatus=response.headers.get('X-Ireland-Geometry-Runtime-Status');
+  if(applyRuntimeHeaders(response.headers)) { renderRuntimeStatus(); if(runtimeStatus && runtimeStatus!=='pass') renderInterpretation(); }
+  if(runtimeStatus && runtimeStatus!=='pass') { const validation=response.headers.get('X-Ireland-Geometry-Validation') || runtimeStatus; const alignment=response.headers.get('X-Ireland-Geometry-Manifest-Alignment') || runtimeStatus; const source=response.headers.get('X-Ireland-Geometry-Source-Alignment') || runtimeStatus; $('count').textContent=`${format.toUpperCase()} export is provisional (runtime ${runtimeStatus}; validation ${validation}; manifest ${alignment}; sources ${source}).`; }
   download(format==='csv'?'ireland-geometry-filtered.csv':'ireland-geometry-filtered.geojson',body,format==='csv'?'text/csv':'application/geo+json');
 }
 function downloadCsv() { if(SERVER_MODE) { downloadFiltered('csv').catch(error=>{ $('count').textContent=`CSV export unavailable: ${error.message}`; }); return; } const cols=['osm_id','name','group','lat','lon','score','area_m2','aspect_ratio','convexity','circularity','flags','niah_name','niah_rating','niah_century']; const escCsv=v=>`"${String(v??'').replaceAll('"','""')}"`; const lines=[cols.join(',')]; filtered.forEach(row=>lines.push(cols.map(key=>{ if(key==='flags')return escCsv(flagsText(row)); if(key.startsWith('niah_'))return escCsv(row.niah[key.slice(5)]); return escCsv(row[key]); }).join(','))); download('ireland-geometry-filtered.csv',lines.join('\n'),'text/csv'); }
@@ -1696,7 +2695,8 @@ let mapAssetsAvailable = false;
 function loadStyle(href) { const link=document.createElement('link'); link.rel='stylesheet'; link.href=href; document.head.appendChild(link); }
 function loadScript(src) { return new Promise((resolve,reject)=>{ const script=document.createElement('script'); script.src=src; script.onload=resolve; script.onerror=()=>reject(new Error(`Could not load map asset ${src}`)); document.head.appendChild(script); }); }
 async function loadMapAssets() {
-  if(OFFLINE_REQUESTED) return;
+  if(OFFLINE_REQUESTED) { setMapLoading(false); return; }
+  setMapLoading(true,'Loading live map controls…');
   loadStyle('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
   loadStyle('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css');
   loadStyle('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css');
@@ -1709,21 +2709,53 @@ async function loadMapAssets() {
     console.warn('Map assets unavailable; using offline fallback.',error);
   }
 }
-function initMap() { if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined'){ offlineMap=true; renderOfflineMap(); return; } map=L.map('map').setView([53.35,-8.05],7); const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(map); const esri=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri World Imagery',maxZoom:18}); markerLayer=(L.markerClusterGroup?L.markerClusterGroup({maxClusterRadius:45,disableClusteringAtZoom:14}):L.layerGroup()).addTo(map); const outlineLayer=L.layerGroup().addTo(map); OUTLINES.forEach(item=>{ const shapes=item.rings.length===1?item.rings[0]:item.rings; L.polygon(shapes,{color:'#1f2937',weight:2,fillColor:color(item.score),fillOpacity:.2}).bindPopup(`<b>${esc(item.name||'Unnamed')}</b><br>${esc(item.group)} · score ${fmt(item.score)}<br>${flagHtml({flags:item.flags||[]})}`).addTo(outlineLayer); }); L.control.layers({'OSM':osm,'Satellite':esri},{'Top outlines':outlineLayer,'Markers':markerLayer}).addTo(map); renderMap(); }
-function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), and Esri World Imagery for visual reference.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap(); }
-async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { document.body.innerHTML=`<pre style="padding:20px">${error}</pre>`; } }
+function initMap() {
+  if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined') { offlineMap=true; renderOfflineMap(); return; }
+  map=L.map('map',{preferCanvas:true}).setView(DEFAULT_MAP_CENTER,DEFAULT_MAP_ZOOM);
+  setMapLoading(true,'Loading satellite imagery…');
+  const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    attribution:'Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,maxNativeZoom:18,detectRetina:true
+  });
+  const streets=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; OpenStreetMap contributors',maxZoom:19,detectRetina:true
+  });
+  mapReferenceLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{
+    attribution:'Esri reference labels',maxZoom:19,maxNativeZoom:19,opacity:.92,detectRetina:true
+  });
+  const hybrid=L.layerGroup([satellite,mapReferenceLayer]);
+  mapBaseLayers={satellite,hybrid,streets};
+  bindMapTileSignals(satellite); bindMapTileSignals(streets); bindMapTileSignals(mapReferenceLayer);
+  satellite.addTo(map);
+  markerLayer=(L.markerClusterGroup?L.markerClusterGroup({maxClusterRadius:45,disableClusteringAtZoom:14}):L.layerGroup()).addTo(map);
+  const outlineLayer=L.layerGroup().addTo(map);
+  OUTLINES.forEach(item=>{
+    const shapes=item.rings.length===1?item.rings[0]:item.rings;
+    L.polygon(shapes,{color:'#f6e5ac',weight:2,fillColor:color(item.score),fillOpacity:.28})
+      .bindPopup(`<b>${esc(item.name||'Unnamed')}</b><br>${esc(item.group)} · score ${fmt(item.score)}<br>${flagHtml({flags:item.flags||[]})}`)
+      .addTo(outlineLayer);
+  });
+  map.on('baselayerchange',event=>{
+    const layerName=event.name.toLowerCase();
+    activeMapLayer=layerName.includes('hybrid')?'hybrid':layerName.includes('street')?'streets':'satellite';
+    syncMapLayerButtons(); updateMapHud();
+  });
+  L.control.layers({'Satellite':satellite,'Hybrid':hybrid,'Streets':streets},{'Top outlines':outlineLayer,'Markers':markerLayer},{collapsed:true}).addTo(map);
+  activeMapLayer='satellite'; syncMapLayerButtons(); renderMap();
+}
+function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initMapHud(); initStudio(); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), Esri World Imagery for visual reference, and live basemap tiles from Esri/OSM.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap();startRuntimeRefresh(); }
+async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { setMapLoading(false); document.body.innerHTML=`<pre style="padding:20px">${error}</pre>`; } }
 reportLaunch();
 </script>
 </body></html>"""
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--out-dir", default=None, help="output directory; defaults to project output/"
     )
-    args = parser.parse_args()
-    out = project_path(args.out_dir, "output")
+    args = parser.parse_args(argv)
+    out = project_output_tree_path(args.out_dir, "output")
     out.mkdir(parents=True, exist_ok=True)
     data = build_report_data(out)
     html_text = render_report_data(data)

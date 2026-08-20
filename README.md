@@ -15,7 +15,7 @@ pre-specified or independently replicated analysis.
 
 ## Current cached build
 
-The checked local snapshot was regenerated on 2026-08-17 with seed `20260816`
+The checked local snapshot was regenerated on 2026-08-18 with seed `20260816`
 and 300 Monte Carlo iterations:
 
 - 135,173 OSM area elements ingested;
@@ -29,15 +29,53 @@ and 300 Monte Carlo iterations:
 - 100,212 local target-control pairs, 12 matched tests, and 12 hierarchical tests;
 - 246 footprints with mapped OSM building parts, 30 Ripley rows, 5 Moran rows,
   8 county permutations, and 5 road-proximity summaries;
-- a complete SQLite road graph generated from 1,123,212 supported highway ways
-  with access filtering applied: 961,724 routable road ways, 7,427,367 nodes,
-  and 7,553,120 physical road segments; 3,938 non-conditional OSM turn
-  restrictions are applied, including 181 validated via-way chains; 72
-  conditional windows are stored for optional departure profiles; a separate
+- a complete SQLite road graph generated from 1,123,253 supported highway ways
+  with access filtering applied: 961,735 routable road ways, 7,427,417 nodes,
+  and 7,553,171 physical road segments; 3,940 non-conditional OSM turn
+  restrictions are applied, including 181 validated via-way chains; 73
+  conditional rules are stored from 78 supported relations for optional
+  departure/vehicle profiles: 74 time windows and 1 weight-based condition.
+  Fifty-six supported conditional road-access rules are retained (24 general,
+  19 delivery-vehicle, 7 public-service-vehicle, and 6 taxi rules, including
+  16 directional and 1 weight-qualified rule); 4 unsupported
+  conditional-access tags are reported, with 14 conditional/access-filtered
+  ways excluded under the default policy. Delivery-only ways remain in the SQLite graph but are
+  inactive for the general profile. Multiple supported clauses on one
+  conditional access key are retained as an
+  ordered per-way/direction rule set; active class-specific allows are unioned
+  and active denies then remove matching classes. Multi-clause coverage is
+  reported separately in graph summaries and Doctor. The HGV profile also
+  evaluates numeric `maxweight:hgv` limits: the current graph retains 35
+  supported HGV limits
+  across 289 directed segments. A separate HGV permitted-rating profile
+  evaluates numeric `maxweightrating:hgv` limits plus the Irish
+  `maxweightrating:goods` alias on 216 routable ways (214 supported and 2
+  ambiguous) across 3,180 directed segments; `--rating-t` is
+  distinct from actual vehicle mass and is enforced only with `vehicle_class=hgv`.
+  The v21 graph also retains 39 supported destination-qualified HGV ways across
+  333 directed segments: static `hgv=destination` access is blocked by default,
+  while observed `none @ destination` weight/rating exceptions are enabled only
+  by `--allow-hgv-destination` (or `allow_hgv_destination=true` in the API).
+  That opt-in is intended only when the route serves the restricted destination.
+  Explicit vehicle-height profiles also enforce
+  numeric legal `maxheight` limits on 1,509 ways; documented feet/inches
+  values such as `9'6"` are normalized to metres, while ambiguous values
+  remain fail-closed for height-qualified routes. Physical `maxheight:physical`
+  limits are retained on 12 ways. A separate
+  v21 duration layer applies supported numeric OSM `maxspeed` ceilings on
+  196,435 ways across 2,115,207 directed segments; 5 non-numeric `maxspeed`
+  ways remain explicitly retained without an invented ceiling. Its edge
+  contract also stores 225 `maxspeed:conditional` ways across 2,638 directed
+  segments: 185 use safely supported schedules and 40 retain unsupported
+  syntax. It also stores five conditional one-way ways across 31 directed
+  segments: two use supported schedules and three retain unsupported
+  permit/private syntax. A separate
   ferry layer stores 1,549 segments from 77 access-allowed ways and 38 route
   relations (excluded unless `--include-ferries` is requested); the 100-pair
   sample has 97 reachable routes; the bounded CSV graph remains available as a
-  portable fallback;
+  portable fallback. The sibling `public_holidays.json` companion supplies 80
+  Irish public-holiday dates covering 2023–2030, including the 2026 dates
+  validated against the official Workplace Relations Commission list;
 - 123,810 mapping-history and spatial-covariate rows, 50,468 globally unique
   no-replacement validation pairs, 37,422 deterministic holdout rows, and a
   1,000-record expert-review queue;
@@ -50,7 +88,7 @@ and 300 Monte Carlo iterations:
 - a standalone `ireland-geometry-route` query command that accepts WGS84
   coordinates and returns machine-readable snap, distance, duration, arrival,
   departure-profile, and optional path/GeoJSON metadata from the persisted
-  graph;
+  graph, including ordered SQLite way/segment explainability;
 - a standalone report at `output/report.html`, a hosted lazy-data version at
   `output/report_lazy.html`, the compact `output/interpretation.json` sidecar,
   JSONL/Parquet/DuckDB analysis exports, and a provenance manifest at
@@ -90,7 +128,30 @@ open output/report.html
 .venv/bin/ireland-geometry-route --road-graph data/roads \
   --start-lat 53.3498 --start-lon -6.2603 \
   --goal-lat 53.3438 --goal-lon -6.2672 \
-  --departure 2026-08-17T08:00:00+00:00 --speed-kmh 50
+  --departure 2026-08-17T08:00:00+00:00 --speed-kmh 50 \
+  --objective duration --include-ferries
+
+# Evaluate the weight-based conditional turn profile for a heavy vehicle:
+.venv/bin/ireland-geometry-route --road-graph data/roads \
+  --start-lat 54.3046561 --start-lon -8.1772739 \
+  --goal-lat 54.3053215 --goal-lon -8.1775745 --weight-t 10
+
+# Evaluate delivery-only conditional road access:
+.venv/bin/ireland-geometry-route --road-graph data/roads \
+  --start-lat 53.3498 --start-lon -6.2603 \
+  --goal-lat 53.3438 --goal-lon -6.2672 \
+  --vehicle-class delivery --departure 2026-08-17T20:00:00+00:00
+
+# Enforce legal and physical height restrictions for a tall vehicle:
+.venv/bin/ireland-geometry-route --road-graph data/roads \
+  --start-lat 53.3498 --start-lon -6.2603 \
+  --goal-lat 53.3438 --goal-lon -6.2672 --height-m 3.8
+
+# Enforce width, length, and axle-load restrictions for a commercial vehicle:
+.venv/bin/ireland-geometry-route --road-graph data/roads \
+  --start-lat 53.3498 --start-lon -6.2603 \
+  --goal-lat 53.3438 --goal-lon -6.2672 \
+  --width-m 2.5 --length-m 12 --axleload-t 10
 
 # Add the traversed path as a GeoJSON LineString:
 .venv/bin/ireland-geometry-route --road-graph data/roads \
@@ -101,6 +162,9 @@ open output/report.html
 # Create a relocatable ZIP of the generated outputs:
 .venv/bin/ireland-geometry-bundle --out-dir output \
   --archive ireland-geometry.bundle.zip
+
+# Run the pipeline and create a verified bundle after the final validation:
+.venv/bin/python run_pipeline.py --no-network --bundle
 ```
 
 `--no-network` fails clearly if a required cache is missing. `--refresh`
@@ -131,6 +195,11 @@ Useful commands:
 .venv/bin/python scripts/serve_report.py --help
 .venv/bin/python scripts/schema_audit.py --json --out-dir output
 .venv/bin/python scripts/repro_check.py --json --out-dir output
+.venv/bin/python scripts/verify.py --project-root /path/to/project --data-root /path/to/data --out-dir /path/to/output
+.venv/bin/python scripts/serve_report.py --project-root /path/to/project --out-dir /path/to/output --data-root /path/to/data
+.venv/bin/python scripts/release_check.py --json --require-pages
+# Optional deep source-content check (the default gate checks metadata only):
+.venv/bin/python scripts/release_check.py --json --require-pages --check-input-hashes
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python scripts/repro_check.py --out-dir output
@@ -155,12 +224,71 @@ equivalent more-specific motor-vehicle restriction are excluded; pass
 The installed `ireland-geometry-route` command queries arbitrary WGS84
 coordinates against the persisted graph and returns JSON containing nearest
 node IDs, snap distances, straight/routed distances, estimated duration, and
-arrival time. Pass `--include-path` to include graph node IDs and GeoJSON-order
-coordinates in the JSON, or `--geojson-out` to write a GeoJSON `LineString`.
-It accepts the same `--departure` and `--speed-kmh` profile parameters, and
-`--include-ferries` enables the persisted ferry geometry layer. Ferry schedules,
-terminal platform semantics, and service frequency remain explicitly
-unmodeled.
+arrival time. Pass `--include-path` to include graph node IDs, GeoJSON-order
+coordinates, ordered `path_way_ids`, and directed `path_segments` in the JSON,
+or `--geojson-out` to write a GeoJSON `LineString`. Each SQLite segment is
+identified by its `(from_node, to_node, way_id)` tuple; `path_segment_source`
+reports `sqlite_edges` when those IDs are available and `not_available` for the
+portable fallback graph. Segment records also report physical distance,
+estimated duration, ferry-wait seconds, and ferry status; the response exposes
+the corresponding `path_segment_total_*` reconciliation fields. SQLite-backed
+segments also expose a `constraints` array of normalized static OSM edge
+records (`key`, `value`, `unit`, `status`, `evaluated`, and `profile`), so a
+client can see which persisted limits were present and whether the supplied
+vehicle profile evaluated them. Relation-level turn restrictions are exposed
+on the segment entering each via node through `transition_rules`, retaining
+relation IDs, `via_way_ids`, `kind`, condition, active/evaluated state, and
+`selected`/`applied` flags. Each segment also includes nullable `road_context`
+fields (`name`, `ref`, `highway`, `route`, and `oneway`) from the persisted OSM
+way record, allowing clients to display human-readable road identity without
+another graph lookup.
+Each segment also
+contains `conditional_rules` for persisted `maxspeed:conditional`,
+`oneway:conditional`, and direction-aware `conditional_access` rows; those
+records retain the condition, mode, profile, active state, and whether the
+rule was applied at the segment's entry time.
+It accepts the same `--departure` and `--speed-kmh` profile parameters.
+`--objective distance` (the default) preserves the shortest physical route;
+`--objective duration` selects the fastest estimated route, allowing modeled
+ferry crossing durations and service-window waits to change route selection.
+`--weight-t` supplies an optional metric-tonne vehicle profile; when present,
+weight-based conditional turn restrictions such as `weight>7.5` are evaluated.
+Without a weight profile those rules remain explicitly retained but inactive.
+`--rating-t` separately supplies an HGV's permitted gross-weight rating for
+numeric `maxweightrating:hgv` limits and the Irish `maxweightrating:goods`
+alias. It is not the vehicle's actual mass and
+is evaluated only with `--vehicle-class hgv`; ambiguous values are fail-closed
+for rating-qualified routes.
+`--height-m` activates numeric legal and physical `maxheight` limits. The
+complete SQLite graph also accepts `--width-m`, `--length-m`, and
+`--axleload-t` for numeric `maxwidth`, `maxlength`, and `maxaxleload`
+limits; width and length values written in OSM feet/inches notation are
+normalized to metres. Without the corresponding profile, these limits remain
+retained but inactive; ambiguous values are fail-closed only for the active
+profile. The portable CSV fallback does not expose these per-edge profiles.
+On v21 SQLite graphs, duration estimates also apply supported numeric OSM
+`maxspeed` ceilings per way, capped by the supplied `--speed-kmh` fallback;
+`mph` and `knots` values are normalized to km/h. The 225
+`maxspeed:conditional` ways are persisted with their raw clauses; 185 ways
+with supported weekly schedules are evaluated at edge-entry time when
+`--departure` is supplied, while 40 unsupported ways remain retained but
+unevaluated. Unconditional `24/7` clauses can apply without a departure.
+Supported `oneway:conditional` and `oneway:motor_vehicle:conditional` windows
+are evaluated from the same departure profile; schedule-only values are
+interpreted as temporary forward one-way rules, while unsupported qualifiers
+such as `permit` and `private` preserve the base one-way semantics.
+`--include-ferries` enables the persisted ferry geometry layer. SQLite graphs
+may carry the versioned `ferry_schedules.json` companion contract; when a
+departure is supplied, supported weekly, seasonal, and fixed-date
+`opening_hours` windows are enforced; time-aware metrics wait for the next
+supported opening when a route reaches a closed service window. Optional per-way
+`duration_s` values are reflected in arrival estimates. The cached national graph currently carries
+26 ferry durations and 4 parsed schedules, including 1 schedule that requires
+the explicit `ireland-geometry.public-holidays.v1` `public_holidays.json`
+companion. The active calendar covers 2023–2030 and route metadata exposes its
+date bounds; unsupported or absent schedule metadata remains explicit in the
+route method, and terminal platform semantics and service frequency are not
+modeled.
 With `--incremental`, a stage is skipped only when its declared inputs,
 parameters, code hashes, runtime signature, and expected output hashes still
 match the tracked `output/stage_cache.json`; report, verification, and
@@ -192,6 +320,14 @@ preserve the existing analytical manifest context instead of replacing its
 seed, Monte Carlo, source, or plan parameters with a partial invocation. The
 new invocation is retained as `last_invocation`, and Doctor checks this
 provenance-preservation contract.
+The verifier also checks the preserved build parameters against the exact
+commands stored in each stage fingerprint under
+`ireland-geometry.manifest-cache.v1`; the machine-readable verification record
+reports `pass`, `partial`, or `fail` plus any unavailable stages and parameter
+mismatches. Diagnostic-only overrides are intentionally excluded from this
+comparison. `ireland-geometry-doctor --json` mirrors the contract, status,
+check count, mismatch count, and unavailable-stage list in its verification
+summary.
 
 The dry-run mode prints every stage command and whether incremental execution
 would reuse it, without creating output files or running expensive analysis.
@@ -204,25 +340,102 @@ contract version and explanation support. When `report` and `verify` are
 selected together, the plan also exposes the two post-validation refresh
 operations that rerun the report and final verifier after validation records
 exist, including their commands and outputs.
+Pass `--bundle` with a stage selection that ends in `verify` to add a final
+complete-bundle operation after all report refreshes and verification passes;
+the pipeline independently verifies the archive immediately after building it.
+The default archive is beside the output directory as `<name>.bundle.zip`; use
+`--bundle-archive` to choose another path outside the output directory. Dry-run
+JSON exposes both operations under `post_validation_bundle` without writing the
+archive.
 The standalone `schema_audit.py` and `repro_check.py` diagnostics also write
 their JSON contracts to `schema_validation.json` and `reproducibility.json`;
 pass `--json` when a caller needs the same result on stdout without parsing a
-human summary. Doctor reports this diagnostic JSON capability.
+human summary. Missing output or comparison directories are reported as
+structured failed JSON results rather than raw tracebacks. Stable artifact
+hashing is recursive, so nested output files participate in the same cross-run
+comparison as top-level files. Doctor reports this diagnostic JSON capability.
+The reproducibility diagnostic also fails closed on symlinked output files or
+output directories and records their portable paths in the JSON result,
+matching the manifest verifier and release gate.
 The pipeline validates Monte Carlo/bootstrap counts, holdout fractions, and
 stage selection before creating output directories or launching work; the
 review CLI similarly validates its queue size before reading or writing
-artifacts.
+artifacts. It also fails closed when an existing `--out-dir` is a symlink or
+non-directory,
+including in dry-run mode, and Doctor exposes this boundary as
+`capabilities.pipeline.rejects_output_symlink`.
+The shared output-safety inventory covers the pipeline, report, schema audit,
+columnar export, verifier, reproducibility, bundle, server, Pages, release,
+and 19 independently runnable analytical stage CLIs under the versioned
+`ireland-geometry.output-safety.v1` contract at `capabilities.output_safety`.
+Its `rejects_non_directory` flag and `non_directory_guards` inventory cover
+existing file paths across the core consumers; `stage_output_guards` and
+`stage_output_tree_guards` confirm that each direct analytical stage resolves
+`--out-dir` through the same fail-closed helper and rejects nested symlinks
+already present below that root. The routing stage also applies the boundary
+to its separate `--write-graph` destination, including nested symlinks already
+present in the graph directory before a disk-backed graph is materialized.
+Report generation and columnar export apply the same recursive boundary before
+reading or replacing report-pack artifacts.
+The standalone route query applies the same boundary to explicit `--out` and
+`--geojson-out` files, rejecting directories used as files, symlinked
+destinations, and symlinked parent directories; Doctor exposes this as
+`capabilities.output_safety.file_output_guards`, which also covers the Doctor
+JSON report and bundle archive destinations.
+Bundle verification rejects symlinked archive inputs, and extraction rejects
+symlinked destination parents; Doctor exposes these boundaries under
+`capabilities.bundle`.
+Strict Doctor readiness requires that inventory to be available, so a package
+with incomplete output guards cannot present a green strict-ready result.
+The companion `ireland-geometry.data-safety.v1` inventory at
+`capabilities.data_safety` applies the same fail-closed rule to the pipeline's
+data root, ingestion fetchers, and direct data-consuming stages. This prevents
+an existing file or symlinked data root from being followed during cached-input
+reads or source downloads.
+The Overpass fetcher also rejects a symlinked `data/raw` cache directory, and
+NIAH rejects symlinked regional extraction directories and nested links within
+them before reading or writing individual cache files. Doctor exposes the
+regional-tree check as `capabilities.data_safety.extraction_tree_guards`.
+The same file-level guard rejects symlinked cached OSM JSON, NIAH ZIP/CSV,
+combined JSON, and Geofabrik PBF inputs before they are read.
+The Sentinel-2 writer also recursively validates its `data/satellite` cache
+directory before downloading bands; Doctor exposes this as
+`capabilities.data_safety.satellite_tree_guards`.
+The primary `run_pipeline` command also rejects any nested symlink already
+present under existing `data` or `output` roots before planning, dry-run output,
+or stage dispatch; Doctor exposes this as
+`capabilities.pipeline.rejects_nested_symlinks` and
+`capabilities.data_safety.tree_guards`.
+Standalone analytical data consumers use the same recursive data-tree guard,
+and their explicit file or graph overrides reject symlinked inputs as well;
+Doctor exposes the implementation under
+`capabilities.data_safety.tree_guards` and
+`capabilities.data_safety.input_guards`.
+The standalone route query, verifier, and report server apply the same
+fail-closed data/graph checks, while bounded output queries and schema audits
+reject nested output symlinks before reading generated artifacts.
+Doctor also inspects the active data and output trees, exposing
+`capabilities.data_safety.observed_root` and
+`capabilities.output_safety.observed_root` with relative symlink paths and
+stable `data_root_invalid`/`output_root_invalid` strict-readiness blockers.
+The complementary `ireland-geometry.file-write-safety.v1` capability applies
+atomic replacement to ingestion downloads and cache files, so a failed stream
+does not leave a partial destination and a destination symlink cannot redirect
+the write. NIAH archive downloads and extracted CSV members are streamed through
+the same helper to avoid buffering large regional inputs wholesale.
 The standalone doctor reports supported Python/dependencies, cached required
 inputs, optional-source coverage, generated outputs, pipeline stages, export
 backends, dashboard modes, LiDAR/3-D adapters, validation gates,
 report-serving capability, and Git state. Use
 `scripts/doctor.py --json --out output/doctor.json` for a machine-readable
 snapshot, or add `--strict` when a clean, fully cached, supported runtime with
-a passing `output/verification.json` is required. After installation, the
+a passing verification, schema-validation, and reproducibility gate is
+required. After installation, the
 equivalent console commands are `ireland-geometry`, `ireland-geometry-doctor`,
 `ireland-geometry-serve`, `ireland-geometry-route`, and
 `ireland-geometry-query`, `ireland-geometry-bundle`,
-`ireland-geometry-schema-audit`, and `ireland-geometry-repro`; each supports
+`ireland-geometry-schema-audit`, `ireland-geometry-repro`, and
+`ireland-geometry-release-check`; each supports
 `--version` and reports the installed distribution version. Generated manifests, Doctor JSON, and the local
 `/api/metadata` response carry the same package identity and runtime signature
 for audit trails. Direct source-checkout execution reads the declared
@@ -231,13 +444,69 @@ Doctor separately reports whether each declared console command has a runnable
 installed wrapper (`installed_count` and `installation_status`); this catches
 an environment whose package metadata is newer than its executable scripts.
 Strict Doctor readiness also requires the complete installed wrapper set, in
-addition to clean provenance, cached inputs, generated outputs, and passing
-verification. Use `--max-input-age-days N` when freshness matters: the three
+addition to clean provenance, cached inputs, generated outputs, and all three
+validation records passing plus a current byte/hash-aligned output manifest
+inventory. Changed, missing, unlisted, or symlinked output artifacts therefore
+fail strict readiness even if persisted validation JSON still says pass. Use
+`--max-input-age-days N` when freshness matters: the three
 required source caches are reported with modification time and age, and strict
 readiness fails if any exceeds the configured positive limit. Without that
 option, freshness is still reported but does not impose an age policy.
+Doctor also rechecks every manifest source that has recorded metadata against
+the current filesystem under `ireland-geometry.source-alignment.v1`. The fast
+default compares source availability, modification time, byte size, and a
+recursive metadata SHA-256 fingerprint of paths/types/sizes/timestamps without
+reading large source payloads; `release_check.py --check-input-hashes` enables
+the slower full SHA-256 source gate for publication audits. The local report
+server, health/capabilities/metadata/interpretation endpoints, runtime
+endpoint, dashboard, and CSV/GeoJSON exports expose the same source-alignment
+result so a changed input source makes analytical findings provisional instead
+of silently treating an old output as current.
+The read-only `ireland-geometry-release-check` command composes this strict
+Doctor gate with current output-manifest artifact hash/size and inventory
+checks, the Pages audit/freshness, and complete verified-bundle gates. It
+rejects newly added unlisted output files as well as changed or stale listed
+artifacts or any output symlinks, including symlinked diagnostic exceptions,
+and requires `verification.json`, `schema_validation.json`, and
+`reproducibility.json` to be explicitly represented in the current manifest.
+The release checker also rejects symlinked or existing non-directory output and
+Pages site roots before resolving them, so a valid target directory cannot hide
+an unsafe caller path; Doctor exposes this as
+`capabilities.release_check.rejects_symlink_roots` and
+`capabilities.release_check.handles_non_directory_roots`.
+Use `--strict --require-pages --require-bundle --bundle output.bundle.zip` for
+a publication release, or `--skip-pages` when only a portable artifact is in
+scope.
+Doctor JSON also exposes `summary.strict_blockers` with stable blocker codes
+and capped Git worktree path details, while the release check propagates those
+codes into its `Doctor gate [code]` errors. This makes an intentional dirty
+checkout, missing cache, stale input, failed validation, or incomplete command
+installation directly diagnosable without rerunning lower-level checks.
 Manifest and API source-freshness records use the versioned
 `ireland-geometry.freshness.v1` contract.
+Current input-to-manifest checks use the versioned
+`ireland-geometry.source-alignment.v1` contract. Source records with hashes are
+required to remain available and metadata-aligned; optional source records
+without hashes remain explicitly unavailable rather than being treated as
+analytical inputs. The default runtime/server check is metadata-only, while
+the release checker can rehash every recorded source with
+`--check-input-hashes`.
+Source file and directory records also enforce a recursive symlink boundary:
+the source hash helper returns no hash for a symlinked tree, and the alignment
+gate reports every nested link instead of traversing it. A manifest created
+from such a source retains `symlink_paths` so the unsafe input remains visible
+until the source is rebuilt safely.
+The recursive `metadata_sha256` catches nested file additions, removals, and
+metadata changes even when a directory’s own modification time is unchanged;
+the full content hash remains the authoritative release check for same-metadata
+tampering.
+When a project is moved, the runtime and verifier prefer the current
+portable `relative_path` under the active project/data roots before falling
+back to retained historical absolute paths. This prevents an old checkout
+that still exists on disk from being mistaken for the relocated source.
+The standalone verifier accepts `--project-root` and the pipeline passes its
+active root explicitly, so this same resolution remains correct when data and
+outputs live outside the project directory.
 The OpenAPI 3.1 document declares the source-freshness object and its
 timestamp/age fields so clients can validate metadata and capability responses
 without relying on permissive extra properties.
@@ -260,7 +529,9 @@ wheel or source-distribution install as well as in an editable checkout. The CI
 package-smoke job builds both artifacts, installs the sdist in a fresh
 supported-Python environment outside the checkout for each Python 3.10–3.12
 matrix entry, and exercises every console entry point's help/version and
-packaged-schema paths. Version assertions derive the expected value from the
+packaged-schema paths. It also executes the packaged Pages publisher and the
+reproducibility/bundle symlink guards against small verified fixtures.
+Version assertions derive the expected value from the
 installed distribution metadata in each environment, so a future package
 version bump does not require a duplicated release literal in the workflow.
 The same distribution carries the default preregistered analysis plan at
@@ -270,7 +541,10 @@ otherwise the holdout stage uses the packaged plan and records its hash in
 The source distribution also retains the root plan and optional LiDAR, road,
 and boundary guidance files for users who unpack it as a project skeleton.
 The canonical Python 3.11 wheel, sdist, and SHA-256 manifest are retained as
-downloadable artifacts for 14 days from successful CI runs.
+downloadable artifacts for 14 days from successful CI runs. The Pages
+deployment workflow runs only after the `Ireland geometry checks` workflow
+succeeds, then checks out that exact validated commit before auditing and
+uploading `docs/`.
 
 `ireland-geometry-serve` binds to `127.0.0.1:8000` and serves
 `report_lazy.html` by default. Use `--open` to launch it in the default
@@ -288,6 +562,8 @@ full `report_data.json` pack compressed on the wire (the browser transparently
 decompresses it); the server caches the compressed bytes until the pack
 changes and returns a deterministic `ETag`, so repeat requests can revalidate
 with `If-None-Match` and receive `304 Not Modified` without another download.
+In the current cached snapshot the initial page was 268,518 bytes for 50 rows,
+versus roughly 116 MB for the full report pack.
 The metadata API uses the same ETag revalidation contract. Pass an explicit
 non-local `--host` only when the output directory is intended to be reachable
 by other machines. Append `?offline=1` to either
@@ -298,24 +574,143 @@ exports: `query_available` is true only when at least one backend is readable,
 `query_backend_health` preserves per-backend errors for diagnosis.
 `ready` describes whether the selected report can be served; `analysis_ready`
 is the stricter analytical gate and is true only when the provenance manifest
-exists and verification, schema-validation, and reproducibility records all
-pass. Both health and
-capabilities responses include the per-record `validation` status so an
-automation client can distinguish a live dashboard from validated artifacts.
+exists, verification/schema-validation/reproducibility records all pass, and
+the current output tree still matches the manifest's byte/hash inventory and
+the current input sources remain aligned with the manifest. The shared
+`ireland-geometry.manifest-alignment.v1` result reports stale, missing,
+unlisted, malformed, or symlinked artifacts; the companion
+`ireland-geometry.source-alignment.v1` result reports current input drift.
+Health, capabilities, metadata, interpretation, report-page/runtime, and
+export surfaces expose both results alongside the per-record `validation`
+status, so an automation client can distinguish a live dashboard from current,
+validated artifacts.
+The initial `GET /api/report/page` response also carries the
+`ireland-geometry.report-runtime.v1` envelope and rewrites the dashboard's
+initial `summary.analysis_ready`/interpretation gate from current filesystem
+state, so a stale report pack cannot present a green analytical-readiness
+banner while served locally.
+The dashboard reapplies that envelope on every later page request and shows a
+live runtime badge in the toolbar; if the output changes during a review, the
+visible state and interpretation caveat become provisional instead of
+remaining silently stale.
+The report-page filtering and export helpers load geometry libraries lazily;
+the packaged server can therefore serve these JSON/CSV/GeoJSON surfaces in a
+minimal runtime, while full report generation still requires the declared
+geospatial dependencies.
+CSV and GeoJSON export responses also carry the
+`ireland-geometry.report-runtime.v1` status through
+`X-Ireland-Geometry-*` headers, and the dashboard labels non-passing exports
+as provisional. This keeps binary downloads machine-readable without changing
+their CSV or GeoJSON payload shapes.
+The server refuses a symlinked output root or any nested output symlink before
+binding, and its static file handler also returns `404` for links introduced
+after startup; Doctor exposes this as
+`capabilities.report_server.rejects_symlinks`. Doctor also reports whether the
+server performs current manifest-artifact alignment under
+`capabilities.report_server.checks_manifest_alignment` and whether filtered
+exports carry the runtime headers under
+`capabilities.report_server.report_export_runtime_headers`.
+The server accepts the active `--project-root` explicitly and uses it for
+source alignment across health, capabilities, metadata, runtime, report-page,
+interpretation, and export responses; Doctor exposes this as
+`capabilities.report_server.explicit_project_root`.
+The direct readiness endpoint is inventoried as
+`capabilities.report_server.report_runtime_api`.
+The capabilities response lists every read endpoint that rechecks source
+alignment under `source_alignment_surfaces`, making the consistency boundary
+discoverable without hard-coding routes.
+The dashboard capability inventory also reports whether both generated report
+pages contain the live runtime-refresh contract under
+`capabilities.reports.live_runtime_refresh`; a stale generated page is marked
+incomplete instead of being treated as a fully capable dashboard.
 `GET /api/interpretation` returns the compact machine-readable interpretation
 sidecar, including derived findings, source-aware caveats, and the validation
 gate, without requiring automation to download the large `report_data.json`
 pack. It returns `404` when the sidecar has not been generated and uses the
 same deterministic ETag revalidation behavior.
+The committed GitHub Pages site lives in `docs/` and embeds its own report pack
+so it remains usable as a static site. Run
+`python scripts/publish_pages.py --json` after a passing full pipeline build to
+copy the authoritative `output/report.html` and `output/review.html` into
+`docs/`. The publisher refuses failed verification or partial manifest/cache
+alignment or incomplete schema/reproducibility validation, writes
+`docs/pages_manifest.json` under
+`ireland-geometry.pages-publish.v1`, stages and audits the complete candidate
+before replacing the published files, checks every published source file
+against the current output-manifest hash and byte record, and audits the
+resulting site again. The publication site must be outside the analytical
+output directory so a misconfigured publish cannot overwrite or contaminate
+the verified output inventory; symlinked output and site roots are rejected as
+well. Before
+deployment, `python scripts/pages_audit.py --json` checks the embedded
+target/GeoJSON identity set, report summary counts, scoring and manifest
+provenance, publication hashes, and review-queue scope; the Pages workflow runs
+this audit before uploading the site artifact. Doctor JSON also exposes the
+publisher/audit modules, publication contract, published revision, file count,
+and current Pages audit result under `capabilities.pages`.
+Doctor reports the publisher’s source-artifact alignment capability as
+`capabilities.pages.publisher_checks_manifest_artifacts`.
+It also reports the publication boundary as
+`capabilities.pages.publisher_rejects_site_inside_output`.
+Symlink-root and existing-file enforcement are reported as
+`capabilities.pages.publisher_rejects_symlink_roots` and
+`capabilities.pages.publisher_handles_non_directory_roots`.
+The direct Pages audit reports the matching root guard as
+`capabilities.pages.audit_rejects_symlink_root` and
+`capabilities.pages.audit_handles_non_directory_root`.
 The same local server exposes `GET /api/route` for point-to-point routing, for
 example `/api/route?start_lat=53&start_lon=-8&goal_lat=53&goal_lon=-8.002`.
-It accepts optional `speed_kmh`, ISO-8601 `departure`, `include_path=1`, and
-`include_ferries=1` parameters. Add `format=geojson` for a GeoJSON `Feature`
-with the reconstructed route geometry. The endpoint uses `data/roads` by
+It accepts optional `speed_kmh`, `weight_t`, `rating_t`, `height_m`, `width_m`, `length_m`,
+`axleload_t`, `vehicle_class=general|delivery|hgv|psv|taxi`,
+ISO-8601 `departure`, `objective=distance|duration`, `include_path=1`, and
+`include_ferries=1`
+parameters. Add `format=geojson` for a GeoJSON `Feature`
+with the reconstructed route geometry. Path-enabled JSON also exposes ordered
+`path_way_ids`, directed `path_segments`, per-segment distance/duration/wait
+metrics, persisted OSM `road_context`, static per-segment edge `constraints`,
+conditional `conditional_rules`, relation-level turn `transition_rules`, and
+`path_segment_source`; GeoJSON
+keeps those route fields out of feature properties while preserving the route
+geometry. The endpoint uses `data/roads` by
 default; `--data-root` or `--road-graph` can point the server at another local
-graph. Ferry schedules are not modeled.
+graph. When the graph carries `ferry_schedules.json`, a supplied departure
+enforces its supported weekly, seasonal, fixed-date, and public-holiday service
+windows, waiting for the next supported opening when necessary. Route responses
+expose `ferry_wait_s` and `ferry_wait_n` so clients can distinguish service
+waiting from crossing time. Responses also expose the unique ferry way IDs,
+physical ferry distance, crossing time excluding waits, and ferry-edge count,
+plus the supplied `vehicle_weight_t`, `vehicle_rating_t`, and `vehicle_class` profiles. The
+`delivery` class activates delivery-only conditional access, the `hgv` class
+activates numeric `maxweight:hgv` limits when `weight_t` is supplied; `rating_t`
+separately activates numeric `maxweightrating:hgv` limits for HGV routes, and the `psv`
+class activates public-service-vehicle conditional access on SQLite graphs;
+`height_m` activates numeric legal and physical height limits, while `width_m`,
+`length_m`, and `axleload_t` activate numeric `maxwidth`, `maxlength`, and
+`maxaxleload` limits; ambiguous tags are treated as impassable for the
+corresponding qualified routes.
+For HGV routes, `allow_hgv_destination=true` (or the CLI
+`--allow-hgv-destination`) enables the supported destination-only access and
+matching conditional exceptions; static destination-only access remains
+blocked by default. Unrelated numeric limits remain enforced.
+Duration estimates also apply supported numeric OSM `maxspeed` ceilings per
+way on the v21 SQLite graph. Safely supported conditional speed schedules are
+evaluated from an explicit `departure`; unsupported clauses remain reported
+but unevaluated. Supported conditional one-way windows are evaluated from the
+same departure profile, with unsupported qualifiers reported and left at the
+base one-way state.
+The default `general` profile leaves delivery-only ways unavailable and treats
+psv and taxi windows as class-specific access windows. The supported HGV
+destination forms above are modeled; other destination-dependent and
+unloading-specific HGV conditions remain outside the contract. Numeric
+`maxweightrating:hgv` limits are evaluated from the separate HGV `rating_t`
+profile, while ambiguous values are fail-closed only for rating-qualified routes.
+Public-holiday windows are evaluated when the graph directory carries the
+explicit `public_holidays.json` contract; the cached graph includes the
+2023–2030 Irish calendar and route responses expose its count and date bounds.
+Graphs without the companion report that the calendar was not provided.
+Responses expose both contract statuses and any modeled crossing durations.
 The served dashboard includes the same route form, displays the returned
-distance/duration/snap metadata, and draws the returned path on either the live
+distance/duration/snap/vehicle-weight/ferry-breakdown/wait metadata, and draws the returned path on either the live
 Leaflet map or the dependency-free offline SVG map. It also preserves the full
 optional path/GeoJSON payload. In standalone `file://` mode it remains visible
 but explains that the local server is required.
@@ -341,7 +736,15 @@ file availability, runtime readability, and any probe error, alongside the
 `readable_backends` list. Its response links to the full local JSON records.
 `GET /api/report/page` exposes the versioned
 `ireland-geometry.report-page.v1` contract with bounded target pages and
-filter options. `GET /api/report/export?format=csv|geojson` exposes the
+filter options. `GET /api/report/runtime` exposes the current compact
+`ireland-geometry.report-runtime.v1` readiness envelope directly, with the
+same deterministic ETag revalidation behavior as other metadata surfaces. The
+envelope also carries a stable snapshot identity: manifest generation time,
+Git revision/dirty state, package and manifest schema versions, and the
+current manifest SHA-256. Doctor inventories this under
+`capabilities.report_server.report_runtime_snapshot`, and the dashboard badge
+shows the active build revision when it is available.
+`GET /api/report/export?format=csv|geojson` exposes the
 matching `ireland-geometry.report-export.v1` export contract. Both endpoints
 reuse the dashboard predicate and reload the server-side pack only when its
 mtime/size changes. `GET /api/capabilities` provides a single discovery document for local
@@ -355,7 +758,12 @@ contracts: `ireland-geometry.health.v1`, `ireland-geometry.query.v1`,
 `ireland-geometry.capabilities.v1`, plus
 `ireland-geometry.interpretation.v1`,
 `ireland-geometry.report-page.v1`, and
-`ireland-geometry.report-export.v1`. `GET /api/openapi.json` serves a
+`ireland-geometry.report-export.v1`, plus the nested
+`ireland-geometry.report-runtime.v1` envelope used by report pages and export
+headers, and the direct runtime endpoint. The server-backed dashboard polls
+that endpoint every 30 seconds while open, so an idle review becomes
+provisional when the output tree changes or the runtime check becomes
+unavailable. `GET /api/openapi.json` serves a
 dependency-free OpenAPI 3.1 document for those read-only endpoints, including
 the interpretation sidecar, paginated report filters/exports, query
 filters/cursors, route coordinate/profile parameters, response schemas,
@@ -674,14 +1082,73 @@ These statements describe the cached artifacts above, not universal claims:
   satellite layer is a live visual basemap, not a downloaded analytical input.
 - The complete SQLite graph is a routable OSM snapshot, not a traffic-aware
   navigation network: non-conditional via-node and validated via-way
-  `no_*`/`only_*` turn restrictions are applied. 72 graph-resolved conditional
-  windows can be evaluated with `--departure` and `--speed-kmh`; the default
-  snapshot leaves them inactive. Four conditional references are unresolved
-  and one condition uses unsupported syntax. The v6 graph stores 1,549 ferry
-  segments from 77 access-allowed ways and 38 route relations; use
-  `--include-ferries` to include their static geometry, while schedules,
-  terminal platform semantics, and service frequency are not modeled. Access
-  restrictions are applied from the most specific motor-vehicle tags.
+  `no_*`/`only_*` turn restrictions are applied. The cached graph stores 78
+  parseable conditional restriction relations, including 74 time windows and
+  one vehicle-weight condition; time windows can be evaluated with
+  `--departure` and `--speed-kmh`, while weight conditions require
+  `--weight-t` (or API `weight_t`). Without those profiles the corresponding
+  rules remain inactive and are reported as such. The SQLite graph also
+  evaluates the weight-qualified delivery access rule
+  `delivery @ (weight>5T)` when a delivery vehicle weight is supplied.
+  Supported conditional road
+  access rules such as `motor_vehicle:conditional=yes @ (19:00-07:00)` and
+  deny windows are also evaluated from the same departure profile. The SQLite
+  graph additionally retains 19 delivery-vehicle, 7 public-service-vehicle,
+  and 6 taxi rules, including one weight-qualified rule, and applies directional
+  conditional access by
+  traversal direction; select
+  `--vehicle-class delivery` (or `vehicle_class=delivery`) to activate them,
+  while the default general profile remains blocked from delivery-only ways.
+  Use `--vehicle-class psv` (or `vehicle_class=psv`) for public-service-vehicle
+  windows and `--vehicle-class taxi` (or `vehicle_class=taxi`) for taxi-specific
+  windows. Unsupported conditional-access tags remain explicitly reported, excluded
+  from the default graph, and are not evaluated. The portable CSV fallback omits
+  conditional-tagged ways because it cannot evaluate per-way profiles. Four
+  conditional references remain unresolved because their source ways are
+  pedestrian/cycleway-only. The v21 SQLite graph retains 1,101 generic
+  `maxweight` ways, including 1,100 numeric limits across 9,918 segments, and
+  35 numeric `maxweight:hgv` ways across 289 segments; an explicit
+  `--weight-t`/`weight_t` profile enforces generic limits, while the `hgv`
+  profile additionally enforces HGV-specific limits. One ambiguous generic tag
+  is fail-closed only for weighted routes. It also retains 216 routable
+  `maxweightrating:hgv`/Irish `maxweightrating:goods` ways, including 214
+  supported numeric limits and 2 ambiguous values across 3,180 segments;
+  `--rating-t`/`rating_t` enforces these limits only for the explicit HGV
+  class, separately from `--weight-t`.
+  The graph also retains numeric legal
+  `maxheight` limits on 1,509 ways across 9,324 segments and physical
+  `maxheight:physical` limits on 12 ways across 25 segments; `--height-m` or
+  API `height_m` enforces both, while ambiguous values are fail-closed only
+  for height-qualified routes. It also retains numeric `maxwidth` on 14 ways
+  across 131 directed segments, `maxlength` on 5 ways across 95 segments, and
+  `maxaxleload` on 10 ways across 84 segments. Their corresponding
+  `--width-m`/`width_m`, `--length-m`/`length_m`, and
+  `--axleload-t`/`axleload_t` profiles enforce those limits. The PBF snapshot
+  has no ambiguous values for these three tags; destination- or condition-
+  dependent variants remain outside this contract. It also retains numeric
+  `maxspeed` on 196,440 routable ways, including 196,435 supported ceilings
+  across 2,115,207 directed segments and 5 non-numeric values across 19
+  segments. Duration routing applies supported ceilings per way while keeping
+  the configured speed as an upper bound. The v21 edge contract stores 225
+  `maxspeed:conditional` ways across 2,638 directed segments; 185 supported
+  schedules are evaluated from explicit departures and 40 unsupported clauses
+  remain retained but unevaluated. It stores
+  five conditional one-way ways across 31 directed segments in
+  `oneway_conditional_json`; two supported schedule ways are evaluated from
+  explicit departures, while three unsupported permit/private clauses retain
+  the base one-way semantics. It stores
+  1,549 ferry segments from 77 access-allowed ways and 38 route relations; use
+  `--include-ferries` to include their geometry. SQLite graph builds can
+  persist the `ireland-geometry.ferry-schedules.v1` companion contract;
+  supported weekly, seasonal, fixed-date, and public-holiday `opening_hours`
+  windows are enforced for explicit departures. The cached graph carries the
+  separate `ireland-geometry.public-holidays.v1` `public_holidays.json`
+  contract with 2023–2030 dates; route metadata exposes the supplied coverage
+  bounds. Graphs without the companion report the calendar as not provided.
+  Optional per-way crossing durations affect arrival estimates. The cached
+  graph carries 26 durations and 4 parsed schedules, 1 of which requires that
+  calendar. Terminal platform semantics and service frequency are not modeled.
+  Access restrictions are applied from the most specific motor-vehicle tags.
   The legacy bounded CSV graph is retained for lightweight portable diagnostics.
 
 ## Optional LiDAR and historical references
@@ -713,8 +1180,9 @@ package/runtime provenance shape, report
 JavaScript, optional-source status, artifact hashes, and complete manifest
 coverage. It also validates the `ireland-geometry.freshness.v1` source-age
 record, including timestamp arithmetic, source-row alignment, and current
-filesystem modification times. It rejects duplicate or external manifest paths and unlisted output
-coverage. Its path contract preserves portable relative references alongside
+filesystem modification times. The manifest builder and verifier recursively
+cover nested output files and reject output symlinks, duplicate or external
+manifest paths, and unlisted output coverage. Its path contract preserves portable relative references alongside
 the legacy absolute paths, and verification can resolve an artifact after the
 project has been moved. It rejects duplicate or external manifest paths and
 unlisted output files. Atomic writes make
@@ -723,6 +1191,9 @@ each stage safe to rerun after interruption.
 versioned `ireland-geometry.bundle.v1` ZIP contract. The archive contains a
 machine-readable `bundle.json` with per-file SHA-256 hashes and fixed ZIP
 timestamps, so two bundles made from unchanged inputs are byte-identical.
+The archive destination must be outside the output directory; this prevents a
+release ZIP from becoming an unlisted output artifact on the next manifest or
+release audit.
 Workspace-only `doctor.json` and `stage_cache.json` files are excluded by
 default; repeat `--exclude` to omit additional relative paths or globs. A
 recipient can validate the archive in place without extracting it:
@@ -730,15 +1201,35 @@ recipient can validate the archive in place without extracting it:
 Extraction also verifies every hash first and requires a new destination:
 `.venv/bin/ireland-geometry-bundle --extract ireland-geometry.bundle.zip --destination restored-output`.
 For a publication/share gate, add `--require-verified`; bundling then fails
-unless the output contains both `manifest.json` and a passing
-`verification.json`. The source files must remain in the archive, and their
-hashes, path contract, verification status, and row counts are retained in
-`bundle.json`; archive verification checks those provenance records for
-consistency as well as checking every payload hash.
+unless the output contains `manifest.json`, a passing `verification.json`, and
+passing `schema_validation.json` and `reproducibility.json` records whose
+current bytes and SHA-256 values match the manifest. Bundle creation also
+rejects symlinked output files or output directories, so the archive cannot
+silently omit an output path. All four source records must remain in the archive;
+their hashes, path contract,
+validation statuses, and row counts are retained in `bundle.json`, and archive
+verification checks those provenance records for consistency as well as every
+payload hash.
+The CLI preserves the supplied output and archive paths through this check.
 Add `--json` to bundle creation, verification, or extraction to receive the
 same result as a machine-readable JSON document, including archive counts and
 verified provenance; this avoids parsing human-oriented console text in release
 automation.
+Doctor exposes whether the installed bundle implementation enforces this
+complete validation guard as `capabilities.bundle.requires_complete_validation`.
+The unified release check also compares the bundle's four provenance hashes
+with the current output directory, so an older valid archive cannot be
+mistaken for the current release. Doctor exposes whether the release
+implementation performs the current output inventory check under
+`capabilities.release_check.checks_output_inventory`.
+It reports the matching symlink invariant under
+`capabilities.release_check.checks_output_symlinks`.
+It also reports publication-root enforcement under
+`capabilities.release_check.rejects_symlink_roots`.
+Doctor also reports recursive, symlink-safe manifest coverage under
+`capabilities.validation.manifest_coverage`.
+It reports the release gate’s explicit validation-record requirement under
+`capabilities.release_check.checks_validation_records`.
 
 ## Licensing and attribution
 

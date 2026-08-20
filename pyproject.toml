@@ -23,6 +23,7 @@ ireland-geometry-query = "scripts.query_data:main"
 ireland-geometry-bundle = "scripts.bundle:main"
 ireland-geometry-schema-audit = "scripts.schema_audit:main"
 ireland-geometry-repro = "scripts.repro_check:main"
+ireland-geometry-release-check = "scripts.release_check:main"
 
 [project.optional-dependencies]
 dev = [

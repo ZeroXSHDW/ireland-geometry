@@ -1,5 +1,10 @@
 import csv
 import json
+import shutil
+import subprocess
+import sys
+
+import pytest
 
 from scripts.report import (
     build_interpretation,
@@ -11,6 +16,7 @@ from scripts.report import (
     report_matching_targets,
     source_freshness_summary,
 )
+from scripts.report import main as report_main
 
 
 def write_csv(path, fieldnames, rows):
@@ -18,6 +24,71 @@ def write_csv(path, fieldnames, rows):
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def test_report_page_helpers_do_not_eagerly_require_geometry_dependency():
+    code = r'''
+import builtins
+
+original_import = builtins.__import__
+
+def blocked(name, *args, **kwargs):
+    if name == "shapely" or name.startswith("shapely."):
+        raise ModuleNotFoundError("shapely intentionally blocked")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = blocked
+from scripts.report import report_csv, report_geojson, report_page_payload
+
+data = {"targets": [], "geojson": {"type": "FeatureCollection", "features": []}}
+page = report_page_payload(data)
+assert page["page"]["total"] == 0
+assert page["endpoints"]["runtime"] == "/api/report/runtime"
+assert report_csv(data).startswith("osm_id,name,group")
+assert report_geojson(data)["type"] == "FeatureCollection"
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_report_rejects_symlinked_output_root(tmp_path):
+    target = tmp_path / "target-output"
+    target.mkdir()
+    linked = tmp_path / "linked-output"
+    try:
+        linked.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(SystemExit, match="output directory must not be a symlink"):
+        report_main(["--out-dir", str(linked)])
+
+
+def test_report_rejects_file_output_root(tmp_path):
+    output = tmp_path / "output"
+    output.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="output directory must be a directory"):
+        report_main(["--out-dir", str(output)])
+
+
+def test_report_rejects_nested_output_symlink(tmp_path):
+    output = tmp_path / "output"
+    output.mkdir()
+    target = tmp_path / "outside"
+    target.mkdir()
+    try:
+        (output / "linked-input.csv").symlink_to(target / "input.csv")
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(SystemExit, match="output directory contains symlink"):
+        report_main(["--out-dir", str(output)])
 
 
 def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
@@ -168,8 +239,27 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "Offline map fallback" in html
     assert "OFFLINE_REQUESTED" in html
     assert "function loadMapAssets()" in html
+    assert "World_Imagery/MapServer/tile" in html
+    assert 'data-map-layer="hybrid"' in html
+    assert 'id="mapFit"' in html
+    assert 'id="mapLoading"' in html
+    assert "function selectMapTarget" in html
+    assert "Focus in list" in html
     assert "function restoreViewState()" in html
     assert "function syncViewState()" in html
+    assert "X-Ireland-Geometry-Runtime-Status" in lazy_html
+    assert "function applyRuntime(runtime)" in lazy_html
+    assert "function applyRuntimeHeaders(headers)" in lazy_html
+    assert "function runtimeIdentityText()" in lazy_html
+    assert "const snapshot=REPORT_RUNTIME?.snapshot" in lazy_html
+    assert "const BASE_INTERPRETATION = PACK.interpretation || {};" in lazy_html
+    assert "INTERPRETATION={...BASE_INTERPRETATION};" in lazy_html
+    assert "function renderRuntimeStatus()" in lazy_html
+    assert "function refreshRuntime()" in lazy_html
+    assert "function startRuntimeRefresh()" in lazy_html
+    assert "setInterval(refreshRuntime,RUNTIME_REFRESH_MS)" in lazy_html
+    assert "function renderMethod()" in lazy_html
+    assert "id=\"runtimeStatus\"" in lazy_html
     assert "id=\"routeRun\"" in html
     assert "function runRoute()" in html
     assert "function routeCoordinates(payload)" in html
@@ -178,8 +268,53 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "routeLine=L.polyline" in html
     assert "include_ferries" in html
     assert "routeFormat" in html
+    assert "function routeWaitText(route)" in html
+    assert "ferry_wait_s" in html
+    assert "ferry_wait_n" in html
+    assert "function routeFerryText(route)" in html
+    assert "function routeSegmentText(route)" in html
+    assert "path_segment_source" in html
+    assert "path_segment_total_distance_m" in html
+    assert "conditional_rules" in html
+    assert "ferry_way_ids" in html
+    assert "ferry_distance_m" in html
+    assert "ferry_crossing_s" in html
+    assert "ferry_edge_n" in html
+    assert 'id="routeObjective"' in html
+    assert "objective:$('routeObjective').value" in html
+    assert 'id="routeWeight"' in html
+    assert "weight_t:$('routeWeight').value" in html
+    assert "function routeWeightText(route)" in html
+    assert 'id="routeRating"' in html
+    assert "rating_t:$('routeRating').value" in html
+    assert "function routeRatingText(route)" in html
+    assert 'id="routeHeight"' in html
+    assert "height_m:$('routeHeight').value" in html
+    assert "function routeHeightText(route)" in html
+    assert 'id="routeWidth"' in html
+    assert "width_m:$('routeWidth').value" in html
+    assert "function routeWidthText(route)" in html
+    assert 'id="routeLength"' in html
+    assert "length_m:$('routeLength').value" in html
+    assert "function routeLengthText(route)" in html
+    assert 'id="routeAxleload"' in html
+    assert "axleload_t:$('routeAxleload').value" in html
+    assert "function routeAxleloadText(route)" in html
     assert 'id="routeIncludePath" type="checkbox" checked' in html
     assert "file mode has no route API" in html
+    assert 'id="grammar"' in html
+    assert "DESIGN_GRAMMARS" in html
+    assert "Mirror symmetry" in html
+    assert "Orthogonal grid" in html
+    assert "Cruciform plan" in html
+    assert 'id="windShelter"' in html
+    assert 'id="rainCapture"' in html
+    assert 'id="accessWidth"' in html
+    assert 'id="futurePhases"' in html
+    assert "Library courtyard" in html
+    assert "Museum loop" in html
+    assert "function renderPerformanceOverlay" in html
+    assert "function renderGrammarOverlay" in html
     assert 'href="review.html"' in html
     assert "function reviewHref(row)" in html
     assert "function reviewFilterState(row)" in html
@@ -356,3 +491,46 @@ def test_pattern_catalog_lists_every_flag_and_filters_targets():
 
     matches = report_matching_targets({"targets": rows}, pattern="golden_angle")
     assert [row["osm_id"] for row in matches] == ["way/1"]
+
+
+def test_generated_runtime_recovery_restores_baseline_interpretation(tmp_path):
+    if shutil.which("node") is None:
+        pytest.skip("Node.js is required for generated dashboard runtime testing")
+    html = build_lazy_report(tmp_path)
+    start = html.index("const BASE_INTERPRETATION")
+    declarations_end = html.index("const SIG", start)
+    function_start = html.index("function applyRuntime(runtime)", declarations_end)
+    function_end = html.index("function applyRuntimeHeaders", function_start)
+    runtime_functions = html[start:declarations_end] + html[function_start:function_end]
+    script = """
+const baseline = {
+  status: 'available',
+  headline: 'Baseline headline',
+  findings: [{id: 'validation', status: 'pass', text: 'Baseline text'}],
+  caveats: ['Original caveat']
+};
+const PACK = {interpretation: baseline};
+let SUMMARY = {};
+""" + runtime_functions + """
+applyRuntime({
+  contract: 'ireland-geometry.report-runtime.v1',
+  status: 'fail',
+  analysis_ready: false,
+  validation: {status: 'pass'},
+  manifest_alignment: {status: 'fail'}
+});
+if (INTERPRETATION.findings[0].status !== 'fail') throw new Error('stale runtime was not applied');
+if (!INTERPRETATION.caveats.some(item => item.includes('not aligned'))) throw new Error('stale caveat missing');
+applyRuntime({
+  contract: 'ireland-geometry.report-runtime.v1',
+  status: 'pass',
+  analysis_ready: true,
+  validation: {status: 'pass'},
+  manifest_alignment: {status: 'pass'}
+});
+if (JSON.stringify(INTERPRETATION) !== JSON.stringify(baseline)) throw new Error('baseline interpretation was not restored');
+"""
+    result = subprocess.run(
+        ["node", "-e", script], check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr

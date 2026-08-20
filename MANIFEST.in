@@ -1,2 +1,4 @@
 include analysis_plan.json
+include schemas/ferry_schedules.json
+include schemas/public_holidays.json
 recursive-include data README.md

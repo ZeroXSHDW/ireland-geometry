@@ -32,6 +32,21 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+try:
+    from runtime import (
+        atomic_write_json,
+        project_data_path,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
+except ImportError:
+    from scripts.runtime import (
+        atomic_write_json,
+        project_data_path,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
+
 MIRRORS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -121,8 +136,13 @@ def post_overpass(query: str, mirror: str) -> dict:
 def fetch_cell(group: str, cell: tuple, data_dir: Path, refresh: bool) -> int:
     """Fetch one group for one grid cell; returns element count."""
     name, bbox = cell
-    out = data_dir / "raw" / f"{group}__{name}.json"
+    raw_dir = reject_symlink_root(data_dir / "raw", label="OSM raw data directory")
+    out = raw_dir / f"{group}__{name}.json"
     if out.exists() and not refresh:
+        try:
+            reject_symlink_path(out, label="OSM raw cache file")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         try:
             return len(json.loads(out.read_text()).get("elements", []))
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
@@ -135,7 +155,7 @@ def fetch_cell(group: str, cell: tuple, data_dir: Path, refresh: bool) -> int:
             payload = post_overpass(query, mirror)
             n = len(payload.get("elements", []))
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text(json.dumps(payload))
+            atomic_write_json(out, payload)
             return n
         except (
             OSError,
@@ -157,7 +177,12 @@ def fetch_cell(group: str, cell: tuple, data_dir: Path, refresh: bool) -> int:
 
 def combine(data_dir: Path) -> None:
     merged: dict = {}
-    for f in sorted((data_dir / "raw").glob("*.json")):
+    raw_dir = reject_symlink_root(data_dir / "raw", label="OSM raw data directory")
+    for f in sorted(raw_dir.glob("*.json")):
+        try:
+            reject_symlink_path(f, label="OSM raw cache file")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         try:
             payload = json.loads(f.read_text())
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
@@ -165,7 +190,7 @@ def combine(data_dir: Path) -> None:
         for el in payload.get("elements", []):
             merged[(el["type"], el["id"])] = el
     comb = {"elements": list(merged.values())}
-    (data_dir / "combined.json").write_text(json.dumps(comb))
+    atomic_write_json(data_dir / "combined.json", comb)
     print(f"[fetch] combined: {len(comb['elements'])} unique elements", flush=True)
 
 
@@ -179,8 +204,13 @@ def main() -> None:
     ap.add_argument("--bbox", default="", help="single bbox override: s,w,n,e (testing)")
     args = ap.parse_args()
 
-    data_dir = Path(args.data_dir)
+    data_dir = project_data_path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        raw_dir = reject_symlink_root(data_dir / "raw", label="OSM raw data directory")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    raw_dir.mkdir(parents=True, exist_ok=True)
 
     groups = [g for g in args.groups.split(",") if g]
     for g in groups:

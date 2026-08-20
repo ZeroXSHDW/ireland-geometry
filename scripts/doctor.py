@@ -20,14 +20,19 @@ try:
     from runtime import (
         PACKAGE_NAME,
         PACKAGE_ROOT,
+        SOURCE_ALIGNMENT_CONTRACT,
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
         git_dirty,
         git_revision,
+        git_worktree_status,
+        manifest_source_alignment,
         package_version,
         path_age_seconds,
         path_modified_at,
+        path_symlink_paths,
+        project_output_file_path,
         runtime_signature,
         sha256_file,
         utc_now,
@@ -37,22 +42,46 @@ except ImportError:
     from scripts.runtime import (
         PACKAGE_NAME,
         PACKAGE_ROOT,
+        SOURCE_ALIGNMENT_CONTRACT,
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
         git_dirty,
         git_revision,
+        git_worktree_status,
+        manifest_source_alignment,
         package_version,
         path_age_seconds,
         path_modified_at,
+        path_symlink_paths,
+        project_output_file_path,
         runtime_signature,
         sha256_file,
         utc_now,
     )
     from scripts.runtime import ROOT as DEFAULT_PROJECT_ROOT
 
+try:
+    from pages_audit import (
+        PAGES_AUDIT_CONTRACT,
+        PAGES_PUBLISH_CONTRACT,
+        audit_site,
+    )
+except ImportError:
+    try:
+        from scripts.pages_audit import (
+            PAGES_AUDIT_CONTRACT,
+            PAGES_PUBLISH_CONTRACT,
+            audit_site,
+        )
+    except ImportError:
+        PAGES_AUDIT_CONTRACT = "ireland-geometry.pages-audit.v1"
+        PAGES_PUBLISH_CONTRACT = "ireland-geometry.pages-publish.v1"
+        audit_site = None
+
 
 MIN_PYTHON = (3, 10)
+DOCTOR_VERSION = 128
 REQUIRED_DEPENDENCIES = ("numpy", "shapely", "requests", "osmium")
 OPTIONAL_DEPENDENCIES = ("pyarrow", "duckdb", "rasterio", "laspy")
 STRICT_OUTPUT_NAMES = (
@@ -60,6 +89,8 @@ STRICT_OUTPUT_NAMES = (
     "report.html",
     "interpretation.json",
     "verification.json",
+    "schema_validation.json",
+    "reproducibility.json",
     "manifest.json",
 )
 NON_CACHEABLE_STAGES = {"report", "repro-check", "verify"}
@@ -95,8 +126,13 @@ def pipeline_status(root: Path) -> dict[str, Any]:
         "supports_dry_run_json": False,
         "supports_dry_run_cache_explanations": False,
         "post_validation_report_refresh": False,
+        "post_validation_bundle": False,
         "preserves_diagnostic_manifest_context": False,
         "diagnostic_json_outputs": False,
+        "reproducibility_rejects_symlinks": False,
+        "rejects_output_symlink": False,
+        "rejects_output_non_directory": False,
+        "rejects_nested_symlinks": False,
         "parameter_validation": False,
         "cache_version": None,
         "dependency_aware_cache": False,
@@ -157,6 +193,17 @@ def pipeline_status(root: Path) -> dict[str, Any]:
             "if post_validation_refresh:",
         )
     )
+    result["post_validation_bundle"] = all(
+        _file_contains(module_path, token)
+        for token in (
+            "--bundle",
+            "build_bundle_command",
+            "build_bundle_verify_command",
+            'phase": "post_validation_bundle"',
+            '"--require-verified"',
+            '"--verify"',
+        )
+    )
     result["preserves_diagnostic_manifest_context"] = all(
         _file_contains(module_path, token)
         for token in ("DIAGNOSTIC_ONLY_STAGES", "provenance_context_preserved", "last_invocation")
@@ -168,6 +215,13 @@ def pipeline_status(root: Path) -> dict[str, Any]:
     result["diagnostic_json_outputs"] = all(
         script.is_file() and _file_contains(script, "--json") for script in diagnostic_scripts
     )
+    repro_module = root / "scripts" / "repro_check.py"
+    result["reproducibility_rejects_symlinks"] = repro_module.is_file() and _file_contains(
+        repro_module, "output contains a symlink"
+    )
+    result["rejects_output_symlink"] = _file_contains(module_path, "reject_symlink_root(")
+    result["rejects_output_non_directory"] = result["rejects_output_symlink"]
+    result["rejects_nested_symlinks"] = _file_contains(module_path, "reject_symlink_tree(")
     cache_module = root / "scripts" / "stage_cache.py"
     result["cache_version"] = 5 if _file_contains(cache_module, "CACHE_VERSION = 5") else None
     result["dependency_aware_cache"] = cache_module.is_file() and all(
@@ -187,11 +241,431 @@ def pipeline_status(root: Path) -> dict[str, Any]:
             and result["dependency_aware_cache"]
             and result["cache_explanations"]
             and result["diagnostic_json_outputs"]
+            and result["rejects_output_symlink"]
+            and result["rejects_nested_symlinks"]
             and result["post_validation_report_refresh"]
+            and result["post_validation_bundle"]
         )
         else "incomplete"
     )
     return result
+
+
+def output_safety_status(root: Path) -> dict[str, Any]:
+    """Inventory fail-closed output-root guards across user-facing commands."""
+    runtime_module = root / "scripts" / "runtime.py"
+    modules = {
+        "doctor": (root / "scripts" / "doctor.py", "project_output_file_path("),
+        "pipeline": (root / "run_pipeline.py", "reject_symlink_root("),
+        "report": (root / "scripts" / "report.py", "project_output_tree_path("),
+        "schema_audit": (root / "scripts" / "schema_audit.py", "project_output_tree_path("),
+        "columnar": (root / "scripts" / "columnar.py", "project_output_tree_path("),
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_root(out_dir)"),
+        "repro_check": (root / "scripts" / "repro_check.py", "out.is_symlink()"),
+        "bundle": (root / "scripts" / "bundle.py", "reject_symlink_root("),
+        "report_server": (root / "scripts" / "serve_report.py", "reject_symlink_root("),
+        "query": (root / "scripts" / "query_data.py", "project_output_tree_path("),
+        "pages_publisher": (root / "scripts" / "publish_pages.py", "reject_symlink_root("),
+        "pages_audit": (root / "scripts" / "pages_audit.py", "site_input.is_symlink()"),
+        "release_check": (root / "scripts" / "release_check.py", "def _symlink_root_errors("),
+        "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+    }
+    guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in modules.items()
+    }
+    non_directory_modules = {
+        "doctor": (root / "scripts" / "doctor.py", "project_output_file_path("),
+        "pipeline": (root / "run_pipeline.py", "reject_symlink_root("),
+        "report": (root / "scripts" / "report.py", "project_output_tree_path("),
+        "schema_audit": (root / "scripts" / "schema_audit.py", "project_output_tree_path("),
+        "columnar": (root / "scripts" / "columnar.py", "project_output_tree_path("),
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_root(out_dir)"),
+        "repro_check": (root / "scripts" / "repro_check.py", 'status = "not_a_directory"'),
+        "bundle": (root / "scripts" / "bundle.py", "reject_symlink_root("),
+        "report_server": (root / "scripts" / "serve_report.py", "reject_symlink_root("),
+        "query": (root / "scripts" / "query_data.py", "project_output_tree_path("),
+        "pages_publisher": (root / "scripts" / "publish_pages.py", "reject_symlink_root("),
+        "pages_audit": (
+            root / "scripts" / "pages_audit.py",
+            "site_input.exists() and not site_input.is_dir()",
+        ),
+        "release_check": (
+            root / "scripts" / "release_check.py",
+            "output.exists() and not output.is_dir()",
+        ),
+        "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+    }
+    non_directory_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in non_directory_modules.items()
+    }
+    file_output_modules = {
+        "doctor": (root / "scripts" / "doctor.py", "project_output_file_path("),
+        "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+    }
+    file_output_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in file_output_modules.items()
+    }
+    nested_modules = {
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_tree("),
+        "report_server": (
+            root / "scripts" / "serve_report.py",
+            "_require_symlink_free_output(",
+        ),
+        "query": (root / "scripts" / "query_data.py", "project_output_tree_path("),
+        "schema_audit": (
+            root / "scripts" / "schema_audit.py",
+            "project_output_tree_path(",
+        ),
+        "report": (root / "scripts" / "report.py", "project_output_tree_path("),
+        "columnar": (root / "scripts" / "columnar.py", "project_output_tree_path("),
+    }
+    nested_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in nested_modules.items()
+    }
+    stage_modules = {
+        "analyze": root / "scripts" / "analyze.py",
+        "negative-controls": root / "scripts" / "negative_controls.py",
+        "niah": root / "scripts" / "niah.py",
+        "architects": root / "scripts" / "architects.py",
+        "sensitivity": root / "scripts" / "sensitivity.py",
+        "spatial-covariates": root / "scripts" / "spatial_covariates.py",
+        "osm-history": root / "scripts" / "osm_history.py",
+        "validation": root / "scripts" / "validation.py",
+        "building-parts": root / "scripts" / "building_parts.py",
+        "historical": root / "scripts" / "historical_validation.py",
+        "review": root / "scripts" / "review.py",
+        "point-pattern": root / "scripts" / "point_pattern.py",
+        "spatial-stats": root / "scripts" / "spatial_stats.py",
+        "spatial-bootstrap": root / "scripts" / "spatial_bootstrap.py",
+        "roads": root / "scripts" / "roads.py",
+        "road-proximity": root / "scripts" / "road_proximity.py",
+        "road-routing": root / "scripts" / "road_routing.py",
+        "quality-audit": root / "scripts" / "data_quality.py",
+        "holdout": root / "scripts" / "holdout.py",
+    }
+    stage_output_tree_guards = {
+        name: module.is_file() and _file_contains(module, "project_output_tree_path(")
+        for name, module in stage_modules.items()
+    }
+    # Keep the established field name while making its guarantee explicit in
+    # the additional tree-specific field below.
+    stage_output_guards = stage_output_tree_guards
+    handles_non_directory = (
+        all(non_directory_guards.values())
+        and all(file_output_guards.values())
+        and all(stage_output_guards.values())
+    )
+    shared_helper = runtime_module.is_file() and all(
+        _file_contains(runtime_module, token)
+        for token in (
+            "def reject_symlink_root(",
+            "def project_output_tree_path(",
+            "def project_output_file_path(",
+        )
+    )
+    rejects_non_directory = shared_helper and _file_contains(
+        runtime_module, "must be a directory:"
+    ) and handles_non_directory and all(nested_guards.values())
+    return {
+        "label": "output-root safety",
+        "contract": "ireland-geometry.output-safety.v1",
+        "shared_helper": shared_helper,
+        "allows_canonical_macos_tmp_alias": runtime_module.is_file()
+        and _file_contains(runtime_module, "def _is_canonical_macos_tmp_alias("),
+        "rejects_non_directory": rejects_non_directory,
+        "guards": guards,
+        "non_directory_guards": non_directory_guards,
+        "file_output_guards": file_output_guards,
+        "nested_guards": nested_guards,
+        "stage_output_guards": stage_output_guards,
+        "stage_output_tree_guards": stage_output_tree_guards,
+        "status": (
+            "available"
+            if shared_helper and rejects_non_directory and all(guards.values())
+            else "incomplete"
+        ),
+    }
+
+
+def data_safety_status(root: Path) -> dict[str, Any]:
+    """Inventory fail-closed data-root guards across ingestion and analysis CLIs."""
+    runtime_module = root / "scripts" / "runtime.py"
+    modules = {
+        "pipeline": (root / "run_pipeline.py", 'label="data directory"'),
+        "fetch": (root / "scripts" / "fetch_geofabrik.py", 'label="data output directory"'),
+        "fetch-niah": (root / "scripts" / "fetch_niah.py", "project_data_path("),
+        "fetch-osm": (root / "scripts" / "fetch_osm.py", "project_data_path("),
+        "fetch-satellite": (
+            root / "scripts" / "fetch_satellite.py",
+            'label="satellite data directory"',
+        ),
+        "niah": (root / "scripts" / "niah.py", "project_data_tree_path("),
+        "architects": (root / "scripts" / "architects.py", "project_data_tree_path("),
+        "building-parts": (root / "scripts" / "building_parts.py", "project_data_tree_path("),
+        "historical": (root / "scripts" / "historical_validation.py", "project_data_tree_path("),
+        "osm-history": (root / "scripts" / "osm_history.py", "project_data_tree_path("),
+        "review": (root / "scripts" / "review.py", "project_data_tree_path("),
+        "road-proximity": (root / "scripts" / "road_proximity.py", "project_data_tree_path("),
+        "road-routing": (root / "scripts" / "road_routing.py", "project_data_tree_path("),
+        "roads": (root / "scripts" / "roads.py", "project_data_tree_path("),
+        "spatial-covariates": (root / "scripts" / "spatial_covariates.py", "project_data_tree_path("),
+        "route-query": (root / "scripts" / "route_query.py", "project_data_tree_path("),
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_tree("),
+        "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_tree("),
+    }
+    guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in modules.items()
+    }
+    nested_modules = {
+        "fetch-osm": (root / "scripts" / "fetch_osm.py", 'label="OSM raw data directory"'),
+        "fetch-niah": (root / "scripts" / "fetch_niah.py", "extraction directory"),
+    }
+    nested_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in nested_modules.items()
+    }
+    extraction_tree_modules = {
+        "fetch-niah": (root / "scripts" / "fetch_niah.py", "reject_symlink_tree("),
+    }
+    extraction_tree_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in extraction_tree_modules.items()
+    }
+    satellite_tree_modules = {
+        "fetch-satellite": (
+            root / "scripts" / "fetch_satellite.py",
+            "reject_symlink_tree(",
+        ),
+    }
+    satellite_tree_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in satellite_tree_modules.items()
+    }
+    file_modules = {
+        "fetch": (root / "scripts" / "fetch_geofabrik.py", "reject_symlink_path("),
+        "fetch-niah": (root / "scripts" / "fetch_niah.py", "reject_symlink_path("),
+        "fetch-osm": (root / "scripts" / "fetch_osm.py", "reject_symlink_path("),
+    }
+    file_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in file_modules.items()
+    }
+    tree_modules = {
+        "pipeline": (root / "run_pipeline.py", "reject_symlink_tree("),
+        "niah": (root / "scripts" / "niah.py", "project_data_tree_path("),
+        "architects": (root / "scripts" / "architects.py", "project_data_tree_path("),
+        "building-parts": (
+            root / "scripts" / "building_parts.py",
+            "project_data_tree_path(",
+        ),
+        "historical": (
+            root / "scripts" / "historical_validation.py",
+            "project_data_tree_path(",
+        ),
+        "osm-history": (root / "scripts" / "osm_history.py", "project_data_tree_path("),
+        "review": (root / "scripts" / "review.py", "project_data_tree_path("),
+        "road-proximity": (
+            root / "scripts" / "road_proximity.py",
+            "project_data_tree_path(",
+        ),
+        "road-routing": (
+            root / "scripts" / "road_routing.py",
+            "project_data_tree_path(",
+        ),
+        "roads": (root / "scripts" / "roads.py", "project_data_tree_path("),
+        "spatial-covariates": (
+            root / "scripts" / "spatial_covariates.py",
+            "project_data_tree_path(",
+        ),
+        "route-query": (root / "scripts" / "route_query.py", "project_data_tree_path("),
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_tree("),
+        "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_tree("),
+    }
+    tree_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in tree_modules.items()
+    }
+    graph_output_modules = {
+        "road-routing": (
+            root / "scripts" / "road_routing.py",
+            "graph_output = reject_symlink_tree(",
+        ),
+    }
+    graph_output_tree_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in graph_output_modules.items()
+    }
+    input_modules = {
+        "analyze": (root / "scripts" / "analyze.py", "project_input_path("),
+        "building-parts": (root / "scripts" / "building_parts.py", "project_input_path("),
+        "historical": (
+            root / "scripts" / "historical_validation.py",
+            "project_input_path(",
+        ),
+        "osm-history": (root / "scripts" / "osm_history.py", "project_input_path("),
+        "review": (root / "scripts" / "review.py", "project_input_path("),
+        "road-proximity": (root / "scripts" / "road_proximity.py", "project_input_path("),
+        "road-routing": (root / "scripts" / "road_routing.py", "project_input_path("),
+        "roads": (root / "scripts" / "roads.py", "project_input_path("),
+        "spatial-covariates": (
+            root / "scripts" / "spatial_covariates.py",
+            "project_input_path(",
+        ),
+        "route-query": (root / "scripts" / "route_query.py", "project_input_path("),
+        "verify": (root / "scripts" / "verify.py", "reject_symlink_path("),
+        "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_path("),
+        "holdout": (root / "scripts" / "holdout.py", "project_input_path("),
+        "schema-audit": (root / "scripts" / "schema_audit.py", "project_input_path("),
+    }
+    input_guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in input_modules.items()
+    }
+    shared_helper = runtime_module.is_file() and all(
+        _file_contains(runtime_module, token)
+        for token in (
+            "def project_data_path(",
+            "def project_data_tree_path(",
+            "def project_input_path(",
+            "def reject_symlink_path(",
+            "label=\"data directory\"",
+            "must be a directory:",
+        )
+    )
+    rejects_non_directory = (
+        shared_helper
+        and all(guards.values())
+        and all(nested_guards.values())
+        and all(extraction_tree_guards.values())
+        and all(satellite_tree_guards.values())
+        and all(file_guards.values())
+        and all(tree_guards.values())
+        and all(graph_output_tree_guards.values())
+        and all(input_guards.values())
+    )
+    return {
+        "label": "data-root safety",
+        "contract": "ireland-geometry.data-safety.v1",
+        "shared_helper": shared_helper,
+        "rejects_non_directory": rejects_non_directory,
+        "guards": guards,
+        "nested_guards": nested_guards,
+        "extraction_tree_guards": extraction_tree_guards,
+        "satellite_tree_guards": satellite_tree_guards,
+        "file_guards": file_guards,
+        "tree_guards": tree_guards,
+        "graph_output_tree_guards": graph_output_tree_guards,
+        "input_guards": input_guards,
+        "status": "available" if shared_helper and rejects_non_directory else "incomplete",
+    }
+
+
+def tree_root_boundary_status(path: Path, *, label: str) -> dict[str, Any]:
+    """Report whether an active directory root and its existing tree are safe."""
+    result: dict[str, Any] = {
+        "label": label,
+        "path": str(path),
+        "status": "not_provided",
+        "passed": None,
+        "reason": None,
+        "symlink_count": 0,
+        "symlink_paths": [],
+        "symlink_paths_truncated": False,
+    }
+    if path.is_symlink():
+        result.update(
+            {
+                "status": "fail",
+                "passed": False,
+                "reason": "symlink",
+                "symlink_count": 1,
+                "symlink_paths": ["."],
+            }
+        )
+        return result
+    if path.exists() and not path.is_dir():
+        result.update(
+            {
+                "status": "fail",
+                "passed": False,
+                "reason": "not_a_directory",
+            }
+        )
+        return result
+    if not path.is_dir():
+        return result
+    try:
+        symlink_paths = path_symlink_paths(path)
+    except OSError as exc:
+        result.update(
+            {
+                "status": "fail",
+                "passed": False,
+                "reason": "unreadable",
+                "error": str(exc),
+            }
+        )
+        return result
+    display_limit = 128
+    result.update(
+        {
+            "status": "fail" if symlink_paths else "pass",
+            "passed": not symlink_paths,
+            "symlink_count": len(symlink_paths),
+            "symlink_paths": symlink_paths[:display_limit],
+            "symlink_paths_truncated": len(symlink_paths) > display_limit,
+        }
+    )
+    if symlink_paths:
+        result["reason"] = "nested_symlinks"
+    return result
+
+
+def data_root_boundary_status(path: Path) -> dict[str, Any]:
+    """Report whether the active project data root and its tree are safe."""
+    return tree_root_boundary_status(path, label="data directory")
+
+
+def output_root_boundary_status(path: Path) -> dict[str, Any]:
+    """Report whether the active project output root and its tree are safe."""
+    return tree_root_boundary_status(path, label="output directory")
+
+
+def file_write_safety_status(root: Path) -> dict[str, Any]:
+    """Inventory atomic file writers used by ingestion and pipeline commands."""
+    runtime_module = root / "scripts" / "runtime.py"
+    modules = {
+        "pipeline": (root / "run_pipeline.py", "atomic_write_json("),
+        "fetch": (root / "scripts" / "fetch_geofabrik.py", "atomic_write_stream("),
+        "fetch-niah": (root / "scripts" / "fetch_niah.py", "atomic_write_stream("),
+        "fetch-osm": (root / "scripts" / "fetch_osm.py", "atomic_write_json("),
+        "fetch-satellite": (root / "scripts" / "fetch_satellite.py", "atomic_write_stream("),
+    }
+    guards = {
+        name: module.is_file() and _file_contains(module, token)
+        for name, (module, token) in modules.items()
+    }
+    shared_helper = runtime_module.is_file() and all(
+        _file_contains(runtime_module, token)
+        for token in (
+            "def atomic_write_text(",
+            "def atomic_write_bytes(",
+            "def atomic_write_stream(",
+            "os.replace(tmp_name, dest)",
+        )
+    )
+    return {
+        "label": "atomic file-write safety",
+        "contract": "ireland-geometry.file-write-safety.v1",
+        "shared_helper": shared_helper,
+        "guards": guards,
+        "status": "available" if shared_helper and all(guards.values()) else "incomplete",
+    }
 
 
 def console_commands_status(root: Path) -> dict[str, Any]:
@@ -326,6 +800,77 @@ def report_server_status(
         _file_contains(module, token)
         for token in ("If-None-Match", "compressed_data_info", "ETag")
     )
+    rejects_symlinks = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def _output_symlink_paths(",
+            "def _require_symlink_free_output(",
+            "Output directory contains a symlink",
+        )
+    )
+    checks_manifest_alignment = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "MANIFEST_ALIGNMENT_CONTRACT",
+            "def _manifest_artifact_alignment(",
+            "_sha256_file(candidate)",
+            "current output hash differs from manifest",
+        )
+    )
+    report_page_runtime = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "REPORT_RUNTIME_CONTRACT",
+            "def _report_runtime_state(",
+            "def _apply_report_runtime(",
+        )
+    )
+    report_export_runtime_headers = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "REPORT_RUNTIME_HEADER_NAMES",
+            "def _report_runtime_headers(",
+            "headers=runtime_headers",
+        )
+    )
+    report_runtime_api = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "REPORT_RUNTIME_API_PATH",
+            "def _write_report_runtime(",
+            "path == REPORT_RUNTIME_API_PATH",
+        )
+    )
+    report_runtime_snapshot = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def _report_runtime_snapshot(",
+            '"manifest_sha256": manifest_sha256',
+            '"snapshot": snapshot',
+        )
+    )
+    report_runtime_source_alignment = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "SOURCE_ALIGNMENT_CONTRACT",
+            "def _report_source_alignment(",
+            '"source_alignment": source_alignment',
+            "manifest_source_alignment(",
+        )
+    )
+    report_source_alignment_surfaces = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "SOURCE_ALIGNMENT_SURFACES",
+            '"source_alignment": source_alignment',
+            '"source_alignment_surfaces": list(SOURCE_ALIGNMENT_SURFACES)',
+            "source_alignment = _report_source_alignment(",
+        )
+    )
+    explicit_project_root = server_available and all(
+        _file_contains(module, token)
+        for token in ("--project-root", "project_root=active_project_root", "server.project_root")
+    )
     graph = (data_root or root / "data") / "roads"
     routing_available = any(
         (graph / name).is_file() for name in ("road_graph.sqlite", "road_nodes.csv", "road_edges.csv")
@@ -377,6 +922,15 @@ def report_server_status(
         and openapi_api
         and interpretation_api
         and conditional_data_pack
+        and rejects_symlinks
+        and checks_manifest_alignment
+        and report_page_runtime
+        and report_export_runtime_headers
+        and report_runtime_api
+        and report_runtime_snapshot
+        and report_runtime_source_alignment
+        and report_source_alignment_surfaces
+        and explicit_project_root
     )
     return {
         "label": "local report server",
@@ -387,6 +941,15 @@ def report_server_status(
         "default_report": "report_lazy.html",
         "gzip_data_pack": server_available and _file_contains(module, "_write_gzipped_data_pack"),
         "conditional_data_pack": conditional_data_pack,
+        "rejects_symlinks": rejects_symlinks,
+        "checks_manifest_alignment": checks_manifest_alignment,
+        "report_page_runtime": report_page_runtime,
+        "report_export_runtime_headers": report_export_runtime_headers,
+        "report_runtime_api": report_runtime_api,
+        "report_runtime_snapshot": report_runtime_snapshot,
+        "report_runtime_source_alignment": report_runtime_source_alignment,
+        "report_source_alignment_surfaces": report_source_alignment_surfaces,
+        "explicit_project_root": explicit_project_root,
         "route_api": route_api,
         "route_endpoint": "/api/route",
         "query_api": query_api,
@@ -425,31 +988,95 @@ def report_server_status(
 def route_query_status(root: Path) -> dict[str, Any]:
     """Describe the standalone coordinate-based route query command."""
     module = root / "scripts" / "route_query.py"
+    routing_module = root / "scripts" / "road_routing.py"
     tokens = {
         "supports_snap_metadata": "snap_distance_m",
         "supports_duration_and_arrival": "estimated_duration_s",
         "supports_departure_profiles": "parse_departure",
         "supports_path_reconstruction": "path_node_ids",
+        "supports_path_segment_explainability": "path_segments",
+        "supports_path_segment_constraints": "def _attach_path_constraints(",
+        "supports_path_segment_conditional_rules": "conditional_rules",
+        "supports_path_segment_transition_rules": "transition_rules",
+        "supports_path_segment_way_context": "road_context",
         "supports_geojson": "def route_geojson(",
         "supports_ferry_geometry": "include_ferries",
+        "supports_ferry_schedules": "ferry_schedule_n",
+        "supports_ferry_durations": "shortest_path_metrics",
+        "supports_public_holiday_calendars": "public_holiday_contract",
+        "supports_route_objectives": "ROUTE_OBJECTIVES",
+        "supports_vehicle_weight_profiles": "validate_vehicle_weight_t",
+        "supports_vehicle_rating_profiles": "validate_vehicle_rating_t",
+        "supports_vehicle_height_profiles": "validate_vehicle_height_m",
+        "supports_vehicle_width_profiles": "validate_vehicle_width_m",
+        "supports_vehicle_length_profiles": "validate_vehicle_length_m",
+        "supports_vehicle_axleload_profiles": "validate_vehicle_axleload_t",
+        "supports_vehicle_class_profiles": "validate_vehicle_class",
+        "supports_conditional_access_profiles": "conditional_access_n",
+        "supports_directional_conditional_access_profiles": "conditional_access_direction_n",
+        "supports_vehicle_weight_conditional_access_profiles": "conditional_access_weight_n",
+        "supports_multi_clause_conditional_access_profiles": "conditional_access_multiclause_n",
+        "supports_maxweight_profiles": "maxweight_profiles",
+        "supports_hgv_maxweight_profiles": "maxweight_hgv_profiles",
+        "supports_hgv_maxweightrating_profiles": "maxweightrating_hgv_profiles",
+        "supports_hgv_destination_profiles": "allow_hgv_destination",
+        "supports_maxspeed_profiles": "maxspeed_profiles",
+        "supports_maxspeed_conditional_profiles": "maxspeed_conditional_profiles",
+        "supports_oneway_conditional_profiles": "oneway_conditional_profiles",
     }
     features = {
         name: module.is_file() and _file_contains(module, token)
         for name, token in tokens.items()
     }
-    ferry_schedule_token = "ferry schedules are not modeled"
-    ferry_schedules_modeled = (
-        False if module.is_file() and _file_contains(module, ferry_schedule_token) else None
+    features["supports_ferry_waiting"] = routing_module.is_file() and _file_contains(
+        routing_module,
+        "def next_active_at(",
     )
+    ferry_schedules_modeled = features["supports_ferry_schedules"]
     return {
         "label": "point-to-point route query",
         "module": str(module),
         "command": "ireland-geometry-route",
         "coordinate_system": "WGS84 latitude/longitude",
         **features,
+        "route_objectives": ["distance", "duration"] if features["supports_route_objectives"] else [],
+        "vehicle_weight_profiles": features["supports_vehicle_weight_profiles"],
+        "vehicle_rating_profiles": features["supports_vehicle_rating_profiles"],
+        "vehicle_height_profiles": features["supports_vehicle_height_profiles"],
+        "vehicle_width_profiles": features["supports_vehicle_width_profiles"],
+        "vehicle_length_profiles": features["supports_vehicle_length_profiles"],
+        "vehicle_axleload_profiles": features["supports_vehicle_axleload_profiles"],
+        "vehicle_class_profiles": features["supports_vehicle_class_profiles"],
+        "vehicle_classes": ["general", "delivery", "hgv", "psv", "taxi"] if features["supports_vehicle_class_profiles"] else [],
+        "conditional_access_profiles": features["supports_conditional_access_profiles"],
+        "directional_conditional_access_profiles": features["supports_directional_conditional_access_profiles"],
+        "vehicle_weight_conditional_access_profiles": features["supports_vehicle_weight_conditional_access_profiles"],
+        "multi_clause_conditional_access_profiles": features["supports_multi_clause_conditional_access_profiles"],
+        "maxweight_profiles": features["supports_maxweight_profiles"],
+        "maxheight_profiles": features["supports_vehicle_height_profiles"],
+        "maxwidth_profiles": features["supports_vehicle_width_profiles"],
+        "maxlength_profiles": features["supports_vehicle_length_profiles"],
+        "maxaxleload_profiles": features["supports_vehicle_axleload_profiles"],
+        "hgv_maxweight_profiles": features["supports_hgv_maxweight_profiles"],
+        "maxweightrating_hgv_profiles": features["supports_hgv_maxweightrating_profiles"],
+        "hgv_destination_profiles": features["supports_hgv_destination_profiles"],
+        "maxspeed_profiles": features["supports_maxspeed_profiles"],
+        "maxspeed_conditional_profiles": features["supports_maxspeed_conditional_profiles"],
+        "oneway_conditional_profiles": features["supports_oneway_conditional_profiles"],
+        "path_segment_constraints": features["supports_path_segment_constraints"],
+        "path_segment_conditional_rules": features["supports_path_segment_conditional_rules"],
+        "path_segment_transition_rules": features["supports_path_segment_transition_rules"],
+        "path_segment_way_context": features["supports_path_segment_way_context"],
         "ferry_schedules_modeled": ferry_schedules_modeled,
+        "ferry_waiting_modeled": features["supports_ferry_waiting"],
+        "ferry_schedule_contract": "ireland-geometry.ferry-schedules.v1"
+        if ferry_schedules_modeled
+        else None,
+        "public_holiday_contract": "ireland-geometry.public-holidays.v1"
+        if features["supports_public_holiday_calendars"]
+        else None,
         "status": "available"
-        if module.is_file() and all(features.values())
+        if module.is_file() and routing_module.is_file() and all(features.values())
         else ("incomplete" if module.is_file() else "not_installed"),
     }
 
@@ -691,6 +1318,45 @@ def report_capability_status(
     route_overlay_offline = all(
         _file_contains(path, "class=\"offline-route\"") for path in (standalone, lazy)
     )
+    route_objective_selection = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ('id="routeObjective"', "objective:$('routeObjective').value", "fastest duration")
+    )
+    route_wait_observability = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("ferry_wait_s", "ferry_wait_n", "function routeWaitText(route)")
+    )
+    route_ferry_breakdown = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("ferry_way_ids", "ferry_distance_m", "ferry_crossing_s", "ferry_edge_n", "function routeFerryText(route)")
+    )
+    route_segment_explainability = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("path_segment_source", "function routeSegmentText(route)")
+    )
+    route_transition_rule_provenance = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("transition_rules", "function routeSegmentText(route)")
+    )
+    route_way_context = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("road_context", "function routeSegmentText(route)")
+    )
+    route_weight_profile = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeWeight"',
+            "weight_t:$('routeWeight').value",
+            "vehicle-weight",
+        )
+    )
     review_link = all(_file_contains(path, 'href="review.html"') for path in (standalone, lazy))
     review_filter = all(_file_contains(path, 'id="reviewState"') for path in (standalone, lazy))
     review_queue_membership = all(
@@ -709,10 +1375,35 @@ def report_capability_status(
         for path in (standalone, lazy)
         for token in ('id="qualityAudit"', 'id="qualityAuditTable"', 'Download audit CSV')
     )
-    interpretation_panel = all(
+    interpretation_state = all(
+        any(_file_contains(path, token) for token in ("const INTERPRETATION", "let INTERPRETATION"))
+        for path in (standalone, lazy)
+    )
+    interpretation_panel = interpretation_state and all(
         _file_contains(path, token)
         for path in (standalone, lazy)
-        for token in ('id="interpretation"', "const INTERPRETATION", "function renderInterpretation()")
+        for token in ('id="interpretation"', "function renderInterpretation()")
+    )
+    live_runtime_refresh = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="runtimeStatus"',
+            "function applyRuntime(runtime)",
+            "function applyRuntimeHeaders(headers)",
+            "const BASE_INTERPRETATION = PACK.interpretation || {};",
+            "INTERPRETATION={...BASE_INTERPRETATION};",
+            "function renderRuntimeStatus()",
+            "const runtimeChanged=applyRuntime(payload.runtime)",
+            "applyRuntimeHeaders(response.headers)",
+            "function runtimeIdentityText()",
+            "const snapshot=REPORT_RUNTIME?.snapshot",
+            "const sourceStatus=String(sourceAlignment.status||'not_reported')",
+            "function refreshRuntime()",
+            "function startRuntimeRefresh()",
+            "setInterval(refreshRuntime,RUNTIME_REFRESH_MS)",
+            "function renderMethod()",
+        )
     )
     accessibility = all(
         _file_contains(path, token)
@@ -742,6 +1433,13 @@ def report_capability_status(
         "route_panel": route_panel_available,
         "route_overlay_live": route_overlay_live,
         "route_overlay_offline": route_overlay_offline,
+        "route_objective_selection": route_objective_selection,
+        "route_wait_observability": route_wait_observability,
+        "route_ferry_breakdown": route_ferry_breakdown,
+        "route_segment_explainability": route_segment_explainability,
+        "route_transition_rule_provenance": route_transition_rule_provenance,
+        "route_way_context": route_way_context,
+        "route_weight_profile": route_weight_profile,
         "review_link": review_link,
         "review_filter": review_filter,
         "review_queue_membership": review_queue_membership,
@@ -749,6 +1447,7 @@ def report_capability_status(
         "quality_findings": quality_findings,
         "quality_audit": quality_audit,
         "interpretation_panel": interpretation_panel,
+        "live_runtime_refresh": live_runtime_refresh,
         "accessibility": accessibility,
         "review_page": review_page.is_file(),
         "status": "available"
@@ -759,12 +1458,20 @@ def report_capability_status(
         and route_panel_available
         and route_overlay_live
         and route_overlay_offline
+        and route_objective_selection
+        and route_wait_observability
+        and route_ferry_breakdown
+        and route_segment_explainability
+        and route_transition_rule_provenance
+        and route_way_context
+        and route_weight_profile
         and review_filter
         and review_queue_membership
         and quality_panel
         and quality_findings
         and quality_audit
         and interpretation_panel
+        and live_runtime_refresh
         and accessibility
         else "incomplete",
     }
@@ -834,6 +1541,15 @@ def bundle_capability_status(root: Path, output: Path) -> dict[str, Any]:
         )
     )
     manifest = output / "manifest.json"
+    requires_complete_validation = implementation and all(
+        _file_contains(module, token)
+        for token in (
+            "VALIDATION_FILES",
+            "source_validation",
+            "schema_validation.json",
+            "reproducibility.json",
+        )
+    )
     return {
         "label": "portable artifact bundle",
         "module": str(module),
@@ -843,6 +1559,19 @@ def bundle_capability_status(root: Path, output: Path) -> dict[str, Any]:
         "verifies_archives": implementation,
         "extracts_archives": implementation,
         "requires_verified_guard": implementation and _file_contains(module, "--require-verified"),
+        "requires_complete_validation": requires_complete_validation,
+        "rejects_symlinks": implementation and _file_contains(module, "path.is_symlink()"),
+        "rejects_archive_input_symlink": implementation
+        and _file_contains(module, "Bundle archive input"),
+        "rejects_extraction_parent_symlink": implementation
+        and _file_contains(module, "Extraction parent directory"),
+        "rejects_archive_inside_output": implementation
+        and all(
+            _file_contains(module, token)
+            for token in ("archive.relative_to(output)", "outside the output directory")
+        ),
+        "checks_manifest_artifacts": implementation
+        and _file_contains(module, "def _validate_verified_manifest("),
         "json_output": implementation and _file_contains(module, "--json"),
         "default_archive": str(output.parent / f"{output.name}.bundle.zip"),
         "manifest_exists": manifest.is_file(),
@@ -850,8 +1579,149 @@ def bundle_capability_status(root: Path, output: Path) -> dict[str, Any]:
     }
 
 
-def validation_capability_status(output: Path) -> dict[str, Any]:
-    """Summarize the independent artifact, schema, and reproducibility gates."""
+def release_check_capability_status(root: Path) -> dict[str, Any]:
+    """Describe the unified, read-only release/readiness gate."""
+    module = root / "scripts" / "release_check.py"
+    implementation = module.is_file() and all(
+        _file_contains(module, token)
+        for token in (
+            "RELEASE_CHECK_CONTRACT",
+            "def check_release(",
+            "def _output_artifact_alignment(",
+            "def _publication_alignment(",
+            "def _bundle_alignment(",
+            "def _bundle_gate(",
+            "def _symlink_root_errors(",
+            "manifest_source_alignment(",
+            "--require-pages",
+            "--require-bundle",
+            "--check-input-hashes",
+            "--strict",
+        )
+    )
+    return {
+        "label": "unified release/readiness check",
+        "module": str(module),
+        "command": "ireland-geometry-release-check",
+        "contract": "ireland-geometry.release-check.v1" if implementation else None,
+        "read_only": implementation,
+        "checks_doctor": implementation and _file_contains(module, "inspect_project("),
+        "checks_output": implementation and _file_contains(module, "_output_artifact_alignment("),
+        "checks_output_inventory": implementation and _file_contains(module, "unlisted artifact"),
+        "checks_output_symlinks": implementation
+        and _file_contains(module, "current output contains a symlink"),
+        "rejects_symlink_roots": implementation
+        and all(
+            _file_contains(module, token)
+            for token in (
+                "def _symlink_root_errors(",
+                "output directory must not be a symlink",
+                "Pages site directory must not be a symlink",
+            )
+        ),
+        "handles_non_directory_roots": implementation
+        and all(
+            _file_contains(module, token)
+            for token in (
+                "output.exists() and not output.is_dir()",
+                "site.exists() and not site.is_dir()",
+            )
+        ),
+        "checks_validation_records": implementation and _file_contains(module, "REQUIRED_OUTPUT_ARTIFACTS"),
+        "checks_pages": implementation and _file_contains(module, "audit_site("),
+        "checks_bundle": implementation and _file_contains(module, "verify_bundle("),
+        "checks_source_alignment": implementation
+        and _file_contains(module, "manifest_source_alignment("),
+        "source_alignment_contract": SOURCE_ALIGNMENT_CONTRACT if implementation else None,
+        "json_output": implementation and _file_contains(module, "--json"),
+        "status": "available"
+        if implementation
+        else ("incomplete" if module.is_file() else "not_installed"),
+    }
+
+
+def current_output_alignment_status(
+    output: Path, code_root: Path | None = None
+) -> dict[str, Any]:
+    """Recheck current output bytes through the shared release-gate helper."""
+    module = (code_root or PACKAGE_ROOT) / "scripts" / "release_check.py"
+    unavailable = {
+        "status": "not_installed" if not module.is_file() else "incomplete",
+        "passed": False,
+        "checked_count": 0,
+        "errors": ["current output alignment checker is unavailable"],
+        "checker": str(module),
+    }
+    if not module.is_file():
+        return unavailable
+    try:
+        from release_check import _output_artifact_alignment
+    except ImportError:
+        try:
+            from scripts.release_check import _output_artifact_alignment
+        except ImportError:
+            return unavailable
+    try:
+        result = _output_artifact_alignment(output)
+    except (AttributeError, KeyError, OSError, TypeError, UnicodeError, ValueError) as exc:
+        return {
+            **unavailable,
+            "status": "fail",
+            "errors": [f"current output alignment check failed: {exc}"],
+        }
+    if not isinstance(result, dict):
+        return {
+            **unavailable,
+            "status": "fail",
+            "errors": ["current output alignment checker returned an invalid result"],
+        }
+    return {**result, "checker": str(module)}
+
+
+def current_source_alignment_status(
+    project_root: Path,
+    data_root: Path,
+    output: Path,
+) -> dict[str, Any]:
+    """Recheck current input source metadata against the output manifest."""
+    path = output / "manifest.json"
+    unavailable = {
+        "contract": SOURCE_ALIGNMENT_CONTRACT,
+        "status": "not_provided",
+        "passed": False,
+        "mode": "metadata",
+        "checked_count": 0,
+        "unavailable_count": 0,
+        "unhashed_count": 0,
+        "hash_checked_count": 0,
+        "metadata_checked_count": 0,
+        "symlink_count": 0,
+        "errors": [],
+        "sources": [],
+        "manifest": str(path),
+    }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return unavailable
+    if not isinstance(payload, dict):
+        return unavailable
+    result = manifest_source_alignment(
+        payload,
+        project_root=project_root,
+        data_root=data_root,
+        out_dir=output,
+    )
+    return {**result, "manifest": str(path)}
+
+
+def validation_capability_status(
+    output: Path,
+    code_root: Path | None = None,
+    *,
+    source_alignment: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Summarize persisted validation and current artifact-alignment gates."""
     records = {}
     for name in ("verification", "schema_validation", "reproducibility"):
         path = output / f"{name}.json"
@@ -865,11 +1735,38 @@ def validation_capability_status(output: Path) -> dict[str, Any]:
             "passed": payload.get("passed") is True if isinstance(payload, dict) else False,
             "artifact_count": payload.get("artifact_count") if isinstance(payload, dict) else None,
         }
-    return {
+    verifier = code_root / "scripts" / "verify.py" if code_root is not None else None
+    recursive_manifest_coverage = verifier is not None and _file_contains(verifier, "out_dir.rglob(")
+    symlink_safe_manifest_coverage = verifier is not None and _file_contains(verifier, "path.is_symlink()")
+    output_alignment = current_output_alignment_status(output, code_root)
+    records_pass = all(item["passed"] for item in records.values())
+    if not records_pass:
+        status = "incomplete"
+    elif output_alignment["status"] == "fail":
+        status = "fail"
+    elif output_alignment["status"] != "pass":
+        status = "incomplete"
+    elif source_alignment is not None and source_alignment.get("status") == "fail":
+        status = "fail"
+    else:
+        status = "pass"
+    result = {
         "label": "validation gates",
         "records": records,
-        "status": "pass" if all(item["passed"] for item in records.values()) else "incomplete",
+        "output_alignment": output_alignment,
+        "manifest_coverage": {
+            "verifier": str(verifier) if verifier is not None else None,
+            "recursive": recursive_manifest_coverage,
+            "rejects_symlinks": symlink_safe_manifest_coverage,
+            "status": "available"
+            if recursive_manifest_coverage and symlink_safe_manifest_coverage
+            else "incomplete",
+        },
+        "status": status,
     }
+    if source_alignment is not None:
+        result["source_alignment"] = source_alignment
+    return result
 
 
 def schema_registry_status(root: Path) -> dict[str, Any]:
@@ -1021,6 +1918,8 @@ def routing_graph_status(data: Path) -> dict[str, Any]:
     edges = data / "roads" / "road_edges.csv"
     sqlite_graph = data / "roads" / "road_graph.sqlite"
     metadata_path = data / "roads" / "road_graph_metadata.json"
+    ferry_schedule_path = data / "roads" / "ferry_schedules.json"
+    public_holiday_path = data / "roads" / "public_holidays.json"
     node_exists = nodes.is_file()
     edge_exists = edges.is_file()
     sqlite_exists = sqlite_graph.is_file()
@@ -1052,10 +1951,75 @@ def routing_graph_status(data: Path) -> dict[str, Any]:
             "restriction_unresolved_n": metadata.get("restriction_unresolved_n"),
             "restriction_conditional_n": metadata.get("restriction_conditional_n"),
             "restriction_conditional_supported_n": metadata.get("restriction_conditional_supported_n"),
+            "restriction_conditional_weight_n": metadata.get("restriction_conditional_weight_n"),
             "restriction_conditional_unsupported_n": metadata.get("restriction_conditional_unsupported_n"),
             "restriction_conditional_stored_n": metadata.get("restriction_conditional_stored_n"),
             "restriction_conditional_unresolved_n": metadata.get("restriction_conditional_unresolved_n"),
             "restriction_conditional_geometry_unsupported_n": metadata.get("restriction_conditional_geometry_unsupported_n"),
+            "conditional_access_n": metadata.get("conditional_access_n"),
+            "conditional_access_vehicle_class_n": metadata.get("conditional_access_vehicle_class_n"),
+            "conditional_access_direction_n": metadata.get("conditional_access_direction_n"),
+            "conditional_access_weight_n": metadata.get("conditional_access_weight_n"),
+            "conditional_access_multiclause_n": metadata.get("conditional_access_multiclause_n"),
+            "conditional_access_unsupported_n": metadata.get("conditional_access_unsupported_n"),
+            "conditional_access_excluded_n": metadata.get("conditional_access_excluded_n"),
+            "maxweight_way_n": metadata.get("maxweight_way_n"),
+            "maxweight_supported_way_n": metadata.get("maxweight_supported_way_n"),
+            "maxweight_unlimited_way_n": metadata.get("maxweight_unlimited_way_n"),
+            "maxweight_unsupported_way_n": metadata.get("maxweight_unsupported_way_n"),
+            "maxweight_segment_n": metadata.get("maxweight_segment_n"),
+            "maxweight_hgv_way_n": metadata.get("maxweight_hgv_way_n"),
+            "maxweight_hgv_supported_way_n": metadata.get("maxweight_hgv_supported_way_n"),
+            "maxweight_hgv_unlimited_way_n": metadata.get("maxweight_hgv_unlimited_way_n"),
+            "maxweight_hgv_unsupported_way_n": metadata.get("maxweight_hgv_unsupported_way_n"),
+            "maxweight_hgv_segment_n": metadata.get("maxweight_hgv_segment_n"),
+            "maxweightrating_hgv_way_n": metadata.get("maxweightrating_hgv_way_n"),
+            "maxweightrating_hgv_supported_way_n": metadata.get("maxweightrating_hgv_supported_way_n"),
+            "maxweightrating_hgv_unlimited_way_n": metadata.get("maxweightrating_hgv_unlimited_way_n"),
+            "maxweightrating_hgv_unsupported_way_n": metadata.get("maxweightrating_hgv_unsupported_way_n"),
+            "maxweightrating_hgv_segment_n": metadata.get("maxweightrating_hgv_segment_n"),
+            "hgv_destination_way_n": metadata.get("hgv_destination_way_n"),
+            "hgv_destination_supported_way_n": metadata.get("hgv_destination_supported_way_n"),
+            "hgv_destination_unsupported_way_n": metadata.get("hgv_destination_unsupported_way_n"),
+            "hgv_destination_segment_n": metadata.get("hgv_destination_segment_n"),
+            "maxheight_way_n": metadata.get("maxheight_way_n"),
+            "maxheight_supported_way_n": metadata.get("maxheight_supported_way_n"),
+            "maxheight_unlimited_way_n": metadata.get("maxheight_unlimited_way_n"),
+            "maxheight_unsupported_way_n": metadata.get("maxheight_unsupported_way_n"),
+            "maxheight_segment_n": metadata.get("maxheight_segment_n"),
+            "maxheight_physical_way_n": metadata.get("maxheight_physical_way_n"),
+            "maxheight_physical_supported_way_n": metadata.get("maxheight_physical_supported_way_n"),
+            "maxheight_physical_unlimited_way_n": metadata.get("maxheight_physical_unlimited_way_n"),
+            "maxheight_physical_unsupported_way_n": metadata.get("maxheight_physical_unsupported_way_n"),
+            "maxheight_physical_segment_n": metadata.get("maxheight_physical_segment_n"),
+            "maxwidth_way_n": metadata.get("maxwidth_way_n"),
+            "maxwidth_supported_way_n": metadata.get("maxwidth_supported_way_n"),
+            "maxwidth_unlimited_way_n": metadata.get("maxwidth_unlimited_way_n"),
+            "maxwidth_unsupported_way_n": metadata.get("maxwidth_unsupported_way_n"),
+            "maxwidth_segment_n": metadata.get("maxwidth_segment_n"),
+            "maxlength_way_n": metadata.get("maxlength_way_n"),
+            "maxlength_supported_way_n": metadata.get("maxlength_supported_way_n"),
+            "maxlength_unlimited_way_n": metadata.get("maxlength_unlimited_way_n"),
+            "maxlength_unsupported_way_n": metadata.get("maxlength_unsupported_way_n"),
+            "maxlength_segment_n": metadata.get("maxlength_segment_n"),
+            "maxaxleload_way_n": metadata.get("maxaxleload_way_n"),
+            "maxaxleload_supported_way_n": metadata.get("maxaxleload_supported_way_n"),
+            "maxaxleload_unlimited_way_n": metadata.get("maxaxleload_unlimited_way_n"),
+            "maxaxleload_unsupported_way_n": metadata.get("maxaxleload_unsupported_way_n"),
+            "maxaxleload_segment_n": metadata.get("maxaxleload_segment_n"),
+            "maxspeed_way_n": metadata.get("maxspeed_way_n"),
+            "maxspeed_supported_way_n": metadata.get("maxspeed_supported_way_n"),
+            "maxspeed_unlimited_way_n": metadata.get("maxspeed_unlimited_way_n"),
+            "maxspeed_unsupported_way_n": metadata.get("maxspeed_unsupported_way_n"),
+            "maxspeed_segment_n": metadata.get("maxspeed_segment_n"),
+            "maxspeed_conditional_way_n": metadata.get("maxspeed_conditional_way_n"),
+            "maxspeed_conditional_supported_way_n": metadata.get("maxspeed_conditional_supported_way_n"),
+            "maxspeed_conditional_unsupported_way_n": metadata.get("maxspeed_conditional_unsupported_way_n"),
+            "maxspeed_conditional_segment_n": metadata.get("maxspeed_conditional_segment_n"),
+            "oneway_conditional_way_n": metadata.get("oneway_conditional_way_n"),
+            "oneway_conditional_supported_way_n": metadata.get("oneway_conditional_supported_way_n"),
+            "oneway_conditional_unsupported_way_n": metadata.get("oneway_conditional_unsupported_way_n"),
+            "oneway_conditional_segment_n": metadata.get("oneway_conditional_segment_n"),
             "restriction_via_way_n": metadata.get("restriction_via_way_n"),
             "restriction_via_way_applied_n": metadata.get("restriction_via_way_applied_n"),
             "restriction_via_way_unresolved_n": metadata.get("restriction_via_way_unresolved_n"),
@@ -1066,6 +2030,31 @@ def routing_graph_status(data: Path) -> dict[str, Any]:
             "ferry_edge_n": metadata.get("ferry_edge_n"),
             "ferry_relation_n": metadata.get("ferry_relation_n"),
             "ferry_schedules_modeled": metadata.get("ferry_schedules_modeled"),
+            "ferry_schedule_contract": metadata.get("ferry_schedule_contract"),
+            "ferry_schedule_n": metadata.get("ferry_schedule_n"),
+            "ferry_schedule_unsupported_n": metadata.get("ferry_schedule_unsupported_n"),
+            "ferry_public_holiday_schedule_n": metadata.get("ferry_public_holiday_schedule_n"),
+            "ferry_duration_n": metadata.get("ferry_duration_n"),
+            "ferry_schedule_path": str(ferry_schedule_path),
+            "ferry_schedule_exists": ferry_schedule_path.is_file(),
+            "ferry_schedule_symlink": ferry_schedule_path.is_symlink(),
+            "ferry_schedule_contract_status": (
+                "unsafe_symlink"
+                if ferry_schedule_path.is_symlink()
+                else ("available" if ferry_schedule_path.is_file() else "not_provided")
+            ),
+            "public_holiday_path": str(public_holiday_path),
+            "public_holiday_exists": public_holiday_path.is_file(),
+            "public_holiday_symlink": public_holiday_path.is_symlink(),
+            "public_holiday_n": metadata.get("public_holiday_n"),
+            "public_holiday_min_date": metadata.get("public_holiday_min_date"),
+            "public_holiday_max_date": metadata.get("public_holiday_max_date"),
+            "public_holiday_contract": metadata.get("public_holiday_contract"),
+            "public_holiday_contract_status": (
+                "unsafe_symlink"
+                if public_holiday_path.is_symlink()
+                else ("available" if public_holiday_path.is_file() else "not_provided")
+            ),
             "turn_restrictions_supported": metadata.get("turn_restrictions_supported"),
             "metadata": str(metadata_path),
         }
@@ -1133,6 +2122,17 @@ def verification_status(output: Path) -> dict[str, Any]:
     result["status"] = "pass" if passed else "fail"
     if isinstance(payload.get("errors"), list):
         result["error_n"] = len(payload["errors"])
+    alignment = payload.get("manifest_cache_alignment")
+    if isinstance(alignment, dict):
+        mismatches = alignment.get("mismatches")
+        unavailable = alignment.get("unavailable_stages")
+        result["manifest_cache_alignment"] = {
+            "contract": alignment.get("contract"),
+            "status": alignment.get("status"),
+            "check_count": alignment.get("check_count", 0),
+            "mismatch_count": len(mismatches) if isinstance(mismatches, list) else 0,
+            "unavailable_stages": unavailable if isinstance(unavailable, list) else [],
+        }
     return result
 
 
@@ -1195,6 +2195,251 @@ def manifest_path_status(output: Path) -> dict[str, Any]:
         )
     result["status"] = "available" if contract.get("version") == 1 else "invalid"
     return result
+
+
+def pages_capability_status(root: Path, package_root: Path | None = None) -> dict[str, Any]:
+    """Report whether the committed static Pages site is publishable."""
+    code_root = package_root or root
+    site = root / "docs"
+    audit_module = code_root / "scripts" / "pages_audit.py"
+    publisher_module = code_root / "scripts" / "publish_pages.py"
+    publication_manifest = site / "pages_manifest.json"
+    result: dict[str, Any] = {
+        "label": "static GitHub Pages publication",
+        "site": str(site),
+        "audit_module": str(audit_module),
+        "publisher_module": str(publisher_module),
+        "audit_command": "python scripts/pages_audit.py --json",
+        "publish_command": "python scripts/publish_pages.py --json",
+        "audit_contract": PAGES_AUDIT_CONTRACT,
+        "publication_contract": PAGES_PUBLISH_CONTRACT,
+        "audit_available": audit_module.is_file(),
+        "publisher_available": publisher_module.is_file(),
+        "publisher_checks_manifest_artifacts": publisher_module.is_file()
+        and _file_contains(publisher_module, "_validate_manifest_artifacts("),
+        "publisher_rejects_site_inside_output": publisher_module.is_file()
+        and all(
+            _file_contains(publisher_module, token)
+            for token in ("site.relative_to(output)", "outside the output directory")
+        ),
+        "publisher_rejects_symlink_roots": publisher_module.is_file()
+        and all(
+            _file_contains(publisher_module, token)
+            for token in ("reject_symlink_root(",)
+        ),
+        "publisher_handles_non_directory_roots": publisher_module.is_file()
+        and _file_contains(publisher_module, "reject_symlink_root("),
+        "audit_rejects_symlink_root": audit_module.is_file()
+        and all(
+            _file_contains(audit_module, token)
+            for token in ("site_input.is_symlink()", "Pages site directory must not be a symlink")
+        ),
+        "audit_handles_non_directory_root": audit_module.is_file()
+        and _file_contains(audit_module, "site_input.exists() and not site_input.is_dir()"),
+        "site_exists": site.is_dir(),
+        "publication_manifest": str(publication_manifest),
+        "publication_manifest_exists": publication_manifest.is_file(),
+        "source_revision": None,
+        "published_file_count": sum(
+            (site / name).is_file() for name in ("index.html", "review.html", "report.html")
+        ),
+        "audit": None,
+        "status": "not_installed",
+    }
+    if not result["audit_available"] or not result["publisher_available"]:
+        return result
+    if not site.is_dir():
+        result["status"] = "not_provided"
+        return result
+    if callable(audit_site):
+        try:
+            audit = audit_site(site)
+        except (OSError, UnicodeError, TypeError, ValueError) as exc:
+            result["status"] = "invalid"
+            result["error"] = str(exc)
+            return result
+        errors = audit.get("errors") if isinstance(audit, dict) else None
+        pages = audit.get("pages") if isinstance(audit, dict) else None
+        result["audit"] = {
+            "contract": audit.get("contract") if isinstance(audit, dict) else None,
+            "passed": audit.get("passed") is True if isinstance(audit, dict) else False,
+            "error_count": len(errors) if isinstance(errors, list) else 0,
+            "pages": pages if isinstance(pages, dict) else {},
+        }
+        result["status"] = "available" if result["audit"]["passed"] else "incomplete"
+    else:
+        result["status"] = "invalid"
+        result["error"] = "Pages audit module could not be imported"
+    if publication_manifest.is_file():
+        try:
+            payload = json.loads(publication_manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            payload = None
+        if isinstance(payload, dict):
+            revision = payload.get("source_manifest_revision")
+            if isinstance(revision, str):
+                result["source_revision"] = revision
+    return result
+
+
+def _strict_readiness_blockers(
+    *,
+    errors: list[str],
+    missing_inputs: list[str],
+    missing_outputs: list[str],
+    git_state: dict[str, Any],
+    verification: dict[str, Any],
+    validation: dict[str, Any],
+    source_alignment: dict[str, Any],
+    commands: dict[str, Any],
+    output_safety: dict[str, Any],
+    data_safety: dict[str, Any],
+    file_write_safety: dict[str, Any],
+    stale_required_inputs: list[str],
+) -> list[dict[str, Any]]:
+    """Explain each condition that keeps Doctor strict readiness false."""
+    blockers: list[dict[str, Any]] = [
+        {"code": "doctor_error", "message": error} for error in errors
+    ]
+    if missing_inputs:
+        blockers.append(
+            {
+                "code": "missing_required_inputs",
+                "message": "Required cached inputs are missing.",
+                "items": missing_inputs,
+            }
+        )
+    if missing_outputs:
+        blockers.append(
+            {
+                "code": "missing_required_outputs",
+                "message": "Required generated outputs are missing.",
+                "items": missing_outputs,
+            }
+        )
+
+    dirty = git_state.get("dirty")
+    if dirty is True:
+        worktree = git_state.get("worktree")
+        worktree = worktree if isinstance(worktree, dict) else {}
+        path_count = worktree.get("path_count")
+        changed_count = worktree.get("changed_path_count")
+        untracked_count = worktree.get("untracked_path_count")
+        if all(isinstance(value, int) for value in (path_count, changed_count, untracked_count)):
+            message = (
+                "The working tree contains "
+                f"{path_count} changed path(s) ({changed_count} tracked, {untracked_count} untracked)."
+            )
+        else:
+            message = "The working tree contains uncommitted or untracked files."
+        blockers.append(
+            {
+                "code": "git_dirty",
+                "message": message,
+                "worktree": worktree,
+            }
+        )
+    elif dirty is not False:
+        blockers.append(
+            {
+                "code": "git_unavailable",
+                "message": "Git worktree cleanliness could not be confirmed.",
+            }
+        )
+    if verification.get("status") != "pass":
+        blockers.append(
+            {
+                "code": "verification_not_passing",
+                "message": f"Output verification status is {verification.get('status')}.",
+            }
+        )
+    if validation.get("status") != "pass":
+        blockers.append(
+            {
+                "code": "validation_not_passing",
+                "message": f"Complete validation gate status is {validation.get('status')}.",
+            }
+        )
+    output_alignment = validation.get("output_alignment")
+    if not isinstance(output_alignment, dict) or output_alignment.get("status") != "pass":
+        blockers.append(
+            {
+                "code": "output_alignment_not_passing",
+                "message": (
+                    "Current output-manifest alignment status is "
+                    f"{output_alignment.get('status') if isinstance(output_alignment, dict) else None}."
+                ),
+            }
+        )
+    if source_alignment.get("status") == "fail":
+        blockers.append(
+            {
+                "code": "source_alignment_not_passing",
+                "message": "Current input sources do not match the output manifest.",
+                "errors": source_alignment.get("errors", []),
+            }
+        )
+    if commands.get("status") != "available" or commands.get("installation_status") != "available":
+        blockers.append(
+            {
+                "code": "console_commands_incomplete",
+                "message": (
+                    "Installed console command wrappers are incomplete: "
+                    f"{commands.get('installed_count', 0)}/{commands.get('command_count', 0)} available."
+                ),
+            }
+        )
+    if output_safety.get("status") != "available":
+        blockers.append(
+            {
+                "code": "output_safety_incomplete",
+                "message": "Output-root safety guards are not complete across user-facing commands.",
+                "guards": output_safety.get("guards", {}),
+            }
+        )
+    observed_output_root = output_safety.get("observed_root")
+    if isinstance(observed_output_root, dict) and observed_output_root.get("status") == "fail":
+        blockers.append(
+            {
+                "code": "output_root_invalid",
+                "message": "The active project output root is not a safe directory.",
+                "output_root": observed_output_root,
+            }
+        )
+    if data_safety.get("status") != "available":
+        blockers.append(
+            {
+                "code": "data_safety_incomplete",
+                "message": "Data-root safety guards are not complete across ingestion and analysis commands.",
+                "guards": data_safety.get("guards", {}),
+            }
+        )
+    if file_write_safety.get("status") != "available":
+        blockers.append(
+            {
+                "code": "file_write_safety_incomplete",
+                "message": "Atomic file-write guards are not complete across ingestion and pipeline commands.",
+                "guards": file_write_safety.get("guards", {}),
+            }
+        )
+    observed_root = data_safety.get("observed_root")
+    if isinstance(observed_root, dict) and observed_root.get("status") == "fail":
+        blockers.append(
+            {
+                "code": "data_root_invalid",
+                "message": "The active project data root is not a safe directory.",
+                "data_root": observed_root,
+            }
+        )
+    if stale_required_inputs:
+        blockers.append(
+            {
+                "code": "stale_required_inputs",
+                "message": "Required cached inputs exceed the configured age limit.",
+                "items": stale_required_inputs,
+            }
+        )
+    return blockers
 
 
 def inspect_project(
@@ -1273,6 +2518,8 @@ def inspect_project(
         path_status(output / "review_queue.csv", required=False, label="expert review queue"),
         path_status(output / "review.html", required=False, label="expert review page"),
         path_status(output / "verification.json", required=False, label="verification record"),
+        path_status(output / "schema_validation.json", required=False, label="schema validation"),
+        path_status(output / "reproducibility.json", required=False, label="reproducibility record"),
         path_status(output / "manifest.json", required=False, label="provenance manifest"),
         path_status(output / "columnar_status.json", required=False, label="columnar export status"),
         path_status(output / "analysis_results.jsonl", required=False, label="JSONL analysis export"),
@@ -1283,6 +2530,18 @@ def inspect_project(
     schema_registry = schema_registry_status(code_root)
     analysis_plan = analysis_plan_status(root, code_root)
     commands = console_commands_status(code_root)
+    output_safety = output_safety_status(code_root)
+    data_safety = data_safety_status(code_root)
+    data_safety["observed_root"] = data_root_boundary_status(data)
+    output_safety["observed_root"] = output_root_boundary_status(output)
+    file_write_safety = file_write_safety_status(code_root)
+    pages = pages_capability_status(root, code_root)
+    source_alignment = current_source_alignment_status(root, data, output)
+    validation = validation_capability_status(
+        output,
+        code_root,
+        source_alignment=source_alignment,
+    )
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -1309,36 +2568,101 @@ def inspect_project(
             + ", ".join(stale_required_inputs)
             + "."
         )
-    git_state = {"revision": git_revision(root), "dirty": git_dirty(root)}
+    git_state = {
+        "revision": git_revision(root),
+        "dirty": git_dirty(root),
+        "worktree": git_worktree_status(root),
+    }
     if git_state["dirty"]:
         warnings.append("The working tree contains uncommitted or untracked files.")
+    elif git_state["dirty"] is None:
+        warnings.append("Git worktree cleanliness could not be confirmed.")
     if verification["status"] != "pass":
         warnings.append(
             "A passing output verification record is unavailable; run the pipeline verify stage."
         )
+    if validation["status"] != "pass":
+        warnings.append(
+            "The complete validation gate is unavailable; verification, schema, and reproducibility records must all pass."
+        )
+    if validation["output_alignment"]["status"] != "pass":
+        warnings.append(
+            "Current output artifacts do not match the manifest inventory; rerun the build or release check."
+        )
+    if source_alignment["status"] == "fail":
+        warnings.append(
+            "Current input sources do not match the output manifest; rerun the build or release check."
+        )
+    if pages["status"] == "incomplete":
+        warnings.append("The committed GitHub Pages site fails its publication audit.")
+    elif pages["status"] == "invalid":
+        warnings.append("The GitHub Pages publication capability is unavailable or invalid.")
     if commands["status"] != "available" or commands["installation_status"] != "available":
         warnings.append(
             "Installed console command wrappers are incomplete: "
             f"{commands['installed_count']}/{commands['command_count']} available; "
             "reinstall the package before using strict readiness."
         )
+    if output_safety["status"] != "available":
+        warnings.append(
+            "Output-root safety guards are incomplete across user-facing commands; "
+            "reinstall or upgrade the package before using strict readiness."
+        )
+    if data_safety["status"] != "available":
+        warnings.append(
+            "Data-root safety guards are incomplete across ingestion and analysis commands; "
+            "reinstall or upgrade the package before using strict readiness."
+        )
+    if data_safety["observed_root"]["status"] == "fail":
+        warnings.append("The active project data root is a symlink or non-directory.")
+    if output_safety["observed_root"]["status"] == "fail":
+        warnings.append(
+            "The active project output root contains a symlink or is not a directory."
+        )
+    if file_write_safety["status"] != "available":
+        warnings.append(
+            "Atomic file-write guards are incomplete across ingestion and pipeline commands; "
+            "reinstall or upgrade the package before using strict readiness."
+        )
     missing_outputs = [name for name in STRICT_OUTPUT_NAMES if not (output / name).is_file()]
     if missing_outputs:
         warnings.append("Required generated outputs are missing: " + ", ".join(missing_outputs) + ".")
 
+    strict_blockers = _strict_readiness_blockers(
+        errors=errors,
+        missing_inputs=missing_inputs,
+        missing_outputs=missing_outputs,
+        git_state=git_state,
+        verification=verification,
+        validation=validation,
+        source_alignment=source_alignment,
+        commands=commands,
+        output_safety=output_safety,
+        data_safety=data_safety,
+        file_write_safety=file_write_safety,
+        stale_required_inputs=stale_required_inputs,
+    )
     strict_ready = (
         not errors
         and not missing_inputs
         and not missing_outputs
         and git_state["dirty"] is False
         and verification["status"] == "pass"
+        and validation["status"] == "pass"
+        and validation["output_alignment"]["status"] == "pass"
+        and source_alignment["status"] != "fail"
         and commands["status"] == "available"
         and commands["installation_status"] == "available"
+        and output_safety["status"] == "available"
+        and output_safety["observed_root"]["status"] != "fail"
+        and data_safety["status"] == "available"
+        and data_safety["observed_root"]["status"] != "fail"
+        and file_write_safety["status"] == "available"
         and not stale_required_inputs
     )
     status = "fail" if errors else ("warning" if warnings else "pass")
     return {
-        "doctor_version": 56,
+        "doctor_version": DOCTOR_VERSION,
         "package_version": package_version(),
         "runtime": runtime_signature(),
         "checked_at": utc_now(),
@@ -1356,6 +2680,9 @@ def inspect_project(
         },
         "capabilities": {
             "pipeline": pipeline_status(code_root),
+            "output_safety": output_safety,
+            "data_safety": data_safety,
+            "file_write_safety": file_write_safety,
             "commands": commands,
             "reports": report_capability_status(code_root, output, data_root=data),
             "report_server": report_server_status(code_root, output, data_root=data),
@@ -1363,18 +2690,21 @@ def inspect_project(
             "geo3d": geo3d_capability_status(code_root),
             "query": query_data_status(code_root, output),
             "bundle": bundle_capability_status(code_root, output),
+            "release_check": release_check_capability_status(code_root),
             "review": review_workflow_status(code_root, output),
             "exports": export_capability_status(output),
-            "validation": validation_capability_status(output),
+            "validation": validation,
             "schema_registry": schema_registry,
             "analysis_plan": analysis_plan,
             "manifest_paths": manifest_path_status(output),
+            "pages": pages,
         },
         "verification": verification,
         "git": git_state,
         "summary": {
             "status": status,
             "strict_ready": strict_ready,
+            "strict_blockers": strict_blockers,
             "errors": errors,
             "warnings": warnings,
             "missing_required_inputs": len(missing_inputs),
@@ -1401,6 +2731,14 @@ def format_report(result: dict[str, Any]) -> str:
         ),
         "Dependencies:",
     ]
+    worktree = result["git"].get("worktree")
+    if isinstance(worktree, dict) and worktree.get("available") is True:
+        lines.append(
+            "Git worktree: "
+            f"{worktree.get('path_count', 0)} path(s), "
+            f"{worktree.get('changed_path_count', 0)} tracked change(s), "
+            f"{worktree.get('untracked_path_count', 0)} untracked"
+        )
     for dependency in result["dependencies"]["required"] + result["dependencies"]["optional"]:
         version = f" {dependency['version']}" if dependency.get("version") else ""
         lines.append(f"  {dependency['status']}: {dependency['name']}{version}")
@@ -1417,6 +2755,21 @@ def format_report(result: dict[str, Any]) -> str:
         "Source freshness: "
         f"{len(freshness['stale_required_inputs'])} stale required inputs{limit_text}"
     )
+    lines.append("Active tree boundaries:")
+    for label, capability_name in (
+        ("data", "data_safety"),
+        ("output", "output_safety"),
+    ):
+        capability = result["capabilities"].get(capability_name, {})
+        observed = capability.get("observed_root") if isinstance(capability, dict) else None
+        if not isinstance(observed, dict):
+            continue
+        symlink_count = observed.get("symlink_count", 0)
+        detail = f"; symlinks={symlink_count}" if symlink_count else ""
+        lines.append(
+            f"  {observed.get('status', 'unknown')}: {label} root "
+            f"{observed.get('path', 'unknown')}{detail}"
+        )
     lines.append("Capabilities:")
     for name, item in result["capabilities"].items():
         detail = ""
@@ -1427,6 +2780,9 @@ def format_report(result: dict[str, Any]) -> str:
             )
         lines.append(f"  {item['status']}: {item['label']}{detail}")
     lines.append(f"Verification: {result['verification']['status']}")
+    for blocker in summary.get("strict_blockers", []):
+        if isinstance(blocker, dict):
+            lines.append(f"BLOCKER [{blocker.get('code', 'unknown')}]: {blocker.get('message', '')}")
     for warning in summary["warnings"]:
         lines.append(f"WARNING: {warning}")
     for error in summary["errors"]:
@@ -1471,6 +2827,11 @@ def main(argv: list[str] | None = None) -> None:
         destination = Path(args.out)
         if not destination.is_absolute():
             destination = root / destination
+        destination = project_output_file_path(
+            destination,
+            "doctor.json",
+            label="doctor output",
+        )
         atomic_write_json(destination, result, indent=2)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
