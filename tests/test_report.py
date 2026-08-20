@@ -251,6 +251,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "CULTURE_LENS_LABELS" in html
     assert "Oidhreacht" in html
     assert "teanglann.ie" in html
+    assert 'id="selectionCard"' in html
+    assert 'id="selectionHeritage"' in html
+    assert "function renderSelectionCard" in html
+    assert "function selectionPlaceText" in html
+    assert "function clearSelection" in html
+    assert "data-selection-culture" in html
     assert "function restoreViewState()" in html
     assert "function syncViewState()" in html
     assert "X-Ireland-Geometry-Runtime-Status" in lazy_html

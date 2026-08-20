@@ -1265,6 +1265,20 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .runtime-status.incomplete { color:#a05a00; background:#fff7e8; font-weight:700; }
 .runtime-status.fail { color:#a5322e; background:#fff1f0; font-weight:700; }
 .clear-button { color:#526071; font-size:11px; }
+.selection-card { margin:0 18px 10px; padding:13px 14px; border:1px solid #cfc09c; border-radius:12px; background:linear-gradient(135deg,#f7f0df 0%,#edf3eb 100%); box-shadow:0 7px 18px rgba(31,63,59,.07); }
+.selection-card[hidden] { display:none; }
+.selection-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.selection-kicker { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.selection-card h2 { margin:4px 0 0; color:var(--deep); font:700 21px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.selection-card p { margin:5px 0 0; color:#617069; font-size:10px; }
+.selection-close { flex:0 0 auto; min-height:27px; padding:4px 8px; color:#65726a; background:rgba(255,253,248,.72); font-size:10px; }
+.selection-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:11px; }
+.selection-fact { min-width:0; padding:8px; border:1px solid rgba(207,192,156,.75); border-radius:8px; background:rgba(255,253,248,.7); }
+.selection-fact span { display:block; color:#897c67; font-size:9px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+.selection-fact strong { display:block; margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font-size:11px; line-height:1.3; }
+.selection-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:10px; }
+.selection-actions a, .selection-actions button { min-height:27px; padding:4px 8px; border:1px solid #c9b995; border-radius:7px; color:#315c57; background:rgba(255,253,248,.78); font-size:10px; font-weight:750; text-decoration:none; }
+.selection-actions a:hover, .selection-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .section { padding:10px 12px; border-bottom:1px solid var(--line); }
 .section h2 { margin:0 0 7px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#465467; }
 .section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
@@ -1559,6 +1573,7 @@ tr:hover td { background:#f1f6f1; }
   .evidence-grid { grid-template-columns:1fr; }
   .lab-grid { grid-template-columns:1fr; }
   .lab-copy { border-top:1px solid #ddd1bc; border-left:0; }
+  .selection-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:720px) {
   #mapHud { top:70px; left:12px; width:min(300px,calc(100vw - 24px)); }
@@ -1577,6 +1592,7 @@ tr:hover td { background:#f1f6f1; }
   .culture-mosaic { grid-template-columns:1fr; }
   .toolbar { align-items:flex-start; flex-direction:column; }
   .toolbar-actions { width:100%; justify-content:flex-start; }
+  .selection-card { margin:0 12px 10px; }
 }
 </style>
 </head>
@@ -1769,6 +1785,19 @@ tr:hover td { background:#f1f6f1; }
     </div>
   </div>
   <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activeCulture" class="active-filter" aria-live="polite"></span><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <section id="selectionCard" class="selection-card" aria-labelledby="selectionTitle" aria-live="polite" hidden>
+    <div class="selection-head">
+      <div><span class="selection-kicker">Selected place / field note</span><h2 id="selectionTitle">Target detail</h2><p id="selectionSubtitle">Select a point or table row to bring its evidence into view.</p></div>
+      <button id="clearSelection" class="selection-close" type="button">Close</button>
+    </div>
+    <div class="selection-grid">
+      <div class="selection-fact"><span>Place context</span><strong id="selectionPlace">—</strong></div>
+      <div class="selection-fact"><span>Heritage record</span><strong id="selectionHeritage">—</strong></div>
+      <div class="selection-fact"><span>Geometry signals</span><strong id="selectionGeometry">—</strong></div>
+      <div class="selection-fact"><span>Review state</span><strong id="selectionReview">—</strong></div>
+    </div>
+    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button></div>
+  </section>
   <div id="patterns" class="section pattern-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
     <div class="route-grid">
@@ -2474,10 +2503,14 @@ document.addEventListener('click',event=>{
   if(card) { setPatternFilter(card.dataset.pattern); return; }
   const culture=event.target.closest?.('button.culture-focus');
   if(culture) { setCultureFilter(culture.dataset.cultureFocus); return; }
+  const selectionCulture=event.target.closest?.('button[data-selection-culture]');
+  if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
+  if(event.target.closest?.('#clearSelection')) { clearSelection(); return; }
   if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
   if(event.target.closest?.('#clearFilters')) { clearAllFilters(); }
 });
 document.addEventListener('change',event=>{ if(event.target?.id==='pattern'||event.target?.id==='cultureLens') queueFilters(); });
+document.addEventListener('keydown',event=>{ if(event.key==='Escape'&&!$('selectionCard')?.hidden) clearSelection(); });
 function interpretationStatusClass(value) { return String(value||'not_reported').toLowerCase().replace(/[^a-z0-9_-]/g,'_'); }
 function renderInterpretation() {
   const findings=INTERPRETATION.findings||[], caveats=INTERPRETATION.caveats||[];
@@ -2493,6 +2526,58 @@ function reviewFilterState(row) { return row.review?.in_queue ? String(row.revie
 function reviewState(row) { return reviewFilterState(row).replaceAll('_',' '); }
 function reviewLink(row,label) { const queued=Boolean(row.review?.in_queue); const title=queued?'Open the current expert review queue':'Target is outside the current top-1,000 expert review queue'; return `<a class="review-link" href="${reviewHref(row)}" title="${esc(title)}" target="_blank" rel="noopener">${esc(label)}</a>`; }
 function reviewCell(row) { return reviewLink(row,reviewState(row)); }
+function culturalLensForRow(row) {
+  if(row.spatial?.settlement_class==='named_place') return 'named';
+  if(row.niah?.reg_no) return 'heritage';
+  if(['government','civic'].includes(row.group)) return 'civic';
+  if(row.group==='worship') return 'pobal';
+  return '';
+}
+function selectionPlaceText(row) {
+  const settlement=String(row.spatial?.settlement_name||'').trim();
+  const county=String(row.spatial?.county||row.niah?.county||'').trim();
+  const kind=String(row.spatial?.settlement_class||'').replaceAll('_',' ');
+  return [settlement,county].filter(Boolean).join(' · ') || (kind && kind!=='unknown' ? kind : row.address_city || 'Context not reported');
+}
+function selectionHeritageText(row) {
+  const niah=row.niah||{};
+  if(!niah.reg_no) return 'No NIAH join in this snapshot';
+  return [niah.name||'NIAH-linked record',niah.reg_no,niah.rating,niah.century].filter(Boolean).join(' · ');
+}
+function selectionGeometryText(row) {
+  const flags=row.flags||[];
+  if(!flags.length) return 'No screening flags';
+  const labels=flags.slice(0,3).map(patternLabel);
+  return labels.join(' · ')+(flags.length>3?` · +${flags.length-3} more`:'');
+}
+function renderSelectionCard(id) {
+  const card=$('selectionCard'), row=DATA.find(item=>item.osm_id===id)||filtered.find(item=>item.osm_id===id);
+  if(!card||!row) return;
+  const set=(element,value)=>{ if(element) element.textContent=value; };
+  set($('selectionTitle'),row.name||'Unnamed target');
+  set($('selectionSubtitle'),`${row.osm_id} · ${row.group||'other'} · score ${fmt(row.score)} · ${fmt(row.area_m2,0)} m²`);
+  set($('selectionPlace'),selectionPlaceText(row));
+  set($('selectionHeritage'),selectionHeritageText(row));
+  set($('selectionGeometry'),selectionGeometryText(row));
+  set($('selectionReview'),reviewState(row));
+  const source=$('selectionOsm');
+  if(source) source.href=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id)}`;
+  const lens=culturalLensForRow(row), lensButton=$('selectionCulture');
+  if(lensButton) {
+    lensButton.hidden=!lens;
+    lensButton.dataset.selectionCulture=lens;
+    lensButton.textContent=lens?`Explore ${CULTURE_LENS_LABELS[lens]} →`:'Explore this cultural lens →';
+  }
+  card.hidden=false;
+}
+function hideSelectionCard() { const card=$('selectionCard'); if(card) card.hidden=true; }
+function clearSelection() {
+  if(selectedMarkerId) setMarkerSelected(markerById.get(selectedMarkerId),false);
+  selectedMarkerId=null; offlineSelection=null;
+  if(map?.closePopup) map.closePopup();
+  hideSelectionCard(); renderTable();
+  if(offlineMap) renderOfflineMap();
+}
 function qualityValues(value) { return String(value??'').split('|').map(item=>item.trim()).filter(Boolean); }
 function osmHref(id) { return `https://www.openstreetmap.org/${encodeURIComponent(id)}`; }
 function qualityMemberHtml(value) { return qualityValues(value).map(id=>`<span class="quality-member"><button type="button" data-quality-focus="${esc(id)}">${esc(id)}</button><a href="${esc(osmHref(id))}" target="_blank" rel="noopener">OSM</a></span>`).join('') || '<span class="footnote">none</span>'; }
@@ -2544,6 +2629,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   if(selectedMarkerId && selectedMarkerId!==id) setMarkerSelected(markerById.get(selectedMarkerId),false);
   selectedMarkerId=id;
   setMarkerSelected(markerById.get(id),true);
+  renderSelectionCard(id);
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
     const active=row.dataset.id===id;
     row.classList.toggle('selected',active);
@@ -2578,13 +2664,13 @@ function renderOfflineMap() {
   const selection=selected?`<div class="offline-selection"><b>${esc(selected.name||'Unnamed')}</b> · ${esc(selected.group)} · score ${fmt(selected.score)}<br><span class="footnote">${esc(selected.osm_id)} · click a point to inspect another target</span></div>`:'';
   const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
   el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
-  el.querySelectorAll('.offline-point').forEach(point=>point.addEventListener('click',()=>{offlineSelection=point.dataset.id;renderOfflineMap();}));
+  el.querySelectorAll('.offline-point').forEach(point=>point.addEventListener('click',()=>focusRow(point.dataset.id,{scroll:false,openPopup:false})));
   updateMapHud();
 }
 function renderMap() {
+  if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) { selectedMarkerId=null; hideSelectionCard(); }
   if(offlineMap){ renderOfflineMap(); return; }
   if (!map || !markerLayer) return;
-  if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) selectedMarkerId=null;
   if(routeLine){ routeLine.remove(); routeLine=null; }
   markerLayer.clearLayers(); markerById.clear();
   filtered.slice(0,__MARKER_LIMIT__).forEach(row=>{
