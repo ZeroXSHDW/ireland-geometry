@@ -1209,4 +1209,9 @@ def test_doctor_exposes_pipeline_report_export_and_validation_capabilities(tmp_p
     assert capabilities["validation"]["manifest_coverage"]["status"] == "available"
     assert capabilities["pages"]["status"] == "available"
     assert capabilities["pages"]["audit"]["passed"] is True
-    assert capabilities["pages"]["source_revision"] == "2bfd3a5"
+    publication = json.loads(
+        (root / "docs" / "pages_manifest.json").read_text(encoding="utf-8")
+    )
+    assert capabilities["pages"]["source_revision"] == publication["source_manifest_revision"]
+    assert isinstance(capabilities["pages"]["source_revision"], str)
+    assert capabilities["pages"]["source_revision"]
