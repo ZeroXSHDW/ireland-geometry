@@ -717,6 +717,7 @@ jobs:
           cd /tmp/ireland-geometry-package-smoke
           ireland-geometry --stage schema-audit,verify \
             --bundle \
+            --incremental \
             --dry-run-json > /tmp/ireland-geometry-package-smoke/plan.json
           python -c "import importlib.metadata, json, os; p=json.load(open('/tmp/ireland-geometry-package-smoke/plan.json')); assert p['contract']=='ireland-geometry.dry-run.v1'; assert p['package_version']==importlib.metadata.version('ireland-geometry-scan'); assert p['cache_version']==5; assert p['cache_explanations'] is True; assert [s['name'] for s in p['stages']]==['schema-audit','verify','bundle','bundle-verify']; assert p['stages'][0]['fingerprint']; assert p['stages'][0]['cache']['reason']=='cache_missing'; assert p['post_validation_bundle']['enabled'] is True; assert [operation['name'] for operation in p['post_validation_bundle']['operations']]==['bundle','bundle-verify']; assert p['post_validation_bundle']['archive']==os.path.join(os.getcwd(),'output.bundle.zip'); assert p['project_root']==os.getcwd(); assert p['data_root']==os.path.join(os.getcwd(),'data'); assert p['out_dir']==os.path.join(os.getcwd(),'output'); assert p['no_files_written'] is True"
       - run: |
