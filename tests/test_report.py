@@ -272,6 +272,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "setAtlasNavActive('filters');" in html
     assert "function mapFocusPanOffset()" in html
     assert "map.panBy(offset,{animate:false});" in html
+    assert "const selectedDossierVisible=Boolean(selectionCard&&!selectionCard.hidden&&(selectedMarkerId||offlineSelection)" in html
+    assert "setAtlasNavActive('filters'); return;" in html
     assert "selected-footprint-outline" in html
     assert "offline-selection-outline" in html
     assert "let offlineMapFocus = false;" in html
@@ -333,7 +335,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "teanglann.ie" in html
     assert 'id="selectionCard"' in html
     assert "scroll-margin-top:54px" in html
-    assert "const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean), selectionCard=$('selectionCard');" in html
+    assert "const selectionCard=$('selectionCard');" in html
+    assert "const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean);" in html
     assert "setAtlasNavActive(visible.target===selectionCard?'filters':visible.target.id);" in html
     assert "if(selectionCard) observer.observe(selectionCard);" in html
     assert "const stickyOffset=Math.max(54,Math.round($('atlasNav')?.getBoundingClientRect().height||0));" in html

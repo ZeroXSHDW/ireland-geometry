@@ -6186,11 +6186,15 @@ function focusAtlasSection(key) { focusAtlasTarget(key,key); }
 function initAtlasNav() {
   const panel=$('panel'), links=[...document.querySelectorAll('[data-nav-section]')];
   if(!panel||!links.length) return;
-  setAtlasNavActive('field');
+  const selectionCard=$('selectionCard');
+  setAtlasNavActive(selectionCard&&!selectionCard.hidden&&(selectedMarkerId||offlineSelection)?'filters':'field');
   links.forEach(link=>link.addEventListener('click',()=>setAtlasNavActive(link.dataset.navSection)));
-  const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean), selectionCard=$('selectionCard');
+  const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean);
   if(typeof IntersectionObserver==='undefined') return;
   const observer=new IntersectionObserver(entries=>{
+    const panelRect=panel.getBoundingClientRect(), cardRect=selectionCard?.getBoundingClientRect();
+    const selectedDossierVisible=Boolean(selectionCard&&!selectionCard.hidden&&(selectedMarkerId||offlineSelection)&&cardRect&&cardRect.top<=panelRect.top+144&&cardRect.bottom>panelRect.top+54);
+    if(selectedDossierVisible) { setAtlasNavActive('filters'); return; }
     const visible=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio)[0];
     if(visible) setAtlasNavActive(visible.target===selectionCard?'filters':visible.target.id);
   },{root:panel,rootMargin:'-54px 0px -58% 0px',threshold:[0.01,0.2,0.5]});
