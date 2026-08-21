@@ -119,6 +119,12 @@ of historic intention or a substitute for Irish lived culture.
   narrative rail now lands the field-walk heading below the sticky navigation
   instead of placing “No route required” underneath it.
 
+## Selected dossier sticky offset — 2026-08-21
+
+- Updated the selected-building reveal helper to reserve the actual sticky
+  atlas header height instead of scrolling to a fixed 12px gap. On the phone
+  breakpoint the dossier title and close control now arrive below the nav.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

@@ -1652,7 +1652,7 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .report-error[hidden] { display:none; }
 .report-error button { border:1px solid #a5322e; border-radius:4px; padding:4px 8px; color:#fff; background:#a5322e; font:inherit; font-weight:700; cursor:pointer; }
 .clear-button { color:#526071; font-size:11px; }
-.selection-card { margin:0 18px 10px; padding:13px 14px; border:1px solid #cfc09c; border-radius:12px; background:linear-gradient(135deg,#f7f0df 0%,#edf3eb 100%); box-shadow:0 7px 18px rgba(31,63,59,.07); }
+.selection-card { margin:0 18px 10px; padding:13px 14px; border:1px solid #cfc09c; border-radius:12px; background:linear-gradient(135deg,#f7f0df 0%,#edf3eb 100%); box-shadow:0 7px 18px rgba(31,63,59,.07); scroll-margin-top:54px; }
 .selection-card[hidden] { display:none; }
 .selection-card.selection-card-arrived { animation:selection-arrival .72s ease both; }
 @keyframes selection-arrival { 0% { transform:translateY(7px); box-shadow:0 0 0 0 rgba(191,91,69,0); } 45% { box-shadow:0 0 0 5px rgba(191,91,69,.18),0 12px 28px rgba(31,63,59,.13); } 100% { transform:translateY(0); box-shadow:0 7px 18px rgba(31,63,59,.07); } }
@@ -1757,7 +1757,7 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-actions a:hover, .selection-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .selection-actions button:disabled { cursor:not-allowed; opacity:.5; }
 .selection-share-status { color:#6c786f; font-size:9px; }
-.comparison-tray { margin:0 18px 10px; padding:14px; border:1px solid #bbaa7d; border-radius:14px; background:linear-gradient(135deg,#f3ead8 0%,#e8f0e8 100%); box-shadow:0 7px 18px rgba(31,63,59,.06); }
+.comparison-tray { margin:0 18px 10px; padding:14px; border:1px solid #bbaa7d; border-radius:14px; background:linear-gradient(135deg,#f3ead8 0%,#e8f0e8 100%); box-shadow:0 7px 18px rgba(31,63,59,.06); scroll-margin-top:54px; }
 .comparison-tray[hidden] { display:none; }
 .comparison-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .comparison-head h2 { margin:4px 0 0; color:var(--deep); font:700 21px/1.05 Georgia,serif; letter-spacing:-.04em; }
@@ -5839,7 +5839,8 @@ function mapTargetAriaLabel(row) {
 function revealSelectionCard(selection) {
   const panel=$('panel');
   if(panel&&panel.contains(selection)) {
-    panel.scrollTo({top:Math.max(0,selection.offsetTop-12),behavior:'smooth'});
+    const stickyOffset=Math.max(54,Math.round($('atlasNav')?.getBoundingClientRect().height||0));
+    panel.scrollTo({top:Math.max(0,selection.offsetTop-stickyOffset),behavior:'smooth'});
   } else if(selection?.scrollIntoView) {
     selection.scrollIntoView({behavior:'smooth',block:'start'});
   }

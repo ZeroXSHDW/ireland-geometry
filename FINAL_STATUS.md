@@ -1578,6 +1578,12 @@ errors.
 The Footprint step now respects the sticky atlas header when it scrolls to the
 curated field walk, keeping the “No route required” heading and waypoint
 context fully visible at the destination.
+
+## Selected dossier sticky offset — 2026-08-21
+
+Selected buildings now enter the dossier below the sticky chapter bar. The
+reveal calculation reserves the measured atlas navigation height, keeping the
+Manor Mill title and close control visible on the phone-sized layout.
 When a path is returned, the dashboard overlays it on the live Leaflet map and
 focuses the offline SVG fallback on the route, so the geometry is inspectable in
 both dependency modes.
