@@ -257,6 +257,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function selectionPlaceText" in html
     assert "function clearSelection" in html
     assert "data-selection-culture" in html
+    assert 'id="atlasNav"' in html
+    assert 'data-nav-section="culture"' in html
+    assert 'data-quick-view="signals"' in html
+    assert "function initAtlasNav" in html
+    assert "function applyQuickView" in html
+    assert "function renderQuickViews" in html
     assert "function restoreViewState()" in html
     assert "function syncViewState()" in html
     assert "X-Ireland-Geometry-Runtime-Status" in lazy_html
@@ -323,6 +329,14 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="rainCapture"' in html
     assert 'id="accessWidth"' in html
     assert 'id="futurePhases"' in html
+    assert 'id="publicMix"' in html
+    assert 'id="buildingLevels"' in html
+    assert 'id="designSchedule"' in html
+    assert 'id="designBrief"' in html
+    assert 'id="copyBrief"' in html
+    assert 'id="downloadBrief"' in html
+    assert "function designMetrics" in html
+    assert "function buildDesignBrief" in html
     assert "Library courtyard" in html
     assert "Museum loop" in html
     assert "function renderPerformanceOverlay" in html

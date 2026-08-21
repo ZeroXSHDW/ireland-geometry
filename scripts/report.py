@@ -1222,6 +1222,14 @@ html,body { margin:0; height:100%; color:var(--ink); background:var(--deep); fon
 .header-actions a { padding:8px 11px; border:1px solid rgba(247,242,230,.26); border-radius:999px; background:#f1d893; }
 .header-actions a:last-child { color:#f7f2e6; background:transparent; }
 .header-actions a:hover, .review-link:hover { text-decoration:underline; }
+.atlas-nav { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; min-height:45px; padding:6px 18px; border-bottom:1px solid rgba(215,203,178,.9); background:rgba(248,244,236,.94); box-shadow:0 5px 14px rgba(31,63,59,.06); backdrop-filter:blur(12px); }
+.atlas-nav-links { display:flex; align-items:center; gap:3px; min-width:0; overflow-x:auto; scrollbar-width:none; }
+.atlas-nav-links::-webkit-scrollbar { display:none; }
+.atlas-nav a { flex:0 0 auto; min-height:29px; padding:6px 9px; border:1px solid transparent; border-radius:999px; color:#69766e; font-size:10px; font-weight:800; text-decoration:none; }
+.atlas-nav a:hover { border-color:#cdbf9e; color:var(--deep); background:#fbf7ee; }
+.atlas-nav a[aria-current="page"] { border-color:#cdbf9e; color:var(--deep); background:#efe4ca; box-shadow:inset 0 -2px 0 var(--gold); }
+.atlas-nav-status { min-width:0; margin-left:auto; overflow:hidden; color:#897c67; font-size:9px; font-weight:750; letter-spacing:.08em; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+.atlas-section { scroll-margin-top:54px; }
 .review-state { color:#526071; font-size:10px; white-space:nowrap; }
 .review-state.not_queued { color:var(--muted); font-style:italic; }
 .review-state.supportive { color:var(--green); font-weight:700; }
@@ -1236,6 +1244,11 @@ input,select,button { min-height:31px; border:1px solid #cfd5dd; border-radius:7
 input[type=range] { padding:0; accent-color:var(--blue); }
 button { cursor:pointer; font-weight:600; }
 button:hover { border-color:var(--blue); color:var(--blue); }
+.quick-views { display:flex; align-items:center; flex-wrap:wrap; gap:5px; grid-column:1 / -1; }
+.quick-views-label { margin-right:2px; color:var(--muted); font-size:10px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
+.quick-view { min-height:27px; padding:4px 8px; border-color:#d5cbbd; border-radius:999px; color:#5d6d66; background:#fffdf8; font-size:10px; font-weight:750; }
+.quick-view:hover, .quick-view[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.quick-view[aria-pressed="true"]::before { content:"• "; color:#e5c874; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .sort-button { width:100%; min-height:auto; padding:0; border:0; border-radius:0; background:transparent; color:inherit; text-align:left; font-size:inherit; font-weight:inherit; }
 .sort-button:focus-visible, tr[data-id]:focus-visible td { outline:2px solid var(--blue); outline-offset:-2px; }
@@ -1451,6 +1464,22 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .spec-card strong { display:block; margin-top:6px; color:var(--deep); font:700 15px/1.08 Georgia,serif; letter-spacing:-.02em; }
 .spec-card p { margin:6px 0 0; color:#69756e; font-size:10px; line-height:1.35; }
 .spec-card small { display:block; margin-top:7px; color:var(--red); font-size:9px; }
+.programme-controls { border-top:1px solid #d7ded3; background:#edf1e9; }
+.design-schedule { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; border-top:1px solid #ddd1bc; background:#ddd1bc; }
+.schedule-card { min-height:98px; padding:12px; background:#f8f2e6; }
+.schedule-card span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.schedule-card strong { display:block; margin-top:6px; color:var(--deep); font:700 18px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.schedule-card p { margin:6px 0 0; color:#69756e; font-size:10px; line-height:1.35; }
+.schedule-note { grid-column:1 / -1; padding:9px 12px; color:#786b59; background:#f1e9db; font-size:10px; line-height:1.4; }
+.brief-panel { padding:16px; border-top:1px solid #ddd1bc; background:#e9e4d8; }
+.brief-head { display:flex; align-items:start; justify-content:space-between; gap:14px; }
+.brief-head .studio-kicker { margin-bottom:7px; }
+.brief-head h3 { margin:0; color:var(--deep); font:700 22px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.brief-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.brief-actions button { min-height:29px; padding:5px 8px; border-color:#c9c0ae; color:var(--deep); background:#f8f2e6; font-size:10px; }
+.brief-actions button:hover { border-color:var(--blue); color:var(--blue); }
+.design-brief { max-height:275px; margin:13px 0 0; padding:12px; overflow:auto; border:1px solid #d5cbb9; color:#425750; background:#f8f2e6; font:10px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; }
+.brief-status { margin:9px 0 0; color:#786b59; font-size:10px; line-height:1.4; }
 .typology-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0 24px 22px; }
 .typology-card { min-height:118px; padding:13px; border-top:2px solid var(--gold); background:#f1ebdf; }
 .typology-card:nth-child(2) { border-top-color:var(--red); }
@@ -1569,7 +1598,7 @@ tr:hover td { background:#f1f6f1; }
   .lab-toolbar { align-items:stretch; }
   .lab-toolbar select { width:100%; }
   .lab-toolbar label { min-width:calc(50% - 10px); }
-  .scenario-control-grid, .performance-control-grid, .design-spec { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .scenario-control-grid, .performance-control-grid, .design-spec, .design-schedule { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .evidence-grid { grid-template-columns:1fr; }
   .lab-grid { grid-template-columns:1fr; }
   .lab-copy { border-top:1px solid #ddd1bc; border-left:0; }
@@ -1578,12 +1607,16 @@ tr:hover td { background:#f1f6f1; }
 @media (max-width:720px) {
   #mapHud { top:70px; left:12px; width:min(300px,calc(100vw - 24px)); }
   #panel { top:auto; right:0; bottom:0; left:0; width:100%; max-height:72vh; border-radius:14px 14px 0 0; }
+  .atlas-nav { padding:6px 12px; }
+  .atlas-nav-status { display:none; }
   .kpis { grid-template-columns:repeat(3,1fr); }
   .kpi b { font-size:15px; }
   .filters { grid-template-columns:1fr 1fr; }
   .filters input[type=text] { grid-column:1 / -1; }
   .route-grid { grid-template-columns:1fr 1fr; }
   .pattern-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .brief-head { flex-direction:column; }
+  .brief-actions { justify-content:flex-start; }
   .culture-section { padding:18px; }
   .culture-head { display:block; }
   .culture-mark { display:none; }
@@ -1627,7 +1660,11 @@ tr:hover td { background:#f1f6f1; }
     <p class="hero-note">The scan finds geometric signals. The studio tests how those signals might responsibly inform new civic architecture; it does not claim historic intent.</p>
     <div class="header-actions"><a href="#studio">Enter the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
   </header>
-  <section id="studio" class="studio-section">
+  <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
+    <div class="atlas-nav-links"><a href="#studio" data-nav-section="studio" data-nav-label="Design studio" aria-current="page">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
+    <span id="atlasNavStatus" class="atlas-nav-status" aria-live="polite">Design studio</span>
+  </nav>
+  <section id="studio" class="studio-section atlas-section">
     <div class="studio-head">
       <div class="studio-kicker">Irish civic geometry / design hypothesis</div>
       <h2>Four equations. <em>Four ways</em> to make a public room.</h2>
@@ -1674,11 +1711,24 @@ tr:hover td { background:#f1f6f1; }
           <label>Future phases <output id="phaseValue">2 phases</output><input id="futurePhases" type="range" min="1" max="3" step="1" value="2" aria-label="Number of future building phases"/></label>
         </div>
       </div>
+      <div class="performance-controls programme-controls" aria-label="Programme and building scale controls">
+        <div class="performance-heading"><span><b>04 / Programme + scale</b><br/>Balance public rooms, support space and vertical growth.</span><small id="programmeSummary">70% public programme · 2 levels</small></div>
+        <div class="performance-control-grid">
+          <label>Public programme <output id="publicMixValue">70%</output><input id="publicMix" type="range" min="30" max="95" step="1" value="70" aria-label="Public programme percentage"/></label>
+          <label>Building levels <output id="levelValue">2 levels</output><input id="buildingLevels" type="range" min="1" max="5" step="1" value="2" aria-label="Number of building levels"/></label>
+        </div>
+      </div>
       <div class="lab-grid">
         <div class="diagram-frame"><svg id="designDiagram" viewBox="0 0 600 330" role="img" aria-label="Schematic civic building geometry"></svg><div class="diagram-caption" id="diagramCaption">Schematic only · dimensions are a test-fit, not a construction drawing.</div></div>
         <div class="lab-copy" id="labCopy"></div>
       </div>
       <div id="designSpec" class="design-spec" aria-live="polite"></div>
+      <div id="designSchedule" class="design-schedule" aria-live="polite"></div>
+      <div class="brief-panel" aria-label="Exportable design brief">
+        <div class="brief-head"><div><span class="studio-kicker">Concept brief</span><h3>Carry the geometry into a review.</h3></div><div class="brief-actions"><button id="copyBrief" type="button">Copy brief</button><button id="downloadBrief" type="button">Download .txt</button></div></div>
+        <pre id="designBrief" class="design-brief">Select a typology to generate a concept brief.</pre>
+        <p id="briefStatus" class="brief-status" role="status" aria-live="polite">Indicative design arithmetic only · verify standards, site conditions, structure, fire, cost and planning requirements separately.</p>
+      </div>
     </div>
     <div class="typology-grid" aria-label="Civic typology translations">
       <article class="typology-card"><span>01 / Representation</span><h3>Parliament</h3><p>A central chamber opens to a public foyer, gallery and planted threshold.</p><b class="typology-move">13 × φ ≈ 21 m</b></article>
@@ -1703,7 +1753,7 @@ tr:hover td { background:#f1f6f1; }
       <p id="studioCaveat" class="evidence-caveat">Evidence caveats will appear here once the report pack is loaded.</p>
     </div>
   </section>
-  <section id="culture" class="culture-section" aria-labelledby="cultureTitle">
+  <section id="culture" class="culture-section atlas-section" aria-labelledby="cultureTitle">
     <div class="culture-head">
       <div>
         <div class="studio-kicker">Living Ireland / cultural lens</div>
@@ -1767,7 +1817,15 @@ tr:hover td { background:#f1f6f1; }
     <div class="kpi"><b id="kNiah">—</b><span>NIAH matched</span></div>
     <div class="kpi"><b id="kPatterns">—</b><span>pattern types</span></div>
   </div>
-  <div id="filters" class="filters">
+  <div id="filters" class="filters atlas-section">
+    <div class="quick-views" aria-label="Quick exploration views">
+      <span class="quick-views-label">Start with</span>
+      <button class="quick-view" type="button" data-quick-view="all" aria-pressed="true">All targets</button>
+      <button class="quick-view" type="button" data-quick-view="named" aria-pressed="false">Named places</button>
+      <button class="quick-view" type="button" data-quick-view="heritage" aria-pressed="false">Heritage joins</button>
+      <button class="quick-view" type="button" data-quick-view="civic" aria-pressed="false">Civic ground</button>
+      <button class="quick-view" type="button" data-quick-view="signals" aria-pressed="false">Geometry signals</button>
+    </div>
     <input id="query" type="text" placeholder="Search name, OSM id, flags, county…" aria-label="Search analyzed targets"/>
     <select id="group" aria-label="Filter by group"><option value="">All groups</option></select>
     <select id="century" aria-label="Filter by century"><option value="">All centuries</option></select>
@@ -1798,7 +1856,7 @@ tr:hover td { background:#f1f6f1; }
     </div>
     <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button></div>
   </section>
-  <div id="patterns" class="section pattern-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
+  <div id="patterns" class="section pattern-section atlas-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
     <div class="route-grid">
       <label>Start latitude<input id="routeStartLat" inputmode="decimal" placeholder="53.3498"/></label>
@@ -1821,7 +1879,7 @@ tr:hover td { background:#f1f6f1; }
     <div id="routeStatus" class="footnote route-status" role="status" aria-live="polite">Serve this dashboard with ireland-geometry-serve to enable routing.</div>
     <pre id="routeResult" class="route-result" aria-live="polite" hidden></pre>
   </div>
-  <div class="section"><h2>Data-derived interpretation</h2><div id="interpretation"></div></div>
+  <div id="evidence" class="section atlas-section"><h2>Data-derived interpretation</h2><div id="interpretation"></div></div>
   <div class="section"><h2>Observed target vs control rates</h2><div id="groupBars" class="bars"></div></div>
   <div class="section"><h2>Construction-era golden-angle rates</h2><div id="eraBars" class="bars"></div></div>
   <div class="table-wrap"><table><caption class="sr-only">Analyzed target results</caption><thead><tr>
@@ -2005,6 +2063,8 @@ function scenarioValues() {
     rain: scenarioNumber('rainCapture',72),
     accessWidth: scenarioNumber('accessWidth',1.8),
     phases: Math.round(scenarioNumber('futurePhases',2)),
+    publicMix: scenarioNumber('publicMix',70),
+    levels: Math.round(scenarioNumber('buildingLevels',2)),
     season: $('season')?.value || 'midsummer',
     material: $('material')?.value || 'stone',
     grammar: $('grammar')?.value || 'radial'
@@ -2015,6 +2075,9 @@ function scenarioSummaryText(values) {
 }
 function performanceSummaryText(values) {
   return `${fmt(values.wind,0)}% shelter · ${fmt(values.rain,0)}% rain capture · ${fmt(values.accessWidth,1)} m clear route · ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`;
+}
+function programmeSummaryText(values) {
+  return `${fmt(values.publicMix,0)}% public programme · ${fmt(values.levels,0)} ${values.levels===1?'level':'levels'}`;
 }
 function radialNodes(count, radius, angleOffset, tone, opacity, className='diagram-bay-dot') {
   const safeCount=Math.max(1,Math.round(count));
@@ -2152,10 +2215,11 @@ function renderDesignDiagram() {
   if($('diagramCaption')) $('diagramCaption').textContent=`${equation.caption} ${grammar.label.toLowerCase()} · ${scenarioSummaryText(values)} · ${season.label}.`;
 }
 function renderScenarioReadout(values=scenarioValues()) {
-  const outputs=[['moduleValue',`${fmt(values.module,0)} m`],['courtyardValue',`${fmt(values.courtyard,0)}%`],['bayValue',fmt(values.bays,0)],['pathValue',`${fmt(values.angle,1)}°`],['densityValue',`${fmt(values.density,0)}%`],['windValue',`${fmt(values.wind,0)}%`],['rainValue',`${fmt(values.rain,0)}%`],['accessValue',`${fmt(values.accessWidth,1)} m`],['phaseValue',`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`]];
+  const outputs=[['moduleValue',`${fmt(values.module,0)} m`],['courtyardValue',`${fmt(values.courtyard,0)}%`],['bayValue',fmt(values.bays,0)],['pathValue',`${fmt(values.angle,1)}°`],['densityValue',`${fmt(values.density,0)}%`],['windValue',`${fmt(values.wind,0)}%`],['rainValue',`${fmt(values.rain,0)}%`],['accessValue',`${fmt(values.accessWidth,1)} m`],['phaseValue',`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`],['publicMixValue',`${fmt(values.publicMix,0)}%`],['levelValue',`${fmt(values.levels,0)} ${values.levels===1?'level':'levels'}`]];
   outputs.forEach(([id,text])=>{ if($(id)) $(id).textContent=text; });
   if($('scenarioSummary')) $('scenarioSummary').textContent=scenarioSummaryText(values);
   if($('performanceSummary')) $('performanceSummary').textContent=performanceSummaryText(values);
+  if($('programmeSummary')) $('programmeSummary').textContent=programmeSummaryText(values);
 }
 function renderDesignSpec(typology, season, material, values) {
   const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
@@ -2164,10 +2228,120 @@ function renderDesignSpec(typology, season, material, values) {
     {label:'Rain + water', strong:`${fmt(values.rain,0)}% capture emphasis`, copy:`${typology.water}. Keep roof, rill and planted court readable as one public sequence.`, note:'Design setting · test overflow, storage and maintenance'},
     {label:'Weather + season', strong:`${fmt(values.wind,0)}% shelter emphasis`, copy:`${season.light}. ${typology.wind}.`, note:`${season.weather} · verify with local wind/daylight studies`},
     {label:'Material + carbon', strong:material.label, copy:material.note, note:'Concept palette · LCA, sourcing and maintenance check required'},
-    {label:'Future capacity', strong:`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'} · ${fmt(values.bays,0)} bays`, copy:'Keep the civic room legible while allowing the public edge, planting and services to grow in stages.', note:`${fmt(values.density,0)}% public-density setting · test a future phase`},
+    {label:'Future capacity', strong:`${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'} · ${fmt(values.bays,0)} bays · ${fmt(values.levels,0)} levels`, copy:'Keep the civic room legible while allowing the public edge, planting and services to grow in stages.', note:`${fmt(values.density,0)}% public-density setting · test a future phase`},
     {label:'Spatial grammar', strong:grammar.label, copy:grammar.description, note:`${grammar.equation} · contemporary hypothesis`}
   ];
   if($('designSpec')) $('designSpec').innerHTML=specs.map(spec=>`<article class="spec-card"><span>${esc(spec.label)}</span><strong>${esc(spec.strong)}</strong><p>${esc(spec.copy)}</p><small>${esc(spec.note)}</small></article>`).join('');
+}
+function designMetrics(values) {
+  const bayArea=Math.max(1,values.module*values.module);
+  const footprint=bayArea*Math.max(1,values.bays);
+  const courtArea=footprint*(values.courtyard/100);
+  const enclosedFootprint=Math.max(0,footprint-courtArea);
+  const grossFloor=enclosedFootprint*Math.max(1,values.levels);
+  const publicFloor=grossFloor*(values.publicMix/100);
+  const supportFloor=Math.max(0,grossFloor-publicFloor);
+  const equivalentCourtRadius=Math.sqrt(Math.max(0,courtArea)/Math.PI);
+  const loopLength=2*Math.PI*equivalentCourtRadius;
+  const phaseFloor=grossFloor/Math.max(1,values.phases);
+  return {bayArea,footprint,courtArea,enclosedFootprint,grossFloor,publicFloor,supportFloor,loopLength,phaseFloor};
+}
+function metricM2(value) { return `${Math.round(value).toLocaleString()} m²`; }
+function metricM(value) { return `${Math.round(value).toLocaleString()} m`; }
+function renderDesignSchedule(typology, values) {
+  const metrics=designMetrics(values);
+  const cards=[
+    {label:'Module field',strong:metricM2(metrics.footprint),copy:`${fmt(values.module,0)} m × ${fmt(values.module,0)} m bay × ${fmt(values.bays,0)} bays`},
+    {label:'Indicative floor area',strong:metricM2(metrics.grossFloor),copy:`${fmt(values.levels,0)} ${values.levels===1?'level':'levels'} after the courtyard void`},
+    {label:'Courtyard / porous void',strong:metricM2(metrics.courtArea),copy:`${fmt(values.courtyard,0)}% of the module field kept open`},
+    {label:'Public programme',strong:metricM2(metrics.publicFloor),copy:`${fmt(values.publicMix,0)}% of indicative enclosed floor area`},
+    {label:'Civic loop',strong:metricM(metrics.loopLength),copy:`Equivalent circular route around the ${typology.label.toLowerCase()} court`},
+    {label:'Phase 1 share',strong:metricM2(metrics.phaseFloor),copy:`Indicative floor area per stage across ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`}
+  ];
+  if($('designSchedule')) $('designSchedule').innerHTML=cards.map(card=>`<article class="schedule-card"><span>${esc(card.label)}</span><strong>${esc(card.strong)}</strong><p>${esc(card.copy)}</p></article>`).join('')+'<p class="schedule-note">Indicative geometry only: the calculation uses the selected module, bay count, courtyard void, level count, public-programme mix and phases. It is not a planning, occupancy, structural, cost or compliance model.</p>';
+}
+function buildDesignBrief() {
+  const values=scenarioValues();
+  const typology=DESIGN_TYPOLOGIES[$('typology')?.value || 'parliament'] || DESIGN_TYPOLOGIES.parliament;
+  const equation=DESIGN_EQUATIONS[selectedEquation] || DESIGN_EQUATIONS.phi;
+  const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
+  const season=DESIGN_SEASONS[values.season] || DESIGN_SEASONS.midsummer;
+  const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
+  const metrics=designMetrics(values);
+  const worship=SIG.find(row=>row.signal==='golden_angle'&&row.group==='worship') || {};
+  const caveat=(Array.isArray(INTERPRETATION.caveats)&&INTERPRETATION.caveats[0]) || 'Geometry flags are screening evidence, not evidence of design intent.';
+  const validation=String(SUMMARY.validation?.status || (SUMMARY.analysis_ready?'pass':'incomplete'));
+  return [
+    'CRUTH / IRISH CIVIC GEOMETRY ATLAS',
+    'CONCEPT DESIGN BRIEF',
+    'Generated from the current interactive test-fit · contemporary design hypothesis · not a historical reconstruction',
+    '',
+    '1 / POSITION',
+    `Typology: ${typology.label}`,
+    `Public life: ${typology.public}`,
+    `Spatial sequence: ${equation.move}`,
+    '',
+    '2 / GEOMETRY',
+    `Equation: ${equation.equation}`,
+    `Geometry grammar: ${grammar.label} — ${grammar.equation}`,
+    grammar.description,
+    `Selected material study: ${material.label}`,
+    '',
+    '3 / INDICATIVE TEST-FIT ARITHMETIC',
+    `Module field: ${metricM2(metrics.footprint)} = ${fmt(values.module,0)} m module × ${fmt(values.bays,0)} bays`,
+    `Courtyard / porous void: ${metricM2(metrics.courtArea)} (${fmt(values.courtyard,0)}%)`,
+    `Indicative floor area: ${metricM2(metrics.grossFloor)} across ${fmt(values.levels,0)} ${values.levels===1?'level':'levels'}`,
+    `Public programme: ${metricM2(metrics.publicFloor)} (${fmt(values.publicMix,0)}% of indicative enclosed floor area)`,
+    `Support / service allowance: ${metricM2(metrics.supportFloor)}`,
+    `Civic loop: ${metricM(metrics.loopLength)} equivalent circular route`,
+    `Phase 1 share: ${metricM2(metrics.phaseFloor)} across ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'}`,
+    '',
+    '4 / CLIMATE, ACCESS + DELIVERY',
+    `Seasonal lens: ${season.label} — ${season.light}`,
+    `Wind setting: ${fmt(values.wind,0)}% shelter emphasis — ${typology.wind}`,
+    `Rain setting: ${fmt(values.rain,0)}% capture emphasis — ${typology.water}`,
+    `Accessible route setting: ${fmt(values.accessWidth,1)} m clear route — ${typology.access}`,
+    `Future delivery: ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'} with ${fmt(values.bays,0)} bays available for adaptation`,
+    `Material note: ${material.note}`,
+    '',
+    '5 / EVIDENCE POSITION',
+    `Validation status: ${validation}`,
+    `Measured signal: ${fmt(worship.observed_rate,2)}% worship targets vs ${fmt(worship.control_rate,2)}% controls for the golden-angle flag.`,
+    'Use the measured pack, NIAH records and OSM geometry to form questions about place; do not infer historic intent from a geometric match.',
+    `Caveat: ${caveat}`,
+    '',
+    '6 / SOURCE TRAIL',
+    'OpenStreetMap contributors: https://www.openstreetmap.org/',
+    'Buildings of Ireland / NIAH data: https://www.buildingsofireland.ie/niah-data-download/',
+    'Report evidence catalogue: use the measured pattern catalogue in this dashboard.',
+    '',
+    'Review note: verify planning, fire, structure, accessibility, daylight, wind, drainage, ecology, cost, maintenance and procurement requirements with the relevant professionals.'
+  ].join('\n');
+}
+function renderDesignBrief() {
+  if($('designBrief')) $('designBrief').textContent=buildDesignBrief();
+}
+async function copyDesignBrief() {
+  const status=$('briefStatus');
+  try {
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(buildDesignBrief());
+    if(status) status.textContent='Brief copied to the clipboard · indicative design arithmetic only.';
+  } catch(error) {
+    if(status) status.textContent='Copy is unavailable in this browser; use Download .txt instead · indicative design arithmetic only.';
+  }
+}
+function downloadDesignBrief() {
+  const blob=new Blob([buildDesignBrief()],{type:'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=url;
+  link.download='cruth-concept-design-brief.txt';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  if($('briefStatus')) $('briefStatus').textContent='Brief downloaded · indicative design arithmetic only.';
 }
 function renderEvidenceBridge() {
   const validation=String(SUMMARY.validation?.status || (SUMMARY.analysis_ready?'pass':'incomplete')).toLowerCase();
@@ -2200,7 +2374,7 @@ function renderStudio() {
   const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
   const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
   renderScenarioReadout(values);
-  const tags=[...(typology.tags||[]),grammar.label,season.label.split('/')[0].trim(),material.label];
+  const tags=[...(typology.tags||[]),grammar.label,season.label.split('/')[0].trim(),material.label,`${fmt(values.levels,0)} ${values.levels===1?'level':'levels'}`];
   if($('labCopy')) $('labCopy').innerHTML=`<span class="lab-index">${esc(equation.index)} · ${esc(typology.label)}</span><h3>${esc(equation.title)}</h3><div class="lab-equation">${esc(equation.equation)}</div><p>${esc(equation.description)}</p><div class="lab-move"><b>Spatial translation</b><br/>${esc(equation.move)}<br/><b>Geometry grammar</b><br/>${esc(grammar.description)}<br/><b>Public edge</b><br/>${esc(typology.public)}</div><div class="lab-tags">${tags.map(tag=>`<span>${esc(tag)}</span>`).join('')}</div>`;
   const worship=SIG.find(row=>row.signal==='golden_angle'&&row.group==='worship') || {};
   const government=SIG.find(row=>row.signal==='golden_angle'&&row.group==='government') || {};
@@ -2209,6 +2383,8 @@ function renderStudio() {
   if($('studioGovernmentRate')) $('studioGovernmentRate').textContent=Number.isFinite(Number(government.observed_rate))?`${fmt(government.observed_rate,2)}%`:'6.65%';
   if($('studioTargetCount')) $('studioTargetCount').textContent=Number(SUMMARY.targets||33416).toLocaleString();
   renderDesignSpec(typology,season,material,values);
+  renderDesignSchedule(typology,values);
+  renderDesignBrief();
   renderEvidenceBridge();
   renderDesignDiagram();
 }
@@ -2218,7 +2394,9 @@ function initStudio() {
   $('season')?.addEventListener('change',renderStudio);
   $('material')?.addEventListener('change',renderStudio);
   $('grammar')?.addEventListener('change',renderStudio);
-  ['moduleScale','courtyardScale','bayCount','pathAngle','publicDensity','windShelter','rainCapture','accessWidth','futurePhases'].forEach(id=>$(id)?.addEventListener('input',renderStudio));
+  ['moduleScale','courtyardScale','bayCount','pathAngle','publicDensity','windShelter','rainCapture','accessWidth','futurePhases','publicMix','buildingLevels'].forEach(id=>$(id)?.addEventListener('input',renderStudio));
+  $('copyBrief')?.addEventListener('click',copyDesignBrief);
+  $('downloadBrief')?.addEventListener('click',downloadDesignBrief);
   renderStudio();
 }
 
@@ -2231,6 +2409,7 @@ const hasFlag = (row, flag) => row.flags.includes(flag);
 const patternLabel = key => PATTERN_BY_KEY.get(key)?.label || String(key||'').replaceAll('_',' ');
 const patternNamesText = row => row.flags.map(patternLabel).join(', ');
 const CULTURE_LENS_LABELS = {named:'Ainm / named places',heritage:'Oidhreacht / heritage joins',pobal:'Pobal / shared life',civic:'Civic / public institutions'};
+const ATLAS_NAV_LABELS = {studio:'Design studio',culture:'Cultural lens',filters:'Explore targets',evidence:'Evidence and findings'};
 function culturalLensMatches(row,lens) {
   if(lens==='named') return row.spatial?.settlement_class==='named_place';
   if(lens==='heritage') return Boolean(row.niah?.reg_no);
@@ -2469,6 +2648,7 @@ function renderSummary() {
  $('activePattern').textContent=$('pattern').value?`Pattern: ${patternLabel($('pattern').value)}`:'';
   const activeCulture=$('cultureLens')?.value;
   $('activeCulture').textContent=activeCulture?`Culture: ${CULTURE_LENS_LABELS[activeCulture]||activeCulture}`:'';
+  renderQuickViews();
   $('reviewCoverage').textContent=`Expert review queue: ${Number(SUMMARY.review_queue_targets||0).toLocaleString()} of ${Number(SUMMARY.targets||0).toLocaleString()} targets (${fmt(SUMMARY.review_queue_coverage_pct,2)}%); unqueued targets are labeled explicitly.`;
 }
 function renderPatternCatalog() {
@@ -2492,6 +2672,36 @@ function setCultureFilter(key) {
   applyFilters();
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
+function quickViewBaseIsNeutral() {
+  return !$('query').value.trim() && !$('group').value && !$('century').value && !$('rating').value && !$('niahType').value && !$('pattern').value && !$('reviewState').value && !$('onlyRatio').checked && !$('onlyCircular').checked && !$('onlyMulti').checked;
+}
+function currentQuickView() {
+  if(!quickViewBaseIsNeutral()) return '';
+  const culture=$('cultureLens').value, score=Number($('score').value), angle=$('onlyAngle').checked;
+  if(culture && score===0 && !angle && Object.prototype.hasOwnProperty.call(CULTURE_LENS_LABELS,culture)) return culture;
+  if(!culture && score===60 && angle) return 'signals';
+  if(!culture && score===0 && !angle) return 'all';
+  return '';
+}
+function renderQuickViews() {
+  const active=currentQuickView();
+  document.querySelectorAll('.quick-view').forEach(button=>{
+    const selected=button.dataset.quickView===active;
+    button.classList.toggle('active',selected);
+    button.setAttribute('aria-pressed',String(selected));
+  });
+}
+function applyQuickView(key) {
+  if(key==='all') { clearAllFilters(); $('filters')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  $('query').value='';
+  for(const [id] of VIEW_SELECTS) $(id).value='';
+  for(const [id] of VIEW_CHECKS) $(id).checked=false;
+  $('score').value='0'; $('onlyAngle').checked=false;
+  if(['named','heritage','civic'].includes(key)) $('cultureLens').value=key;
+  if(key==='signals') { $('score').value='60'; $('onlyAngle').checked=true; }
+  $('scoreValue').textContent=$('score').value; sortKey='score'; sortDesc=true; applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function clearAllFilters() {
   $('query').value='';
   for(const [id] of VIEW_SELECTS) $(id).value='';
@@ -2499,6 +2709,8 @@ function clearAllFilters() {
   $('score').value='0'; $('scoreValue').textContent='0'; sortKey='score'; sortDesc=true; applyFilters();
 }
 document.addEventListener('click',event=>{
+  const quick=event.target.closest?.('button.quick-view');
+  if(quick) { applyQuickView(quick.dataset.quickView); return; }
   const card=event.target.closest?.('button.pattern-card');
   if(card) { setPatternFilter(card.dataset.pattern); return; }
   const culture=event.target.closest?.('button.culture-focus');
@@ -2756,6 +2968,27 @@ function bindMapTileSignals(layer) {
   layer.on('tileload',()=>{ lastTileLoadedAt=Date.now(); mapTileErrorCount=0; setMapLoading(false); updateMapHud(); });
   layer.on('tileerror',()=>{ mapTileErrorCount+=1; if(mapTileErrorCount>=3) setMapLoading(false); updateMapHud(); });
 }
+function setAtlasNavActive(key) {
+  document.querySelectorAll('[data-nav-section]').forEach(link=>{
+    const active=link.dataset.navSection===key;
+    link.setAttribute('aria-current',active?'page':'false');
+  });
+  const status=$('atlasNavStatus');
+  if(status) status.textContent=ATLAS_NAV_LABELS[key]||'Atlas';
+}
+function initAtlasNav() {
+  const panel=$('panel'), links=[...document.querySelectorAll('[data-nav-section]')];
+  if(!panel||!links.length) return;
+  setAtlasNavActive('studio');
+  links.forEach(link=>link.addEventListener('click',()=>setAtlasNavActive(link.dataset.navSection)));
+  const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean);
+  if(typeof IntersectionObserver==='undefined') return;
+  const observer=new IntersectionObserver(entries=>{
+    const visible=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio)[0];
+    if(visible) setAtlasNavActive(visible.target.id);
+  },{root:panel,rootMargin:'-54px 0px -58% 0px',threshold:[0.01,0.2,0.5]});
+  sections.forEach(section=>observer.observe(section));
+}
 function initMapHud() {
   document.querySelectorAll('[data-map-layer]').forEach(button=>button.addEventListener('click',()=>setMapLayer(button.dataset.mapLayer)));
   $('mapRefresh')?.addEventListener('click',refreshMapImagery);
@@ -2863,7 +3096,9 @@ function routeSegmentText(route) {
       return total+(context&&(context.name||context.ref)?1:0);
     },0) : 0;
     const wayContextDetail=wayContext>0 ? ` · ${wayContext} named ${wayContext===1?'way':'ways'}` : '';
-    const detail=Number.isFinite(distance)&&Number.isFinite(duration) ? ` · ${fmt(distance,0)} m / ${routeDurationText(duration)}${Number.isFinite(wait)&&wait>0?` · ${routeDurationText(wait)} wait`:''}${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}` : `${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}`;
+    const maneuverCount=Number(route.maneuver_n);
+    const maneuverDetail=Number.isFinite(maneuverCount) ? ` · ${maneuverCount} ${maneuverCount===1?'maneuver':'maneuvers'}` : '';
+    const detail=Number.isFinite(distance)&&Number.isFinite(duration) ? ` · ${fmt(distance,0)} m / ${routeDurationText(duration)}${Number.isFinite(wait)&&wait>0?` · ${routeDurationText(wait)} wait`:''}${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}${maneuverDetail}` : `${constraintDetail}${conditionalDetail}${transitionDetail}${wayContextDetail}${maneuverDetail}`;
     return `${segments} mapped road ${segments===1?'segment':'segments'}${detail}`;
   }
   return 'mapped segment IDs unavailable';
@@ -3007,7 +3242,7 @@ function initMap() {
   L.control.layers({'Satellite':satellite,'Hybrid':hybrid,'Streets':streets},{'Top outlines':outlineLayer,'Markers':markerLayer},{collapsed:true}).addTo(map);
   activeMapLayer='satellite'; syncMapLayerButtons(); renderMap();
 }
-function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initMapHud(); initStudio(); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), Esri World Imagery for visual reference, and live basemap tiles from Esri/OSM.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap();startRuntimeRefresh(); }
+function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); initAtlasNav(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initMapHud(); initStudio(); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), Esri World Imagery for visual reference, and live basemap tiles from Esri/OSM.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap();startRuntimeRefresh(); }
 async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { setMapLoading(false); document.body.innerHTML=`<pre style="padding:20px">${error}</pre>`; } }
 reportLaunch();
 </script>
