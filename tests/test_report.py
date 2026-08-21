@@ -429,6 +429,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="selectionPassportStatus"' in html
     assert "function passportPathData(row)" in html
     assert "function downloadSelectionPassport()" in html
+    assert "function contextTitle(row)" in html
+    assert "set('studioReferenceTitle',contextTitle(row));" in html
+    assert "const title=contextTitle(row); return `<tr" in html
+    assert "<h3>${esc(contextTitle(row))}</h3>" in html
+    assert "${esc(contextTitle(row))} · ${esc(row.group)}" in html
     assert "function decorateMapAccessibility()" in html
     assert "Map cluster with" in html
     assert 'class="selection-evidence"' in html

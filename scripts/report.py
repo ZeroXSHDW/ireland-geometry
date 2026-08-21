@@ -3640,7 +3640,7 @@ function buildDesignBrief() {
     'Generated from the current interactive test-fit · contemporary design hypothesis · not a historical reconstruction',
     '',
     '0 / FIELD REFERENCE',
-    reference ? `Selected footprint: ${reference.name||'Unnamed'} · ${reference.osm_id||'OSM target'}` : 'No selected footprint carried from the field.',
+    reference ? `Selected footprint: ${contextTitle(reference)} · ${reference.osm_id||'OSM target'}` : 'No selected footprint carried from the field.',
     reference ? `Place context: ${selectionPlaceText(reference)}` : 'Use “Carry geometry to studio” on a selected map target to add a measured field reference.',
     reference ? `Measured geometry: ${fmt(reference.length_m,1)} × ${fmt(reference.width_m,1)} m · ${fmt(reference.area_m2,0)} m² · aspect ${fmt(reference.aspect_ratio,3)}` : 'The studio remains a standalone contemporary test-fit until a field reference is chosen.',
     reference ? `Source trail: ${reference.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(reference.osm_id||'')}`}` : '',
@@ -3735,7 +3735,7 @@ function renderStudioReference() {
   const source=row.osm_id||'OSM target';
   const heritage=row.niah?.reg_no ? [row.niah.name||'NIAH-linked record',row.niah.reg_no].filter(Boolean).join(' · ') : 'No NIAH join in this snapshot';
   const signals=(row.flags||[]).slice(0,3).map(patternLabel).join(' · ') || 'No screening flags';
-  set('studioReferenceTitle',row.name||'Unnamed footprint');
+  set('studioReferenceTitle',contextTitle(row));
   set('studioReferenceContext',`${row.osm_id||'Target'} · ${row.group||'other'} · carried from the measured field`);
   set('studioReferencePlace',selectionPlaceText(row));
   set('studioReferenceSource',source);
@@ -5276,7 +5276,7 @@ function passportPathData(row) {
 function downloadSelectionPassport() {
   const id=selectedMarkerId||offlineSelection, status=$('selectionPassportStatus'), row=targetRowForId(id);
   if(!row) { if(status) status.textContent='Select a place first.'; return; }
-  const niah=row.niah||{}, spatial=row.spatial||{}, name=passportLine(row.name||'Unnamed target',44), place=passportLine(selectionPlaceText(row),48), heritage=passportLine(niah.reg_no?[niah.name||'NIAH-linked record',niah.reg_no,niah.rating,niah.century].filter(Boolean).join(' · '):'No NIAH join in this snapshot',54), flags=passportLine((row.flags||[]).length?row.flags.slice(0,6).map(patternLabel).join(' · '):'No screening flags reported',62), coords=`${coordinateLabel(row.lat,'N','S')} / ${coordinateLabel(row.lon,'E','W')}`, path=passportPathData(row), source=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id||'')}`, geometryRows=[['AREA',`${fmt(row.area_m2,1)} m²`],['PERIMETER',`${fmt(row.perimeter_m,1)} m`],['LENGTH × WIDTH',`${fmt(row.length_m,1)} × ${fmt(row.width_m,1)} m`],['ASPECT',fmt(row.aspect_ratio,3)],['CIRCULARITY',fmt(row.circularity,3)],['RADIAL CV',fmt(row.radial_cv,3)]];
+  const niah=row.niah||{}, spatial=row.spatial||{}, name=passportLine(contextTitle(row),44), place=passportLine(selectionPlaceText(row),48), heritage=passportLine(niah.reg_no?[niah.name||'NIAH-linked record',niah.reg_no,niah.rating,niah.century].filter(Boolean).join(' · '):'No NIAH join in this snapshot',54), flags=passportLine((row.flags||[]).length?row.flags.slice(0,6).map(patternLabel).join(' · '):'No screening flags reported',62), coords=`${coordinateLabel(row.lat,'N','S')} / ${coordinateLabel(row.lon,'E','W')}`, path=passportPathData(row), source=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id||'')}`, geometryRows=[['AREA',`${fmt(row.area_m2,1)} m²`],['PERIMETER',`${fmt(row.perimeter_m,1)} m`],['LENGTH × WIDTH',`${fmt(row.length_m,1)} × ${fmt(row.width_m,1)} m`],['ASPECT',fmt(row.aspect_ratio,3)],['CIRCULARITY',fmt(row.circularity,3)],['RADIAL CV',fmt(row.radial_cv,3)]];
   const metricSvg=geometryRows.map(([label,value],index)=>{ const column=index%3, rowIndex=Math.floor(index/3), x=72+column*218, y=782+rowIndex*93; return `<g><text x="${x}" y="${y}" fill="#9eb4a8" font-size="13" font-weight="700" letter-spacing="2">${esc(label)}</text><text x="${x}" y="${y+31}" fill="#f7f0df" font-size="24" font-weight="700">${esc(value)}</text></g>`; }).join('');
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500" role="img" aria-labelledby="passportTitle passportDescription">
   <title id="passportTitle">Cruth field passport — ${esc(name)}</title>
@@ -5294,7 +5294,7 @@ function downloadSelectionPassport() {
   <rect x="72" y="1212" width="1056" height="132" rx="14" fill="#f7f0df" fill-opacity=".1" stroke="#9eb4a8" stroke-opacity=".42"/><text x="98" y="1252" fill="#e0bd6e" font-size="13" font-weight="800" letter-spacing="2">EVIDENCE BOUNDARY</text><text x="98" y="1285" fill="#f7f0df" font-size="16">This card records mapped geometry in a dated research snapshot.</text><text x="98" y="1315" fill="#b8c8bd" font-size="14">It is not proof of historic intention, authorship, cultural origin, planning compliance, or a single Irish architectural tradition.</text>
   <text x="72" y="1400" fill="#9eb4a8" font-size="12">${esc(source)} · Generated by Cruth / Ireland Field Atlas · ${esc(String(SUMMARY.generated_at||'snapshot unavailable'))}</text>
 </svg>`;
-  download(passportFileName(row.name||row.osm_id),svg,'image/svg+xml;charset=utf-8');
+  download(passportFileName(contextTitle(row)),svg,'image/svg+xml;charset=utf-8');
   if(status) status.textContent='SVG field passport downloaded.';
 }
 function drawSelectionFingerprint(row) {
@@ -5324,7 +5324,7 @@ function drawSelectionFingerprint(row) {
     if(label) label.textContent=`Mapped outline / ${feature.geometry.type}`;
     if(text) text.textContent=`${Math.max(0,points.length-1).toLocaleString()} boundary vertices · gold frame = measured extent · centre/ring = normalized display guides.`;
     if(note) note.textContent='GeoJSON source outline · normalized for comparison display only; original coordinates remain in the source map/export.';
-    canvas.setAttribute('aria-label',`Normalized mapped boundary fingerprint for ${row.name||row.osm_id}; ${Math.max(0,points.length-1)} boundary vertices.`);
+    canvas.setAttribute('aria-label',`Normalized mapped boundary fingerprint for ${contextTitle(row)}; ${Math.max(0,points.length-1)} boundary vertices.`);
     return;
   }
   const ratio=Math.max(.25,Math.min(4,Number(row.aspect_ratio)||1)), boxW=ratio>=1?Math.min(150,100+ratio*14):Math.max(58,100*ratio), boxH=ratio>=1?Math.max(48,100/ratio):Math.min(120,100/ratio), left=(width-boxW)/2, top=(height-boxH)/2;
@@ -5333,7 +5333,7 @@ function drawSelectionFingerprint(row) {
   if(label) label.textContent='Descriptor-only guide / outline unavailable';
   if(text) text.textContent='The current view has measured proportions but no source ring to draw; the guide does not invent a boundary.';
   if(note) note.textContent='Geometry source unavailable in this view · measured aspect/circularity remain below.';
-  canvas.setAttribute('aria-label',`Descriptor-only geometry guide for ${row.name||row.osm_id}; mapped boundary unavailable in this view.`);
+  canvas.setAttribute('aria-label',`Descriptor-only geometry guide for ${contextTitle(row)}; mapped boundary unavailable in this view.`);
 }
 function drawSelectionWeave(row) {
   const canvas=$('selectionWeave'), label=$('selectionWeaveLabel'), text=$('selectionWeaveText'), note=$('selectionWeaveNote');
@@ -5371,7 +5371,7 @@ function drawSelectionWeave(row) {
   if(label) label.textContent=mode;
   if(text) text.textContent=`A repeatable visual translation of aspect ${fmt(aspect,3)}, circularity ${fmt(circularity,3)}, radial variation ${fmt(radial,3)}, and the selected screening flags.`;
   if(note) note.textContent=`${steps} visual steps · ${flags.length?flags.slice(0,2).map(patternLabel).join(' · '):'no screening flags'} · contemporary study only`;
-  canvas.setAttribute('aria-label',`Contemporary derived geometry field print for ${row.name||row.osm_id}; ${mode}; not a historic ornament.`);
+  canvas.setAttribute('aria-label',`Contemporary derived geometry field print for ${contextTitle(row)}; ${mode}; not a historic ornament.`);
 }
 function comparisonBearingDegrees(a,b) {
   const lat1=Number(a?.lat), lon1=Number(a?.lon), lat2=Number(b?.lat), lon2=Number(b?.lon);
@@ -5428,7 +5428,7 @@ function renderComparisonRelation(a,b) {
 function comparisonTargetHtml(row,label) {
   const flags=(row.flags||[]).map(patternLabel);
   const heritage=row.niah?.reg_no ? [row.niah.name||'NIAH-linked record',row.niah.reg_no].filter(Boolean).join(' · ') : 'No NIAH join';
-  return `<article class="comparison-target"><div class="comparison-target-head"><span>${esc(label)}</span><button type="button" data-compare-remove="${esc(row.osm_id)}">Remove</button></div><h3>${esc(row.name||'Unnamed footprint')}</h3><p>${esc(row.osm_id||'OSM target')} · ${esc(selectionPlaceText(row))} · ${esc(row.group||'other')}</p><div class="comparison-metrics"><div class="comparison-metric"><span>Area</span><strong>${fmt(row.area_m2,0)} m²</strong></div><div class="comparison-metric"><span>Aspect</span><strong>${fmt(row.aspect_ratio,3)}</strong></div><div class="comparison-metric"><span>Circle C</span><strong>${fmt(row.circularity,3)}</strong></div><div class="comparison-metric"><span>Radial CV</span><strong>${fmt(row.radial_cv,3)}</strong></div></div><div class="comparison-signals"><b>Evidence:</b> ${esc(flags.length?flags.join(' · '):'No screening flags')}<br><b>Heritage:</b> ${esc(heritage)}</div></article>`;
+  return `<article class="comparison-target"><div class="comparison-target-head"><span>${esc(label)}</span><button type="button" data-compare-remove="${esc(row.osm_id)}">Remove</button></div><h3>${esc(contextTitle(row))}</h3><p>${esc(row.osm_id||'OSM target')} · ${esc(selectionPlaceText(row))} · ${esc(row.group||'other')}</p><div class="comparison-metrics"><div class="comparison-metric"><span>Area</span><strong>${fmt(row.area_m2,0)} m²</strong></div><div class="comparison-metric"><span>Aspect</span><strong>${fmt(row.aspect_ratio,3)}</strong></div><div class="comparison-metric"><span>Circle C</span><strong>${fmt(row.circularity,3)}</strong></div><div class="comparison-metric"><span>Radial CV</span><strong>${fmt(row.radial_cv,3)}</strong></div></div><div class="comparison-signals"><b>Evidence:</b> ${esc(flags.length?flags.join(' · '):'No screening flags')}<br><b>Heritage:</b> ${esc(heritage)}</div></article>`;
 }
 function renderComparisonTray() {
   const panel=$('comparisonTray'), content=$('comparisonContent'), intro=$('comparisonIntro');
@@ -5440,7 +5440,7 @@ function renderComparisonTray() {
   panel.hidden=false;
   if(rows.length===1) {
     renderComparisonRelation(null,null);
-    if(intro) intro.textContent=`${rows[0].name||'One footprint'} is held as Field A. Select another map point or table row, then add it to complete the comparison.`;
+    if(intro) intro.textContent=`${contextTitle(rows[0])} is held as Field A. Select another map point or table row, then add it to complete the comparison.`;
     content.innerHTML=`<div class="comparison-grid">${comparisonTargetHtml(rows[0],'A / first place')}</div><div class="comparison-awaiting">Waiting for Field B · the comparison will show differences in proportion, compactness and screening signals when a second target is added.</div>`;
     return;
   }
@@ -5682,7 +5682,7 @@ function renderQualityAuditTable() { const scope=$('qualityAuditScope').value; c
 function renderQualityAudit() { if(!QUALITY_AUDIT.length) { $('qualityAudit').innerHTML='<p class="footnote">No field or source audit rows were reported.</p>'; return; } $('qualityAudit').innerHTML=`<details class="quality-details"><summary>Inspect field and source audit (${QUALITY_AUDIT.length.toLocaleString()} rows)</summary><div class="quality-audit-controls"><label>Scope <select id="qualityAuditScope"><option value="">All</option><option value="analysis">Analysis</option><option value="source">Source</option></select></label><label>Status <select id="qualityAuditStatus"><option value="">All</option><option value="ok">OK</option><option value="provided">Provided</option><option value="missing">Not provided</option><option value="check">Check</option></select></label><button id="downloadQuality" type="button">Download audit CSV</button><span id="qualityAuditCount" class="quality-audit-count footnote"></span></div><div id="qualityAuditTable" class="quality-audit-table"></div></details>`; $('qualityAuditScope').addEventListener('change',renderQualityAuditTable); $('qualityAuditStatus').addEventListener('change',renderQualityAuditTable); $('downloadQuality').addEventListener('click',downloadQualityAudit); renderQualityAuditTable(); }
 function renderTable() {
   const visible=SERVER_MODE ? filtered : filtered.slice((page-1)*PAGE_SIZE,(page-1)*PAGE_SIZE+PAGE_SIZE);
-  $('tbody').innerHTML=visible.map(row=>`<tr data-id="${esc(row.osm_id)}" class="${selectedMarkerId===row.osm_id?'selected':''}" tabindex="0" aria-selected="${selectedMarkerId===row.osm_id}" aria-label="Focus ${esc(row.name||'Unnamed')} ${esc(row.osm_id)}"><td><b>${esc(row.name||'Unnamed')}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`).join('');
+  $('tbody').innerHTML=visible.map(row=>{ const title=contextTitle(row); return `<tr data-id="${esc(row.osm_id)}" class="${selectedMarkerId===row.osm_id?'selected':''}" tabindex="0" aria-selected="${selectedMarkerId===row.osm_id}" aria-label="Focus ${esc(title)} ${esc(row.osm_id)}"><td><b>${esc(title)}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`; }).join('');
   $('empty').textContent='No buildings match these filters.';
   $('empty').hidden=visible.length>0;
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
@@ -5690,7 +5690,7 @@ function renderTable() {
   document.querySelectorAll('#tbody tr[data-id]').forEach(tr=>{ tr.addEventListener('click',()=>focusRow(tr.dataset.id)); tr.addEventListener('keydown',event=>{ if((event.key==='Enter'||event.key===' ')&&!event.target.closest('a,button,input,select,textarea')){ event.preventDefault(); focusRow(tr.dataset.id); } }); });
   document.querySelectorAll('#tbody a.review-link').forEach(link=>link.addEventListener('click',event=>event.stopPropagation()));
 }
-function popup(row) { const reviewLabel=row.review?.in_queue?'Review queue':'Not in review queue'; return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a> · ${reviewLink(row,reviewLabel)}<br><button class="popup-focus" type="button" data-focus-id="${esc(row.osm_id)}">Focus in list</button>`; }
+function popup(row) { const reviewLabel=row.review?.in_queue?'Review queue':'Not in review queue'; return `<b>${esc(contextTitle(row))}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a> · ${reviewLink(row,reviewLabel)}<br><button class="popup-focus" type="button" data-focus-id="${esc(row.osm_id)}">Focus in list</button>`; }
 function comparisonMapRows() {
   const rows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2);
   return rows.length===2&&rows.every(row=>Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon))) ? rows : [];
@@ -5815,7 +5815,7 @@ function renderOfflineMap() {
   const mapRows=filtered.slice(0,__MARKER_LIMIT__);
   const selected=targetRowForId(offlineSelection||selectedMarkerId);
   if(selected&&!mapRows.some(row=>row.osm_id===selected.osm_id)) mapRows.push(selected);
-  const points=mapRows.map(row=>{ const p=offlinePoint(row,bounds), isSelected=offlineSelection===row.osm_id||selectedMarkerId===row.osm_id; return `<circle class="offline-point${isSelected?' selected':''}" data-id="${esc(row.osm_id)}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${isSelected?6:4}" fill="${color(row.score)}"><title>${esc(row.name||row.osm_id)} · ${esc(row.group)} · score ${fmt(row.score)}</title></circle>`; }).join('');
+  const points=mapRows.map(row=>{ const p=offlinePoint(row,bounds), isSelected=offlineSelection===row.osm_id||selectedMarkerId===row.osm_id; return `<circle class="offline-point${isSelected?' selected':''}" data-id="${esc(row.osm_id)}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${isSelected?6:4}" fill="${color(row.score)}"><title>${esc(contextTitle(row))} · ${esc(row.group)} · score ${fmt(row.score)}</title></circle>`; }).join('');
   const selection=selected?`<div class="offline-selection"><b>${esc(contextTitle(selected))}</b> · ${esc(selected.group)} · score ${fmt(selected.score)}<br><span class="footnote">${esc(selected.osm_id)} · click a point to inspect another target</span></div>`:'';
   const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
   el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${comparisonChord}${routeFocus}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
@@ -5917,7 +5917,7 @@ function updateMapStamp() {
   const row=selectedId?targetRowForId(selectedId):null;
   const place=row?.spatial?.settlement_name||row?.address_city||row?.spatial?.county||row?.niah?.county;
   const context=row
-    ? [row.name||row.osm_id,place,row.group].filter(Boolean).join(' · ')
+    ? [contextTitle(row),place,row.group].filter(Boolean).join(' · ')
     : `${filtered.length.toLocaleString()} matching footprints · ${offlineMap?'offline analytical field':`zoom ${map?.getZoom?.()??'—'}`}`;
   const centerText=$('mapCenterText'), contextText=$('mapContextText');
   if(centerText) centerText.textContent=`${coordinateLabel(lat,'N','S')} / ${coordinateLabel(lon,'E','W')}`;
