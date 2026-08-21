@@ -113,6 +113,12 @@ of historic intention or a substitute for Irish lived culture.
   outline with its vertex count. Browser inspection passed with no console
   errors.
 
+## Field-walk sticky offset — 2026-08-21
+
+- Added the atlas sticky-header offset to the Footprint anchor itself. The
+  narrative rail now lands the field-walk heading below the sticky navigation
+  instead of placing “No route required” underneath it.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

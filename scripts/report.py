@@ -1444,7 +1444,7 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-signal-detail > span { color:#e1bd66; font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
 .field-signal-detail strong { display:block; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
 .field-signal-detail p { margin:4px 0 0; color:rgba(247,240,220,.56); font-size:10px; line-height:1.4; }
-.field-walk { position:relative; z-index:1; margin-top:21px; padding-top:15px; border-top:1px solid rgba(225,189,102,.24); }
+.field-walk { position:relative; z-index:1; margin-top:21px; padding-top:15px; border-top:1px solid rgba(225,189,102,.24); scroll-margin-top:54px; }
 .field-walk-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .field-walk-head > div:first-child { min-width:0; }
 .field-walk-kicker { display:block; color:#e1bd66; font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em; text-transform:uppercase; }

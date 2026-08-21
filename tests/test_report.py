@@ -243,6 +243,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'class="field-walk-shape"' in html
     assert "function fieldWalkShapeSvg(row)" in html
     assert "mapped outline" in html
+    assert "scroll-margin-top:54px" in html
     assert "const FIELD_WALK = PACK.field_walk || [];" in html
     assert "function renderFieldWalk()" in html
     assert "data-field-walk-id" in html

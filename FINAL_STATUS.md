@@ -1572,6 +1572,12 @@ form with coordinate, speed, vehicle class, departure, path, ferry, JSON, and
 GeoJSON options;
 the full-graph browser smoke test completed successfully without console
 errors.
+
+## Field-walk sticky offset — 2026-08-21
+
+The Footprint step now respects the sticky atlas header when it scrolls to the
+curated field walk, keeping the “No route required” heading and waypoint
+context fully visible at the destination.
 When a path is returned, the dashboard overlays it on the live Leaflet map and
 focuses the offline SVG fallback on the route, so the geometry is inspectable in
 both dependency modes.
