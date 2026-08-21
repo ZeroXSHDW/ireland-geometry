@@ -1604,6 +1604,14 @@ def report_capability_status(
     standalone = output / "report.html"
     lazy = output / "report_lazy.html"
     data_pack = output / "report_data.json"
+    report_source = root / "scripts" / "report.py"
+    if not report_source.is_file():
+        report_source = Path(__file__).resolve().with_name("report.py")
+    feature_sources = (
+        (standalone, lazy)
+        if standalone.is_file() and lazy.is_file()
+        else (report_source,)
+    )
     fallback_tokens = (
         "function renderOfflineMap()",
         "OFFLINE_REQUESTED",
@@ -1712,7 +1720,7 @@ def report_capability_status(
     )
     route_comparison_dashboard = all(
         _file_contains(path, token)
-        for path in (standalone, lazy)
+        for path in feature_sources
         for token in (
             'id="routeCompareRun"',
             'id="routeCompareProfiles"',
@@ -1727,7 +1735,7 @@ def report_capability_status(
     )
     route_matrix_dashboard = all(
         _file_contains(path, token)
-        for path in (standalone, lazy)
+        for path in feature_sources
         for token in (
             'id="routeMatrixRun"',
             'id="routeMatrixOrigins"',
@@ -1740,8 +1748,9 @@ def report_capability_status(
             "params.set('matrix','1')",
         )
     )
-    report_page_json_dashboard = lazy.is_file() and all(
-        _file_contains(lazy, token)
+    report_page_json_dashboard = all(
+        _file_contains(path, token)
+        for path in feature_sources
         for token in (
             "function reportRequestBody(params, extra={})",
             "function fetchServerPage()",
@@ -1750,8 +1759,9 @@ def report_capability_status(
             "Content-Type':'application/json",
         )
     )
-    report_export_json_dashboard = lazy.is_file() and all(
-        _file_contains(lazy, token)
+    report_export_json_dashboard = all(
+        _file_contains(path, token)
+        for path in feature_sources
         for token in (
             "function reportRequestBody(params, extra={})",
             "function downloadFiltered(format)",
