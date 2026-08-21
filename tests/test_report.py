@@ -296,6 +296,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "Oidhreacht" in html
     assert "teanglann.ie" in html
     assert 'id="selectionCard"' in html
+    assert "selection-card-arrived" in html
+    assert "selection.scrollIntoView({behavior:'smooth',block:'start'})" in html
     assert 'id="selectionHeritage"' in html
     assert 'id="selectionMath"' in html
     assert 'id="selectionFingerprint"' in html

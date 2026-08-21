@@ -74,6 +74,16 @@ of historic intention or a substitute for Irish lived culture.
 - Added responsive styling, generated-report regression assertions, and parity
   across standalone, lazy, and offline report modes before regeneration.
 
+## Selection reveal / dossier arrival — 2026-08-21
+
+- Corrected the discovery handoff so a map, table, keyboard, or shared-focus
+  selection scrolls the measured place dossier into the visible panel instead
+  of leaving the visitor at the old table position.
+- Added a short, restrained arrival cue around the dossier; the existing
+  reduced-motion rule collapses the animation for visitors who request less
+  motion.
+- Added a generated-report regression assertion for the reveal contract.
+
 ## Geometry dossiers and map constellation — 2026-08-21
 
 - Extended the selected-place card from a signal summary into a measured

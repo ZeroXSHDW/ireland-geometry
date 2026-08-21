@@ -1523,6 +1523,8 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .clear-button { color:#526071; font-size:11px; }
 .selection-card { margin:0 18px 10px; padding:13px 14px; border:1px solid #cfc09c; border-radius:12px; background:linear-gradient(135deg,#f7f0df 0%,#edf3eb 100%); box-shadow:0 7px 18px rgba(31,63,59,.07); }
 .selection-card[hidden] { display:none; }
+.selection-card.selection-card-arrived { animation:selection-arrival .72s ease both; }
+@keyframes selection-arrival { 0% { transform:translateY(7px); box-shadow:0 0 0 0 rgba(191,91,69,0); } 45% { box-shadow:0 0 0 5px rgba(191,91,69,.18),0 12px 28px rgba(31,63,59,.13); } 100% { transform:translateY(0); box-shadow:0 7px 18px rgba(31,63,59,.07); } }
 .selection-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .selection-kicker { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
 .selection-card h2 { margin:4px 0 0; color:var(--deep); font:700 21px/1.05 Georgia,serif; letter-spacing:-.04em; }
@@ -5479,6 +5481,14 @@ function selectMapTarget(id,{scroll=false}={}) {
   syncFocusState(id);
   setMarkerSelected(markerById.get(id),true);
   renderSelectionCard(id);
+  const selection=$('selectionCard');
+  if(scroll&&selection&&!selection.hidden) {
+    selection.classList.remove('selection-card-arrived');
+    void selection.offsetWidth;
+    selection.classList.add('selection-card-arrived');
+    selection.scrollIntoView({behavior:'smooth',block:'start'});
+    setTimeout(()=>selection.classList.remove('selection-card-arrived'),900);
+  }
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
     const active=row.dataset.id===id;
     row.classList.toggle('selected',active);

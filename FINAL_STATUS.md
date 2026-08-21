@@ -37,6 +37,15 @@ keyboard activation, keeping the immersive map legible to visitors who do not
 use a pointer. Standalone, lazy, and offline report generation share the same
 feature assertions and styling.
 
+## Selection reveal / dossier arrival — 2026-08-21
+
+The discovery handoff now completes visually: selecting a map point, table row,
+keyboard target, nearby context card, or shared `focus` place scrolls the
+measured dossier into the visible atlas panel and briefly marks its arrival.
+The cue is deliberately quiet and respects the site-wide reduced-motion rule,
+while the dossier remains the same evidence-led geometry, heritage, context,
+and passport surface.
+
 ## Latest atlas refinement — 2026-08-21
 
 Selecting a footprint now opens a measured geometry dossier with area,
