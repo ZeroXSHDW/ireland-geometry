@@ -13,6 +13,7 @@ from scripts.report import (
     build_report,
     build_report_data,
     interpretation_artifact,
+    report_filter_options,
     report_matching_targets,
     source_freshness_summary,
 )
@@ -43,6 +44,7 @@ from scripts.report import report_csv, report_geojson, report_page_payload
 data = {"targets": [], "geojson": {"type": "FeatureCollection", "features": []}}
 page = report_page_payload(data)
 assert page["page"]["total"] == 0
+assert page["page"]["next_offset"] is None
 assert page["endpoints"]["runtime"] == "/api/report/runtime"
 assert report_csv(data).startswith("osm_id,name,group")
 assert report_geojson(data)["type"] == "FeatureCollection"
@@ -247,37 +249,287 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "Focus in list" in html
     assert "A place is more than a pattern." in html
     assert 'id="cultureLens"' in html
+    assert 'id="county"' in html
+    assert 'id="countyChips"' in html
+    assert 'id="countyFieldNote"' in html
     assert "function renderCultureAtlas" in html
+    assert "function renderCountyFieldNote()" in html
+    assert 'id="heritageTimeline"' in html
+    assert 'id="heritageTimelineHeading"' in html
+    assert 'id="heritageTimelineReadoutTitle"' in html
+    assert 'class="heritage-type-field"' in html
+    assert 'id="heritageTypeGrid"' in html
+    assert 'id="heritageTypeReadoutTitle"' in html
+    assert "function renderHeritageTypology()" in html
+    assert "function setHeritageType(key)" in html
+    assert "data-heritage-type" in html
+    assert 'class="place-braid-field"' in html
+    assert 'id="placeBraidGrid"' in html
+    assert 'id="placeBraidReadoutTitle"' in html
+    assert "function renderPlaceBraid()" in html
+    assert "function setPlaceBraidType(county,type)" in html
+    assert "data-braid-type" in html
+    assert 'id="landFieldHeading"' in html
+    assert 'id="landGroupGrid"' in html
+    assert 'id="landDensityPanel"' in html
+    assert 'id="placeNameHeading"' in html
+    assert 'id="placeNameChips"' in html
+    assert 'id="placeNameStat"' in html
+    assert "function renderHeritageTimeline()" in html
+    assert "function setHeritageEra(key)" in html
+    assert "function renderLandField()" in html
+    assert "function setLandGroup(group)" in html
+    assert "function renderPlaceNameField()" in html
+    assert "function setPlaceName(name)" in html
+    assert 'class="makers-field"' in html
+    assert 'id="makersBinary"' in html
+    assert 'id="makersGrid"' in html
+    assert "const ARCHITECTS = PACK.architects || [];" in html
+    assert "const ARCHITECTS_BINARY = PACK.architects_binary || [];" in html
+    assert "function renderMakersField()" in html
+    assert "function setMakerQuery(name)" in html
+    assert "data-maker-name" in html
+    assert "ROAD_PROXIMITY" in html
+    assert "SPATIAL_COVARIATES" in html
+    assert "heritageCenturyForDecade" in html
     assert "CULTURE_LENS_LABELS" in html
     assert "Oidhreacht" in html
     assert "teanglann.ie" in html
     assert 'id="selectionCard"' in html
     assert 'id="selectionHeritage"' in html
+    assert 'id="selectionMath"' in html
+    assert 'id="selectionFingerprint"' in html
+    assert 'id="selectionFingerprintLabel"' in html
+    assert 'id="copySelectionLink"' in html
+    assert 'id="addSelectionCompare"' in html
+    assert 'id="comparisonTray"' in html
+    assert 'id="comparisonContent"' in html
+    assert 'id="comparisonRelation"' in html
+    assert 'id="comparisonRelationPlot"' in html
+    assert 'id="comparisonRelationMetrics"' in html
+    assert 'id="carryComparisonToStudio"' in html
+    assert "function renderComparisonRelation(a,b)" in html
+    assert "function drawComparisonRelationPlot(a,b)" in html
+    assert "function comparisonBearingDegrees(a,b)" in html
+    assert "function comparisonMapRows()" in html
+    assert "function renderComparisonMapLayer()" in html
+    assert "comparisonLine=L.polyline" in html
+    assert "offline-comparison-chord" in html
+    assert "if(comparisonLine) bounds.extend(comparisonLine.getBounds())" in html
+    assert 'id="copyComparisonLink"' in html
+    assert 'id="comparisonShareStatus"' in html
+    assert "function renderComparisonTray()" in html
+    assert "function addComparisonTarget(id)" in html
+    assert "function removeComparisonTarget(id)" in html
+    assert "function restoreComparisonState()" in html
+    assert "function copyComparisonLink()" in html
+    assert "params.set('compare_a'" in html
+    assert "params.set('compare_b'" in html
+    assert "params.get('compare_a')" in html
     assert "function renderSelectionCard" in html
     assert "function selectionPlaceText" in html
+    assert "function selectionMathText" in html
+    assert "function drawSelectionFingerprint(row)" in html
+    assert "function geometryOuterRing(feature)" in html
+    assert "function syncFocusState(id)" in html
+    assert "function restoreFocusedTarget()" in html
+    assert "function copySelectionLink()" in html
     assert "function clearSelection" in html
     assert "data-selection-culture" in html
     assert 'id="atlasNav"' in html
     assert 'data-nav-section="culture"' in html
+    assert 'data-nav-section="maths"' in html
+    assert 'id="maths"' in html
+    assert 'id="mathsIndex"' in html
+    assert 'id="mathsReadoutTitle"' in html
+    assert 'class="maths-card"' in html
+    assert "MATHS_INDEX" in html
+    assert 'id="copyStudioLink"' in html
+    assert 'id="studioShareStatus"' in html
+    assert 'id="skyField"' in html
+    assert 'id="skyPlot"' in html
+    assert 'id="skyDaylight"' in html
+    assert 'id="waterField"' in html
+    assert 'id="rainEvent"' in html
+    assert 'id="waterEquation"' in html
+    assert 'id="waterCapturedVolume"' in html
+    assert 'id="countyPulseGrid"' in html
+    assert 'id="countyPulseNote"' in html
+    assert 'class="rhythm-field"' in html
+    assert 'id="rhythmGrid"' in html
+    assert 'id="rhythmCount"' in html
+    assert "function renderSpatialRhythm()" in html
+    assert "function setRhythmGroup(group)" in html
+    assert "data-rhythm-group" in html
+    assert "Moran's I" in html
+    assert 'class="scale-field"' in html
+    assert 'id="scaleGrid"' in html
+    assert 'id="scaleCount"' in html
+    assert "const RIPLEY = PACK.ripley || [];" in html
+    assert "function renderScaleField()" in html
+    assert "function scaleRadiusLabel(value)" in html
+    assert "data-scale-group" in html
+    assert 'class="alignment-field"' in html
+    assert 'id="alignmentGrid"' in html
+    assert 'id="alignmentCount"' in html
+    assert "const POINT_PATTERN = PACK.point_pattern || [];" in html
+    assert "function renderAlignmentField()" in html
+    assert "function alignmentPercent(value)" in html
+    assert "data-alignment-group" in html
+    assert 'class="source-field"' in html
+    assert 'id="sourceGrid"' in html
+    assert 'id="sourceCount"' in html
+    assert "const SOURCE_REGISTER = PACK.historical_source_register || [];" in html
+    assert "const QUALITY_SUMMARY = PACK.data_quality_summary || {};" in html
+    assert "function renderSourceRoots()" in html
+    assert "function sourceRootLabel(value)" in html
+    assert 'class="trust-field"' in html
+    assert 'id="trustGrid"' in html
+    assert 'id="trustCount"' in html
+    assert "const HOLDOUT = PACK.holdout || [];" in html
+    assert "const REVIEW_CALIBRATION = PACK.review_calibration || [];" in html
+    assert "function renderTrustField()" in html
+    assert "function trustStatusKind(value)" in html
+    assert 'id="selectionWeave"' in html
+    assert 'id="selectionWeaveLabel"' in html
+    assert 'class="selection-evidence"' in html
+    assert 'id="selectionEvidenceGrid"' in html
+    assert 'id="selectionEvidenceStatus"' in html
+    assert "function renderSelectionEvidence(row)" in html
+    assert "function selectionEvidenceStatusKind(value)" in html
+    assert 'class="selection-context"' in html
+    assert 'id="selectionContextPlot"' in html
+    assert 'id="selectionContextList"' in html
+    assert 'id="selectionContextStatus"' in html
+    assert "function contextDistanceMeters(a,b)" in html
+    assert "function renderSelectionContext(row)" in html
+    assert "data-context-focus" in html
+    assert "function renderMathsIndex()" in html
+    assert "function selectMathCard(key)" in html
+    assert "Cruth — Ireland Field Atlas V2" in html
+    assert 'id="siteIntro"' in html
+    assert 'id="field"' in html
+    assert 'id="fieldTitle"' in html
+    assert 'class="field-sequence"' in html
+    assert "<strong>Maths</strong>" in html
+    assert "<strong>Civic possibility</strong>" in html
+    assert 'data-field-signal="golden_ratio"' in html
+    assert 'data-field-signal="golden_angle"' in html
+    assert 'data-field-signal="reflective_symmetry"' in html
+    assert 'data-field-signal="orthogonal"' in html
+    assert 'class="field-signal-detail"' in html
+    assert 'id="fieldSignalDetailTitle"' in html
+    assert 'class="measure-ledger"' in html
+    assert "FIELD_SIGNAL_META" in html
+    assert "function selectFieldSignal(key)" in html
+    assert "function initFieldAtlas()" in html
+    assert "function coordinateLabel(value,positive,negative)" in html
+    assert "function updateMapStamp()" in html
+    assert 'id="mapStamp"' in html
+    assert 'id="mapConstellationScope"' in html
+    assert 'id="mapRatioSignal"' in html
+    assert "function renderMapConstellation()" in html
+    assert "function rowHasSignal(row,key)" in html
+    assert "map.on('moveend zoomend',updateMapHud)" in html
     assert 'data-quick-view="signals"' in html
     assert "function initAtlasNav" in html
     assert "function applyQuickView" in html
     assert "function renderQuickViews" in html
     assert "function restoreViewState()" in html
     assert "function syncViewState()" in html
+    assert "const STUDIO_STATE_KEYS" in html
+    assert "function restoreStudioState()" in html
+    assert "function syncStudioState(force=false)" in html
+    assert "function copyStudioLink()" in html
+    assert "const SKY_DECLINATION" in html
+    assert "function skyFieldMetrics()" in html
+    assert "function renderSkyField()" in html
+    assert "const RAIN_EVENTS" in html
+    assert "function waterFieldMetrics(values=scenarioValues())" in html
+    assert "function renderWaterField()" in html
+    assert "studio_rain_event" in html
+    assert "function renderCountyPulse()" in html
+    assert "class=\"county-pulse\"" in html
+    assert "renderSpatialRhythm();" in html
+    assert "renderScaleField();" in html
+    assert "renderAlignmentField();" in html
+    assert "renderSourceRoots();" in html
+    assert "renderMakersField();" in html
+    assert "function drawSelectionWeave(row)" in html
+    assert "studio_ref" in html
+    assert "studio_pair_a" in html
+    assert "studio_pair_b" in html
+    assert "id=\"reportLoadError\"" in html
+    assert "id=\"reportRetry\"" in html
+    assert "function showReportError(error" in html
+    assert "function revealReportError()" in html
+    assert "document.body.classList.remove('intro-open')" in html
+    assert "function retryReportRequest()" in html
     assert "X-Ireland-Geometry-Runtime-Status" in lazy_html
     assert "function applyRuntime(runtime)" in lazy_html
+    assert "function runtimeDataIdentity(runtime)" in lazy_html
     assert "function applyRuntimeHeaders(headers)" in lazy_html
     assert "function runtimeIdentityText()" in lazy_html
     assert "const snapshot=REPORT_RUNTIME?.snapshot" in lazy_html
     assert "const BASE_INTERPRETATION = PACK.interpretation || {};" in lazy_html
     assert "INTERPRETATION={...BASE_INTERPRETATION};" in lazy_html
+    assert "const GEOJSON_BY_ID = new Map" in lazy_html
+    assert "function drawSelectionFingerprint(row)" in lazy_html
+    assert "function renderSelectionContext(row)" in lazy_html
+    assert "function renderComparisonRelation(a,b)" in lazy_html
+    assert "function renderStudioPairReference()" in lazy_html
+    assert "const ROAD_PROXIMITY = PACK.road_proximity || [];" in lazy_html
+    assert "const SPATIAL_COVARIATES = PACK.spatial_covariates_summary || [];" in lazy_html
+    assert "function renderLandField()" in lazy_html
+    assert "function renderPlaceNameField()" in lazy_html
+    assert "function renderHeritageTypology()" in lazy_html
+    assert "function setHeritageType(key)" in lazy_html
+    assert "function renderPlaceBraid()" in lazy_html
+    assert "function setPlaceBraidType(county,type)" in lazy_html
+    assert "function renderSpatialRhythm()" in lazy_html
+    assert "function setRhythmGroup(group)" in lazy_html
+    assert "function renderScaleField()" in lazy_html
+    assert "const RIPLEY = PACK.ripley || [];" in lazy_html
+    assert "function renderAlignmentField()" in lazy_html
+    assert "const POINT_PATTERN = PACK.point_pattern || [];" in lazy_html
+    assert "function renderSourceRoots()" in lazy_html
+    assert "const SOURCE_REGISTER = PACK.historical_source_register || [];" in lazy_html
+    assert "function renderTrustField()" in lazy_html
+    assert "const HOLDOUT = PACK.holdout || [];" in lazy_html
+    assert "const REVIEW_CALIBRATION = PACK.review_calibration || [];" in lazy_html
+    assert "function renderMakersField()" in lazy_html
+    assert "function setMakerQuery(name)" in lazy_html
+    assert "const ARCHITECTS = PACK.architects || [];" in lazy_html
+    assert "const ARCHITECTS_BINARY = PACK.architects_binary || [];" in lazy_html
+    assert "function restoreStudioState()" in lazy_html
+    assert "function copyStudioLink()" in lazy_html
+    assert "function renderSkyField()" in lazy_html
+    assert "function renderWaterField()" in lazy_html
+    assert "function renderCountyPulse()" in lazy_html
+    assert "function drawSelectionWeave(row)" in lazy_html
+    assert "function renderSelectionEvidence(row)" in lazy_html
     assert "function renderRuntimeStatus()" in lazy_html
+    assert "function renderRuntimeReloadNotice()" in lazy_html
     assert "function refreshRuntime()" in lazy_html
     assert "function startRuntimeRefresh()" in lazy_html
     assert "setInterval(refreshRuntime,RUNTIME_REFRESH_MS)" in lazy_html
     assert "function renderMethod()" in lazy_html
+    assert "function reportRequestBody(params, extra={})" in lazy_html
+    assert "body:JSON.stringify(reportRequestBody(params,{initial:false}))" in lazy_html
+    assert "body:JSON.stringify(reportRequestBody(params,{format}))" in lazy_html
     assert "id=\"runtimeStatus\"" in lazy_html
+    assert "id=\"runtimeReloadNotice\"" in lazy_html
+    assert "id=\"runtimeReload\"" in lazy_html
+    assert "id=\"reportLoadError\"" in lazy_html
+    assert "id=\"reportRetry\"" in lazy_html
+    assert "function showInitialReportError(error)" in lazy_html
+    assert "loadPack().catch(showInitialReportError)" in lazy_html
+    assert "document.body.classList.remove('intro-open')" in lazy_html
+    assert "classList.add('is-dismissed')" in lazy_html
+    assert "function showReportError(error" in lazy_html
+    assert "function revealReportError()" in lazy_html
+    assert "function retryReportRequest()" in lazy_html
+    assert "reportRetry'" in lazy_html
     assert "id=\"routeRun\"" in html
     assert "function runRoute()" in html
     assert "function routeCoordinates(payload)" in html
@@ -293,6 +545,28 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function routeSegmentText(route)" in html
     assert "path_segment_source" in html
     assert "path_segment_total_distance_m" in html
+    assert "maneuver_n" in html
+    assert "maneuvers" in html
+    assert 'id="routeManeuvers"' in html
+    assert "function renderRouteManeuvers(payload)" in html
+    assert "focusRouteManeuver" in html
+    assert 'id="routeSegments"' in html
+    assert "function renderRouteSegments(payload)" in html
+    assert "routeSegmentChecksText" in html
+    assert "function routeSegmentChecksHtml(segment)" in html
+    assert "route-segment-check-list" in html
+    assert "ROUTE_SEGMENT_DISPLAY_LIMIT = 250" in html
+    assert "showing ${visible.length} of ${total} mapped segments" in html
+    assert 'id="routeCopyLink"' in html
+    assert "fetch('/api/route'" in html
+    assert "method:'POST'" in html
+    assert "Content-Type':'application/json" in html
+    assert "function restoreRouteState()" in html
+    assert "function syncRouteState(fields)" in html
+    assert 'id="routeDownloadJson"' in html
+    assert 'id="routeDownloadGeojson"' in html
+    assert "function downloadRouteResponse(format)" in html
+    assert "function routeGeojsonPayload(payload)" in html
     assert "conditional_rules" in html
     assert "ferry_way_ids" in html
     assert "ferry_distance_m" in html
@@ -320,6 +594,26 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function routeAxleloadText(route)" in html
     assert 'id="routeIncludePath" type="checkbox" checked' in html
     assert "file mode has no route API" in html
+    assert 'id="routeCompareRun"' in html
+    assert 'id="routeCompareProfiles"' in html
+    assert "function runRouteComparison()" in html
+    assert "fetch('/api/route/compare'" in html
+    assert "method:'POST'" in html
+    assert "Content-Type':'application/json" in html
+    assert "delta_from_baseline" in html
+    assert "function selectRouteComparisonProfile(index)" in html
+    assert "params.set('compare','1')" in html
+    assert 'id="routeCompareDownloadJson"' in html
+    assert 'id="routeMatrixRun"' in html
+    assert 'id="routeMatrixOrigins"' in html
+    assert 'id="routeMatrixDestinations"' in html
+    assert "function runRouteMatrix()" in html
+    assert "fetch('/api/route/matrix'" in html
+    assert "method:'POST'" in html
+    assert "Content-Type':'application/json" in html
+    assert "function selectRouteMatrixPair(index)" in html
+    assert "params.set('matrix','1')" in html
+    assert 'id="routeMatrixDownloadJson"' in html
     assert 'id="grammar"' in html
     assert "DESIGN_GRAMMARS" in html
     assert "Mirror symmetry" in html
@@ -335,6 +629,21 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="designBrief"' in html
     assert 'id="copyBrief"' in html
     assert 'id="downloadBrief"' in html
+    assert 'id="studioReference"' in html
+    assert 'id="studioReferenceDimensions"' in html
+    assert 'id="studioUseScale"' in html
+    assert 'id="carrySelectionToStudio"' in html
+    assert 'id="studioPairReference"' in html
+    assert 'id="studioPairSpan"' in html
+    assert 'id="studioUsePairBearing"' in html
+    assert 'id="clearStudioPairReference"' in html
+    assert "function renderStudioReference()" in html
+    assert "function carrySelectionToStudio(id)" in html
+    assert "function carryComparisonToStudio()" in html
+    assert "function renderStudioPairReference()" in html
+    assert "function useStudioPairBearing()" in html
+    assert "function useStudioReferenceScale()" in html
+    assert "FIELD REFERENCE" in html
     assert "function designMetrics" in html
     assert "function buildDesignBrief" in html
     assert "Library courtyard" in html
@@ -519,27 +828,47 @@ def test_pattern_catalog_lists_every_flag_and_filters_targets():
     assert [row["osm_id"] for row in matches] == ["way/1"]
 
 
+def test_report_sorting_uses_osm_id_as_a_deterministic_tie_breaker():
+    rows = [
+        {"osm_id": "way/z", "score": 90, "name": "Same"},
+        {"osm_id": "way/a", "score": 90, "name": "Same"},
+        {"osm_id": "way/m", "score": 80, "name": "Other"},
+    ]
+    data = {"targets": rows}
+
+    assert [row["osm_id"] for row in report_matching_targets(data)] == [
+        "way/a",
+        "way/z",
+        "way/m",
+    ]
+    assert [row["osm_id"] for row in report_matching_targets(data, sort_desc=False)] == [
+        "way/m",
+        "way/a",
+        "way/z",
+    ]
+
+
 def test_cultural_lenses_filter_data_derived_place_contexts():
     rows = [
         {
             "osm_id": "way/named",
             "group": "worship",
             "score": 90,
-            "spatial": {"settlement_class": "named_place"},
+            "spatial": {"settlement_class": "named_place", "county": "Dublin"},
             "niah": {"reg_no": "N1"},
         },
         {
             "osm_id": "way/civic",
             "group": "civic",
             "score": 80,
-            "spatial": {"settlement_class": "unknown"},
+            "spatial": {"settlement_class": "unknown", "county": "Cork"},
             "niah": {"reg_no": ""},
         },
         {
             "osm_id": "way/other",
             "group": "historic",
             "score": 70,
-            "spatial": {"settlement_class": "unknown"},
+            "spatial": {"settlement_class": "unknown", "county": "Galway"},
             "niah": {"reg_no": ""},
         },
     ]
@@ -549,6 +878,8 @@ def test_cultural_lenses_filter_data_derived_place_contexts():
     assert [row["osm_id"] for row in report_matching_targets(data, culture="heritage")] == ["way/named"]
     assert [row["osm_id"] for row in report_matching_targets(data, culture="pobal")] == ["way/named", "way/civic"]
     assert [row["osm_id"] for row in report_matching_targets(data, culture="civic")] == ["way/civic"]
+    assert [row["osm_id"] for row in report_matching_targets(data, county="Dublin")] == ["way/named"]
+    assert report_filter_options(data)["county"] == ["Cork", "Dublin", "Galway"]
     with pytest.raises(ValueError, match="culture must be one of"):
         report_matching_targets(data, culture="folklore")
 
@@ -559,7 +890,7 @@ def test_generated_runtime_recovery_restores_baseline_interpretation(tmp_path):
     html = build_lazy_report(tmp_path)
     start = html.index("const BASE_INTERPRETATION")
     declarations_end = html.index("const SIG", start)
-    function_start = html.index("function applyRuntime(runtime)", declarations_end)
+    function_start = html.index("function runtimeDataIdentity(runtime)", declarations_end)
     function_end = html.index("function applyRuntimeHeaders", function_start)
     runtime_functions = html[start:declarations_end] + html[function_start:function_end]
     script = """
@@ -570,7 +901,10 @@ const baseline = {
   caveats: ['Original caveat']
 };
 const PACK = {interpretation: baseline};
+const SERVER_MODE = true;
 let SUMMARY = {};
+let runtimeReloadRequired = false;
+let reportRuntimeIdentity = null;
 """ + runtime_functions + """
 applyRuntime({
   contract: 'ireland-geometry.report-runtime.v1',
@@ -589,6 +923,24 @@ applyRuntime({
   manifest_alignment: {status: 'pass'}
 });
 if (JSON.stringify(INTERPRETATION) !== JSON.stringify(baseline)) throw new Error('baseline interpretation was not restored');
+applyRuntime({
+  contract: 'ireland-geometry.report-runtime.v1',
+  status: 'pass',
+  analysis_ready: true,
+  validation: {status: 'pass'},
+  manifest_alignment: {status: 'pass'},
+  snapshot: {available: true, manifest_sha256: 'first-manifest'}
+});
+if (runtimeReloadRequired) throw new Error('initial runtime incorrectly requested reload');
+applyRuntime({
+  contract: 'ireland-geometry.report-runtime.v1',
+  status: 'pass',
+  analysis_ready: true,
+  validation: {status: 'pass'},
+  manifest_alignment: {status: 'pass'},
+  snapshot: {available: true, manifest_sha256: 'second-manifest'}
+});
+if (!runtimeReloadRequired) throw new Error('changed runtime did not request reload');
 """
     result = subprocess.run(
         ["node", "-e", script], check=False, capture_output=True, text=True

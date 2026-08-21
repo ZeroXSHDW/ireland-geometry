@@ -33,6 +33,356 @@ Known baseline defects to address:
 - Report narrative is partly hard-coded and the UI has limited filtering/interactivity.
 - Architect extraction contains false-positive names.
 
+## Cruth Field Atlas V2 — 2026-08-21
+
+The public-facing report now opens as an immersive field atlas before revealing
+the analytical dashboard. The V2 layer adds:
+
+- a dismissible cinematic opening sequence with a mathematical orbit motif;
+- a new “Irish field” chapter connecting coordinates, county context, named
+  places, heritage, form, and shared life;
+- live, interactive signal cards for golden ratio, golden angle, reflective
+  symmetry, and orthogonal screening flags, calculated from the report pack and
+  traceable into the pattern filter and map;
+- a live WGS84 coordinate stamp, selection/county context, a Land → Coordinate
+  → Footprint → Geometry → Heritage → Culture → Possibility sequence rail, and
+  an explicit measurement ledger for area, perimeter, scale, aspect,
+  compactness, and radial variation;
+- V2 release language, replay controls, responsive layouts, reduced-motion
+  handling, and a field-first atlas navigation state;
+- generator parity in `scripts/report.py`, regenerated standalone/lazy reports,
+  refreshed Pages publication hashes, and passing Pages/report/full test gates.
+
+The visual layer remains explicitly non-inferential: mathematical screens are
+shown as prompts for inspection and contemporary design hypotheses, not proof
+of historic intention or a substitute for Irish lived culture.
+
+## Geometry dossiers and map constellation — 2026-08-21
+
+- Extended the selected-place card from a signal summary into a measured
+  geometry dossier showing area, perimeter, length × width, aspect ratio,
+  circularity, rectangularity, radial coefficient of variation, and Fourier
+  descriptors F₁…F₄ for the selected footprint.
+- Added a live map constellation that reports signal counts and percentages for
+  the active field, with the current page label preserved for server-backed
+  views and county-context coverage shown beside it.
+- Kept the evidence boundary explicit in both surfaces: descriptors describe
+  mapped geometry in the dated snapshot and do not establish historical intent.
+- Regenerated the standalone/lazy reports and Pages artifact; pipeline
+  verification, Pages audit, Node parsing, local HTTP, formatting, and the
+  full project suite pass.
+
+## County lens and place navigation — 2026-08-21
+
+- Added a first-class county selector to the atlas filters and URL state so
+  county-specific geometry, heritage, and cultural questions can be reopened
+  and shared.
+- Added top-county chips in the Contae / county mosaic; each chip applies the
+  same county lens and returns the visitor to the target field.
+- Added a data-derived county field note with target totals, NIAH coverage,
+  named-place context, and golden-ratio/golden-angle rates where the full
+  embedded snapshot permits them; lazy mode labels page-versus-total scope.
+- Kept static and lazy report modes aligned, including the paginated report
+  API, CSV/GeoJSON export filters, filter options, and OpenAPI discovery.
+- Added report/API regression coverage and regenerated the published artifact;
+  verification, Pages audit, Node parsing, local HTTP, formatting, and the
+  full project suite pass.
+
+## Shareable place focus — 2026-08-21
+
+- Added a `focus` URL state for selected footprints, preserving county,
+  pattern, cultural, and other active filters around the selected place.
+- Added a “Copy place link” action to the selected-place card; static, lazy,
+  and offline initialization restore the selected footprint when it is
+  available in the current data view.
+- Clearing a selection or filtering it out removes stale focus state, keeping
+  shared links honest about what the current atlas is showing.
+- Regenerated the published artifact; Pages audit, Node parsing, HTTP,
+  formatting, and the full project suite pass.
+
+## Mathematical grammar index — 2026-08-21
+
+- Added an interactive Maths chapter to the field atlas with twelve cards for
+  the report’s exact measured grammar: golden and Fibonacci proportions,
+  Fibonacci dimensions, golden angle, reflective and rotational symmetry,
+  orthogonality, circularity, rectangularity, aspect ratio, radial variation,
+  and Fourier descriptors.
+- Each card shows its equation, plain-language interpretation, and either the
+  measured screen count or its descriptor scope. Screen cards trace into the
+  existing pattern filter, table, and map; descriptor cards point visitors back
+  to the measured target rows and selected geometry dossiers.
+- The chapter is responsive, keyboard-addressable, URL-state compatible, and
+  keeps the evidence boundary visible: mathematical resemblance is a prompt
+  for inspection, not proof of historic intention or one Irish tradition.
+- Regenerated and published the atlas; the pipeline, generated-JavaScript
+  parser, Pages audit, local HTTP check, formatting, and full test suite pass.
+
+## Field-to-studio reference bridge — 2026-08-21
+
+- Added a “Carry geometry to studio” action to every selected footprint so the
+  visitor can move from a real Irish place into the contemporary civic test-fit
+  without losing its OSM identity, place context, heritage join, or measured
+  geometry.
+- Added a responsive field-reference panel inside the design studio showing
+  the selected footprint’s dimensions, area, aspect ratio, circularity,
+  screening signals, and NIAH status. A guarded “Use measured width as module”
+  control lets the visitor translate observed scale into the editable design
+  arithmetic while preserving the original reference.
+- Extended the copy/download design brief with a field-reference section and
+  kept the boundary explicit: this is a contemporary translation of measured
+  evidence, not a reconstruction of historic intent.
+- Regenerated and published the atlas; report tests, generated-JavaScript
+  parsing, pipeline verification, Pages audit, local HTTP, formatting, and the
+  full project suite pass.
+
+## Heritage decade timeline — 2026-08-21
+
+- Turned the existing `niah_decades.csv` evidence into a visible Oidhreacht /
+  time field inside the cultural lens: 24 decade markers show dated worship
+  rows, golden-angle rate, era-matched control rate, and the report verdict.
+- Added an accessible decade readout with risk difference and adjusted-p-value
+  context. Selecting a marker maps the decade to the existing NIAH century
+  filter, target table, map, and shareable URL state; changing or clearing the
+  filter removes stale timeline selection.
+- Kept the analytical boundary explicit: the timeline describes a dated NIAH
+  subset and screening comparisons, not a claim about period-wide intent or a
+  single Irish architectural tradition.
+- Regenerated and published the atlas; pipeline verification, report tests,
+  generated-JavaScript parsing, Pages audit, local HTTP, formatting, and the
+  full project suite pass.
+
+## Two-footprint field comparison — 2026-08-21
+
+- Added a comparison tray to the selected-place dossier: visitors can hold one
+  real footprint as Field A, select another point or table row as Field B, and
+  read both place context and measured geometry together.
+- The side-by-side ledger reports area, aspect ratio, circularity, radial
+  variation, shared screening signals, and signals unique to each footprint;
+  differences are labeled explicitly as B − A from the current snapshot.
+- Added remove/clear controls, full-state button labels, responsive layout, and
+  an evidence caveat that keeps geometric overlap separate from shared
+  authorship, period identity, or historic intent.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, formatting, and
+  the full project suite pass.
+
+## Shareable field comparison — 2026-08-21
+
+- Added `compare_a` and `compare_b` URL state so a two-place geometry reading
+  can be reopened with its active filters and sort state intact, without
+  colliding with the route-comparison `compare=1` contract.
+- Added a “Copy comparison link” action with clipboard feedback and a clear
+  address-bar fallback; remove/clear/add actions keep the URL synchronized.
+- Static embedded pages restore both targets directly. Lazy pages restore only
+  targets present in the current page and announce any missing target instead
+  of presenting a partial pair as complete.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Talamh land threshold — 2026-08-21
+
+- Added a data-driven land-context layer to the Irish cultural lens using the
+  existing nearest mapped drivable-road samples by historic, worship,
+  government, civic, and control group.
+- Added an interactive group readout that can carry a target group into the
+  existing filter and URL state, plus mapping-density bins for the current
+  field and source-status context for routing, settlements, and boundaries.
+- Kept the evidence boundary visible: centroid-to-road proximity is not a
+  walking route, topographic/ecological model, settlement-quality score, or
+  proof of design intent.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Ainm named-place field — 2026-08-21
+
+- Expanded the cultural `Ainm` lens from a count into a data-driven field of
+  the most represented named settlement contexts, with row frequencies and
+  embedded/lazy scope labels.
+- Added named-place chips that carry a selected label into the existing text
+  query, filter state, map, table, and shareable URL rather than creating a
+  parallel search path.
+- Kept the cultural boundary explicit: settlement labels come from the report
+  context field and are not presented as etymology or a substitute for local
+  knowledge.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Selected geometry fingerprint — 2026-08-21
+
+- Added a normalized canvas fingerprint to the selected-place dossier. Static
+  embedded pages draw the selected GeoJSON outer ring with its measured extent,
+  centre, and comparison guides while preserving the original source map/export.
+- Added a descriptor-only guide for lazy views where the source ring is not
+  embedded; it is explicitly labeled as a guide and never presented as an
+  invented building boundary.
+- Added accessible labels and explanatory copy tying the visual back to the
+  measured descriptors and their non-historical evidence boundary.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Shareable civic studio — 2026-08-21
+
+- Added a `Copy studio link` action that serializes the selected equation,
+  typology, season, material, grammar, all public-realm/performance/programme
+  controls, and optional carried footprint reference.
+- Studio links restore the scenario on load while preserving existing filters,
+  focus, comparison, and route URL namespaces; lazy mode reports when a carried
+  reference is not present in the current page.
+- Kept the design boundary explicit: this is a contemporary civic test-fit,
+  not a historic reconstruction or a construction/compliance model.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Solas place-aware sky geometry — 2026-08-21
+
+- Added a place-aware `Solas / sky geometry` layer inside the civic studio. A
+  carried footprint now supplies its latitude and longitude to a seasonal
+  solar reading; the uncarried studio uses the Ireland field centre explicitly.
+- Derived approximate day length, solar-noon altitude, and sunrise/sunset
+  bearings for the long-light, equinox, and low-light lenses, with an accessible
+  visual horizon and plain-language orientation prompt.
+- Added the same sky-and-place arithmetic to the copy/download concept brief,
+  while keeping the boundary explicit: this is an indicative horizon estimate,
+  not a site-specific daylight, glare, energy, or compliance model.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Uisce water-event arithmetic — 2026-08-21
+
+- Added a `Uisce / water geometry` layer to the civic studio with light,
+  design-pulse, and heavy one-event rainfall controls.
+- The studio now calculates covered module area × rainfall depth = event litres,
+  then applies the editable capture setting and carries the typology’s water
+  route into the readout.
+- Added `studio_rain_event` to shareable studio URLs and to the copy/download
+  concept brief, keeping the assumption visible and restorable.
+- Kept the boundary explicit: the calculation is a transparent scenario
+  arithmetic, not a hydrological, drainage, storage, flooding, water-quality,
+  or compliance model.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## County geometry pulse — 2026-08-21
+
+- Added a data-derived county constellation to the cultural lens. The embedded
+  field now shows all 26 reported county contexts with visible target counts,
+  NIAH reach, named-place (`Ainm`) counts, and golden-ratio/golden-angle
+  screening rates.
+- Each county card uses the existing `county` URL/filter path, keyboard-safe
+  button semantics, and an active state; lazy views label the cards as current
+  page scope rather than implying full-county totals.
+- Kept the cultural boundary explicit: county pulses describe this snapshot’s
+  mapped evidence and do not assign one architectural identity to a county.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Makers named-design evidence — 2026-08-21
+
+- Surfaced the existing architect-attribution evidence as a visible makers field:
+  named-versus-unattributed comparisons plus the top source-linked names in the
+  report pack.
+- Maker chips reuse the existing text-query path to bring a recorded attribution
+  into the target field; lazy mode keeps the attribution table pack-level while
+  the resulting target field remains explicitly current-page/filter scope.
+- Kept the evidence boundary explicit: attribution phrases are source-linked
+  and exploratory, not proof of sole authorship, historic intent, or a shared
+  architectural tradition.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Pátrún spatial rhythm — 2026-08-21
+
+- Added a spatial-rhythm field to the cultural lens using the existing Moran’s I
+  neighbour screens, county-stratified golden-angle permutations, and spatial
+  block-bootstrap intervals.
+- Each cohort card shows the local similarity statistic, adjusted p-value,
+  county-preserving difference, and block interval; selecting a card reuses the
+  existing building-group filter and URL/view state.
+- Kept the interpretation boundary explicit: these are situated diagnostics of
+  the mapped snapshot, not proof of regional style, historic intent, or one
+  Irish architectural tradition.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Ciorcal multi-distance field scale — 2026-08-21
+
+- Added a six-radius Ciorcal field to the cultural lens using the existing
+  Ripley L(r) − r summaries at 100 m, 250 m, 500 m, 1 km, 2 km, and 5 km for
+  the visible building cohorts.
+- Each rail prints raw metric values while normalizing only the bar height
+  within that cohort, so the shape can be read without hiding the underlying
+  scale. Selecting a cohort reuses the existing group filter and view state.
+- Kept the method boundary visible: translation correction and sampled
+  bounding rectangles are reported, but the rail is not a significance envelope,
+  route model, settlement-quality score, or proof of historic intent.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Ailíniú directional-and-neighbour field — 2026-08-21
+
+- Added an orientation field from the existing point-pattern artifact, placing
+  worship and controls beside edge-bearing golden-angle shares, turn screens,
+  peak bearing, and nearest-neighbour Fibonacci/sham comparisons.
+- The worship card carries the existing group filter into Explore; the control
+  field remains a reference distribution rather than a selectable target cohort.
+- Kept the statistical boundary explicit: Monte Carlo and Poisson references
+  remain exploratory point-pattern diagnostics, not evidence of conscious angle
+  selection, cultural origin, or historic intent.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Foinse source roots — 2026-08-21
+
+- Added a visible source-roots field to the cultural lens from the existing
+  historical source register: OpenStreetMap, NIAH, validated architect evidence,
+  and the optional curated-history register.
+- Friendly labels replace machine paths; status badges distinguish available,
+  fallback, and not-provided layers. The evidence ledger also reports geometry
+  validity, duplicate-centroid flags, and the expert review-queue count.
+- Kept the provenance boundary explicit: missing curated history remains visible
+  as missing rather than being filled by mathematical or heritage inference.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, Pages audit, local HTTP, and the full
+  project suite pass.
+
+## Cruth derived field print — 2026-08-21
+
+- Added a second canvas study to the selected-place dossier beside the source
+  boundary fingerprint. The field print translates aspect, circularity, radial
+  variation, Fourier influence, symmetry flags, and golden-angle screens into a
+  repeatable contemporary visual field.
+- Added accessible labels and a descriptor-led note so the source outline and
+  the derived study remain visibly separate; the print is explicitly not a
+  historic ornament or a claim about cultural origin.
+- Regenerated and published the atlas; pipeline verification, report/full
+  tests, generated-JavaScript parsing, targeted canvas runtime, Pages audit,
+  local HTTP, and the full project suite pass.
+
+## Architect attribution precision — 2026-08-21
+
+The NIAH architect extractor now requires explicit design, architect-role, or
+tightly bounded design-context evidence before accepting a name. It handles
+dated attributions, institutional role phrases, firms, initialed names, and
+explicitly single-name architects while rejecting generic `by` references to
+funders, military or railway bodies, clergy, map labels, and artwork suppliers.
+The exact matched phrase remains in `architects_evidence.csv` with a high
+confidence label. Refreshing the cached stage reduced the joined evidence
+surface from 1,114 stale heuristic rows to 739 rows and the retained
+per-architect table to 45 names; the worship and country-house comparison rows
+remain available. The full report/manifest/verification refresh passes.
+
 ## Working rules
 
 - Preserve raw downloads and existing generated artifacts while migrating.
@@ -2844,3 +3194,531 @@ costs: unnecessary cache misses and browser downloads of the full report pack.
   v128, national v21 rebuild, and named-way regression fixtures now cover the
   extension. Routing semantics and existing edge/transition provenance remain
   unchanged.
+
+## Geometry-derived route maneuvers — 2026-08-21
+
+- Path-enabled route responses now include `maneuver_n` and `maneuvers` records
+  derived from the ordered graph-node geometry and serialized road context.
+  Records cover start, arrival, slight/ordinary turns, U-turns, mapped-way
+  changes, and ferry boarding/landing transitions.
+- Each maneuver retains the node and `[lon, lat]` coordinate, incoming/outgoing
+  way IDs, bearings, signed turn angle, outgoing road context, and the
+  distance/duration/wait to the next maneuver. Routing cost, restrictions, and
+  graph storage are unchanged.
+- The CLI/API, OpenAPI, GeoJSON exclusion contract, dashboard summary, Doctor
+  v129, and road/ferry regression fixtures now expose the capability. The
+  output is explicitly documented as geometry-derived route inspection guidance,
+  not lane- or traffic-aware navigation.
+
+## Dashboard maneuver guidance — 2026-08-21
+
+- The generated standalone and lazy dashboards now render an accessible
+  numbered maneuver list whenever a path-enabled JSON route returns
+  `maneuvers`. Each row presents a human-readable action, mapped road context,
+  and distance/duration/wait metrics.
+- Selecting a maneuver focuses its coordinate on the live Leaflet map and
+  highlights the same point in the dependency-free offline SVG fallback. The
+  raw JSON response remains available beneath the guidance list.
+- Doctor v130 inventories the dashboard-list capability, and report-generation
+  regressions cover the required UI hooks. GeoJSON responses continue to omit
+  path-only guidance fields by contract.
+
+## Dashboard path segment inspector — 2026-08-21
+
+- The standalone and lazy dashboards now expose a bounded, accessible path
+  detail table for JSON routes with `path_segments`. Each row shows mapped OSM
+  road context, way ID, distance, duration/wait, road/ferry mode, and counts of
+  static constraints, conditional access rules, and transition turn rules.
+- The table is deliberately capped at 250 rendered rows so unusually long
+  paths cannot make the dashboard unresponsive; the summary reports when the
+  display is truncated. GeoJSON responses retain the existing omission of
+  path-only detail fields, so the inspector remains JSON-only.
+- Doctor v131 inventories the segment-inspector capability. Report and Doctor
+  regressions cover the generated hooks; the API contract and routing cost are
+  unchanged.
+
+## Dashboard route reproducibility — 2026-08-21
+
+- Route inputs now use a prefixed, shareable URL state contract. The link keeps
+  coordinates, speed and vehicle profiles, departure, objective, response
+  format, path/ferry flags, and HGV destination opt-in together with the
+  existing dashboard filters. Opening a `route=1` link restores those controls
+  and reruns the local query.
+- The route panel now provides `Copy link`, `JSON`, and `GeoJSON` actions. The
+  JSON action downloads the exact latest response; the GeoJSON action preserves
+  the server route GeoJSON shape for JSON responses and downloads the exact
+  feature for GeoJSON responses.
+- Doctor v132 inventories shareable route state and response downloads. Report,
+  Doctor, and generated-artifact regressions cover the new hooks; no routing or
+  API contract changes were required.
+
+## Dashboard route evidence details — 2026-08-21
+
+- Segment rows now use accessible expandable details for the existing route
+  provenance arrays. Static constraints show key/value/unit and evaluation
+  state; conditional records show their condition/profile and inactive/active/
+  applied state; transition records show relation, kind, way/via context, and
+  selection state.
+- Aggregate counts remain in the collapsed row summary, while the 250-row
+  rendering cap and JSON-only path-detail boundary remain unchanged.
+- Doctor v133 inventories the detailed evidence renderer. Generated report and
+  Doctor regressions cover the new hooks without changing route costs or API
+  response fields.
+
+## Bounded route matrix API — 2026-08-21
+
+- The local server now exposes repeated `origin=lat,lon` and
+  `destination=lat,lon` query parameters at `/api/route/matrix`, with a hard
+  25-pair Cartesian bound to keep repeated Dijkstra work predictable.
+- The new `ireland-geometry.route-matrix.v1` response preserves ordered
+  origin/destination indices and returns compact pair summaries for reachability,
+  snapping, route distance, estimated duration, arrival, and ferry timing.
+  `include_path=1` adds the full existing point-to-point route contract under
+  each pair, so vehicle restrictions and segment provenance remain available
+  without making the default matrix response large.
+- The endpoint reuses the loaded SQLite graph and all existing vehicle,
+  departure, conditional-access, turn-restriction, ferry, and distance/duration
+  semantics. Capabilities, OpenAPI, Doctor v134, and HTTP regression coverage
+  publish the endpoint and pair bound.
+
+## Standalone route matrix command — 2026-08-21
+
+- The bounded matrix engine is now exposed as the installable
+  `ireland-geometry-route-matrix` console command. Repeated `--origin` and
+  `--destination` values use the same 25-pair guard and the same profile-aware
+  routing semantics as the local HTTP endpoint.
+- Default output is compact pair summaries; `--include-path` embeds the full
+  point-to-point route response for each pair, and `--out` uses the existing
+  symlink-safe output writer. CLI, Doctor, package-smoke, CI, and sdist entry
+  point coverage now describe the eleven-command surface.
+
+## Route profile comparison — 2026-08-21
+
+- Added `query_route_comparison` and the
+  `ireland-geometry.route-comparison.v1` contract for bounded comparisons of
+  two to eight named vehicle profiles over one origin/destination pair. The
+  first profile is the baseline; every row reports reachability, snap metadata,
+  route distance/duration/ferry metrics, and explicit deltas from that
+  baseline. Unreachable baselines produce null deltas rather than implying a
+  numeric comparison between incomparable routes.
+- Profile rows reuse the existing `query_route` implementation, so conditional
+  access, turn restrictions, physical vehicle limits, ferry waits, way context,
+  segment evidence, and geometry-derived maneuvers remain identical to direct
+  route queries. `--include-path` embeds each full route response.
+- Added the installable `ireland-geometry-route-compare` command with strict
+  `NAME;key=value` profile parsing, plus the read-only `/api/route/compare`
+  endpoint. OpenAPI, capabilities, health, Doctor v135, CI/package/sdist
+  smoke checks, README guidance, and CLI/API regressions cover the new
+  two-to-eight profile bound. The full source suite and Ruff checks pass.
+
+## Dashboard route comparison — 2026-08-21
+
+- Added a generated-dashboard comparison panel to both the standalone and lazy
+  report templates. It accepts one `NAME;key=value` profile per line, submits
+  the shared trip to `/api/route/compare`, and renders reachability, distance,
+  duration, ferry-wait, and baseline-delta columns.
+- Embedded profile routes can be selected from the comparison table to update
+  the live or dependency-free offline map, maneuver list, segment inspector,
+  and route download controls. Comparison JSON is downloadable directly from
+  the panel.
+- Added `compare=1` URL persistence for coordinates, common route options,
+  profile lines, and path/ferry flags. Doctor v136 now inventories the
+  dashboard panel, and live local-browser coverage verifies submission, path
+  selection, URL restoration, and a zero-error console.
+
+## Dashboard route matrix — 2026-08-21
+
+- Added a generated-dashboard matrix panel to both the standalone and lazy
+  report templates. It accepts separate origin and destination coordinate
+  lines, reuses the route form's vehicle/departure/objective options, and
+  enforces the 25-pair Cartesian bound in the browser before submission.
+- Matrix rows report reachability, distance, duration, ferry wait, and arrival.
+  When pair paths are requested, each embedded route can be selected to update
+  the live or dependency-free offline map, maneuvers, segment inspector, and
+  route download controls; the raw matrix response is downloadable as JSON.
+- Added `matrix=1` URL persistence for coordinates and routing options, report
+  assertions, CI/package Doctor checks, and README/Final Status coverage.
+  Doctor v138 inventories the panel in both generated report variants.
+
+## Structured route matrix API — 2026-08-21
+
+- Added a structured `POST /api/route/matrix` request form with strict JSON
+  `{lat,lon}` origin/destination arrays, shared route-profile options, a
+  25-pair Cartesian bound, and a 128 KiB body guard. Existing repeated-query
+  GET clients remain unchanged.
+- The server reuses the GET validators and matrix engine, rejects malformed
+  JSON, unsupported media types, non-finite values, unknown fields, and
+  oversized bodies before loading the graph. OpenAPI, capabilities, health,
+  Doctor v138, and API regression coverage publish the new method.
+- The generated dashboard now submits matrices through the JSON body while
+  retaining URL-persistent state and the same path-selection/map evidence
+  behavior. The full source suite and Ruff checks pass after the upgrade.
+
+## Structured route comparison API — 2026-08-21
+
+- Added a structured `POST /api/route/compare` request form with strict
+  `start`/`goal` `{lat,lon}` objects, two-to-eight `NAME;key=value` profiles,
+  shared route options, and a 128 KiB body guard. Existing repeated-query GET
+  clients remain unchanged.
+- The server reuses the comparison profile parser, route-option validators, and
+  `ireland-geometry.route-comparison.v1` response. OpenAPI, capabilities,
+  health, Doctor v139, and API regression coverage publish the new method and
+  malformed-body/media-type behavior.
+- The generated dashboard now submits profile comparisons through the JSON
+  body while retaining URL-persistent state, path selection, map evidence,
+  and JSON download behavior. The source suite, Ruff checks, and live POST
+  smoke coverage pass after the upgrade.
+
+## Structured single-route API — 2026-08-21
+
+- Added a structured `POST /api/route` request form with exact `start`/`goal`
+  `{lat,lon}` objects, shared vehicle/departure/objective, ferry, and path
+  options, an optional `json`/`geojson` format, and a 128 KiB body guard.
+  Existing repeated-query GET clients and shareable dashboard URLs remain
+  available.
+- The server reuses the route validators and
+  `ireland-geometry.route.v1` response contract, forcing path inclusion for
+  GeoJSON responses and rejecting malformed, unsupported, unknown, or
+  oversized requests before graph loading. OpenAPI, health, capabilities,
+  Doctor v140, CI/package smoke, and HTTP regressions cover the method.
+- The generated dashboard now submits the single-trip form through JSON while
+  retaining URL-persistent state and the existing route download/map
+  behavior.
+
+## Structured analysis-query API — 2026-08-21
+
+- Added a structured `POST /api/query` request form with strict flat JSON
+  filters for backend selection, page bounds, target/control selection,
+  minimum score, finite-score cursors, and invalid-score cursors. The 128 KiB
+  body bound and type/field validation run before backend selection; existing
+  GET query clients and the `ireland-geometry.query.v1` response remain
+  unchanged.
+- OpenAPI, health, capabilities, Doctor v141, CI/package smoke, README
+  guidance, and HTTP regressions cover successful offset/cursor requests plus
+  malformed, unsupported-media, unknown-field, invalid-type, and oversized
+  body behavior.
+
+## Structured report page/export API — 2026-08-21
+
+- Added strict `application/json` `POST /api/report/page` and
+  `POST /api/report/export` request forms. Page requests carry the existing
+  dashboard filters plus bounded `limit`, `offset`, and `initial`; export
+  requests require `format=csv|geojson` and carry the same filters.
+- Both endpoints enforce a 128 KiB body limit, reject unknown fields, invalid
+  types, malformed JSON, and unsupported media types before opening the report
+  pack, and retain their existing query-string GET forms for links and clients.
+- OpenAPI, health, capabilities, Doctor v142, CI/package/sdist smoke, README
+  guidance, and HTTP regression coverage publish and exercise both structured
+  methods, including CSV and GeoJSON exports.
+
+## Dashboard structured report requests — 2026-08-21
+
+- The lazy dashboard now bootstraps and refreshes report pages through the
+  structured JSON `POST /api/report/page` form and downloads filtered CSV or
+  GeoJSON through `POST /api/report/export`.
+- Filter and route state remains persisted in shareable URL parameters; GET
+  report endpoints remain available for direct links and existing clients.
+  Doctor v143 inventories the dashboard POST wiring separately from the server
+  endpoint capability, and generated-report regression coverage checks the
+  structured request bodies.
+
+## Report-page continuation metadata — 2026-08-21
+
+- Added `page.next_offset` to `ireland-geometry.report-page.v1`, returning the
+  next bounded offset when another filtered page exists and `null` at the end.
+- Published the continuation behavior as `pagination_continuation: "next_offset"`
+  in capabilities and a typed `ReportPagePagination` OpenAPI schema.
+- Doctor v145, focused HTTP/OpenAPI tests, package assertions, and README/
+  final-status guidance now cover the end-to-end continuation contract.
+
+## Deterministic report sorting — 2026-08-21
+
+- Added ascending `osm_id` as the deterministic tie-breaker for every report
+  sort key, keeping page boundaries and filtered exports stable when primary
+  values are equal.
+- Published `page.sort_tiebreaker: "osm_id"` in the report response,
+  capabilities, and typed OpenAPI schema.
+- Doctor v146, package checks, focused ordering regressions, and report-page
+  HTTP/OpenAPI tests now cover the stable ordering contract.
+
+## Conditional API responses — 2026-08-21
+
+- Made successful health, query, route, report, metadata, interpretation,
+  capabilities, and OpenAPI responses conditionally cacheable with deterministic
+  ETags and `Cache-Control: no-cache`; export bytes retain the same behavior.
+- Added the `conditional_endpoints` discovery list and OpenAPI header metadata,
+  with `304 Not Modified` HTTP regression coverage.
+- Doctor v147, package smoke, and full source validation cover the shared
+  conditional-response contract.
+
+## Negotiated API JSON compression — 2026-08-21
+
+- Added deterministic gzip negotiation for cacheable JSON API responses at or
+  above 1,024 bytes when clients advertise `Accept-Encoding: gzip` or `*`.
+- Compressed responses carry `Content-Encoding: gzip` and
+  `Vary: Accept-Encoding`; ETags and gzip-aware `304` responses are tested over
+  the representation actually sent.
+- Capabilities/OpenAPI discovery and Doctor v148 now publish and gate the
+  transport behavior, with package and CI assertions updated.
+
+## HTTP HEAD inspection — 2026-08-21
+
+- Added bodyless `HEAD` handling for every read-only API GET path, preserving
+  ETags, cache headers, content lengths, and negotiated gzip metadata.
+- Added matching OpenAPI `head` operations and the `head_endpoints` capability
+  list for monitoring and cache-probing clients.
+- Doctor v149, HTTP regressions, package smoke, and CI assertions cover the
+  new method surface.
+
+## Stale dashboard reload guard — 2026-08-21
+
+- Added a runtime snapshot identity comparison to the lazy dashboard. A
+  changed manifest, readiness regression, or failed artifact alignment marks
+  the already-open view as requiring a deliberate reload.
+- Added the accessible `runtimeReloadNotice` and `runtimeReload` action to
+  both generated report variants; the server-only notice remains hidden for
+  standalone/offline use.
+- Added Doctor v150 capability detection, generated HTML checks, a Node
+  runtime regression, CI/package assertions, and live browser verification.
+
+## Recoverable dashboard loading — 2026-08-21
+
+- Initial lazy API failures now preserve the dashboard shell and show an
+  accessible retry action.
+- Later page/filter failures show the same retry action and a clear unavailable
+  state; raw HTML error rendering and ambiguous empty-table messaging are gone.
+- Added Doctor v151 capability inventory, focused and package assertions, and
+  live browser failure/retry verification.
+
+## Correlated API errors — 2026-08-21
+
+- Added request correlation IDs to API response headers, with validation and
+  echoing of client IDs plus generated fallback IDs.
+- Added the `ireland-geometry.api-error.v1` JSON envelope, stable error codes,
+  no-store error responses, and JSON handling for unknown API paths/methods.
+- Added OpenAPI/capability discovery, Doctor v152, HTTP regressions, and CI/
+  package assertions.
+
+## Correlated API access logs — 2026-08-21
+
+- Added `request_id=...` to API access-log lines so response IDs can be traced
+  through the local server log.
+- Published `api_request_logging` and `api_request_log_field` in capabilities
+  and OpenAPI-adjacent Doctor contracts.
+- Added Doctor v153, focused/full validation, package assertions, and a live
+  packaged-server correlation probe.
+
+## Universal response correlation — 2026-08-21
+
+- Extended request IDs and access-log correlation from API/health traffic to
+  static pages, data packs, downloads, conditional responses, and static
+  errors.
+- Published the universal-response and universal-log capability fields.
+- Added Doctor v156, HTTP regressions, package assertions, and documentation.
+
+## Distribution bytecode hygiene — 2026-08-21
+
+- Confirmed the previous wheel carried 44 stale `__pycache__`/`.pyc` entries
+  from a reused build tree.
+- Added setuptools exclusion configuration and package-smoke assertions for
+  both wheel and sdist archives.
+- Rebuilt the wheel from a clean build tree with zero bytecode-cache entries;
+  documented the release hygiene contract.
+
+## Baseline response security policy — 2026-08-21
+
+- Added shared response-boundary headers for content-type sniffing, referrer
+  policy, and browser feature permissions.
+- Published the exact policy in capabilities and OpenAPI response contracts.
+- Added Doctor v154, focused/full validation, HTTP regression coverage,
+  package assertions, and documentation.
+
+## Correlated server timing — 2026-08-21
+
+- Added standard `Server-Timing` processing measurements to every server
+  response and `duration_ms` to API/health access-log lines beside `request_id`.
+- Published the timing header, metric, and log-field contract in capabilities
+  and OpenAPI, with the measurement boundary documented explicitly.
+- Added Doctor v155, focused/full validation, package assertions, and live
+  packaged-server coverage.
+
+## Portable route path explainability — 2026-08-21
+
+- Replaced the lossy portable CSV/JSON graph tuple with a backwards-compatible
+  `PortableRoadGraph` that keeps directed edge metadata while preserving the
+  existing two-value unpacking API.
+- Portable rows now retain supplied `way_id`, `name`, `ref`, `highway`, `route`,
+  and `oneway` values. Path-enabled route responses emit `portable_edges` with
+  ordered way IDs, segment metrics, and basic road context; graphs without way
+  IDs continue to fail closed as `not_available`.
+- Updated the route contract, OpenAPI enum, capability/Doctor inventory, graph
+  metadata, persistence writer, regression tests, and package CI assertions.
+
+## Active routing-backend discovery — 2026-08-21
+
+- Added a runtime `routing_graph` inventory to health and `/api/capabilities`,
+  distinguishing full SQLite semantics from the portable CSV/JSON backend and
+  unavailable graph state.
+- Route, matrix, and comparison endpoint discovery now repeats the active graph
+  backend, profile semantics, feature flags, and path-segment sources. This
+  prevents project-level vehicle/restriction support from being interpreted as
+  support in a currently loaded portable graph.
+- Added a typed OpenAPI capability schema, Doctor implementation detection, and
+  live portable-graph HTTP regression coverage.
+
+## Active graph cardinality discovery — 2026-08-21
+
+- Extended the runtime `routing_graph` inventory with metadata-backed counts
+  for graph nodes, directed base edges, ferry edges, and way-context rows.
+- Health, `/api/capabilities`, and route/matrix/comparison endpoint discovery
+  now expose those counts, allowing clients to distinguish a complete cached
+  graph from a small portable fixture without opening the graph themselves.
+- The inventory also exposes `metadata_status` as `available`, `not_provided`,
+  or `invalid`, while missing, malformed, negative, or absent metadata counts
+  remain explicit `null` values; the OpenAPI schema and HTTP regressions cover
+  portable, unavailable, and invalid-sidecar states.
+
+## Portable ferry geometry semantics — 2026-08-21
+
+- Portable edges now retain an explicit ferry flag from `route=ferry` or
+  `ferry=yes`, normalize the route context for CSV/JSON persistence, and expose
+  a portable `ferry_edge_n` graph count.
+- Portable routing skips those edges by default and includes them only with
+  `include_ferries`. Compact and detailed route responses now preserve ferry
+  way IDs, physical distance, and edge count; detailed responses additionally
+  preserve `ferry: true`. Portable timing continues to use the basic geometry
+  estimate and does not claim schedules, waits, or crossing durations.
+- The batch routing path now keeps the `PortableRoadGraph` object through
+  loading, rather than reducing it to bare adjacency and losing ferry policy.
+  Active capability discovery and OpenAPI separately advertise
+  `ferry_geometry` and `ferry_schedules` for backend-accurate inspection.
+- Added regression coverage for opt-in exclusion, path metrics, persistence
+  round-trips, capability discovery, and the portable/full-SQLite distinction.
+
+## Fíorú validation field — 2026-08-21
+
+- Added a visible `Fíorú / validation field` to the cultural lens, keeping
+  independent artifact checks, holdout evidence, and human calibration in the
+  same visual language as the Irish land and geometry layers.
+- Connected the field to `summary.validation`, `holdout_results.csv`, and
+  `review_calibration.csv`: the current pack shows three passing core gates,
+  eight deterministic holdout results, and zero supplied expert labels without
+  converting any of those states into a claim of historic intent.
+- Added responsive styling, generated-report regression assertions, regenerated
+  and published the Pages artifact, and passed pipeline verification, generated
+  JavaScript parsing, Pages audit, local HTTP, `git diff --check`, and the full
+  project test suite.
+
+## Cineál heritage typology — 2026-08-21
+
+- Added a `Cineál / heritage typology` field to the cultural lens, deriving its
+  cards from the existing NIAH type, rating, group, circularity, φ, and θ fields
+  on the report targets.
+- The current view ranks its visible NIAH-linked building types and shows joined
+  row count, golden-angle and golden-ratio rates, mean circularity, dominant
+  mapped cohort, and common rating; selecting a card reuses the existing
+  `niahType` filter and shareable URL state.
+- Kept embedded and lazy scope explicit, added responsive styling and report
+  regression assertions, regenerated and published the atlas, and passed
+  pipeline verification, generated-JavaScript parsing, Pages audit, local HTTP,
+  `git diff --check`, and the full project test suite.
+
+## Fite county–type braid — 2026-08-21
+
+- Added a `Fite / county–type braid` relationship field that groups the
+  existing NIAH-linked rows by county and building type, keeping φ/θ screens
+  attached to both place and source vocabulary.
+- Six leading county cards show typed row count, within-county screen rates, and
+  leading NIAH types; type chips set county and `niahType` together, while
+  county headers reuse the existing county filter and URL state.
+- Kept the embedded/lazy scope boundary visible, added responsive styling and
+  report assertions, regenerated and published the atlas, and passed pipeline
+  verification, generated-JavaScript parsing, Pages audit, local HTTP,
+  `git diff --check`, and the full project test suite.
+
+## Rian selected-building evidence trail — 2026-08-21
+
+- Added a `Rian / evidence trail` panel to the selected-building dossier so a
+  visitor can follow one footprint across four distinct source lanes: OSM
+  geometry, NIAH heritage inventory, historical/attribution evidence, and
+  review plus mapping history.
+- Each lane now reports a small source-backed fingerprint, a clear `present`,
+  `check`, or `not provided` state, and a direct source/review link where the
+  current pack supplies one. Missing history or edit history stays visible as
+  a data boundary rather than being inferred from mathematical resemblance.
+- Added responsive evidence cards and generated-report regression assertions,
+  regenerated and published the Pages artifact, and passed pipeline
+  verification, generated-JavaScript parsing, Pages audit, local HTTP,
+  `git diff --check`, and the full project test suite.
+
+## Timpeall selected-building context ring — 2026-08-21
+
+- Added a `Timpeall / surrounding field` layer to the selected-building
+  dossier. It computes the five nearest mapped footprints from valid latitude
+  and longitude pairs, shows straight-line centroid distance, place/group
+  context, area/aspect, and shared φ/θ/symmetry symbols, and lets each nearby
+  card become the next selected place.
+- Added a small coordinate plot with radial distance rings and a visible scope
+  label: the embedded report reads the full snapshot, while the lazy report
+  reads only its current loaded page. Copy keeps the result explicitly
+  geometric; it is not a road route, walking distance, or claim of shared
+  historical design.
+- Added responsive styling and report assertions, regenerated and published
+  the Pages artifact, and passed both full pipeline verification passes,
+  generated-JavaScript parsing, Pages audit, local HTTP, `git diff --check`,
+  and the full project test suite.
+
+## Paired relationship brief provenance — 2026-08-21
+
+- Extended the studio’s copy/download concept brief so a carried Idir pair is
+  preserved outside the live UI: Field A/B names, centroid span, A→B bearing,
+  place context, and shared measured screens are now included in the exported
+  brief when a pair is active.
+- Kept the brief language contemporary and bounded; a relationship is carried
+  as a design prompt, not rewritten as historic coordination or authorship.
+- Regenerated and published the Pages artifact, and passed both full pipeline
+  verification passes, generated-JavaScript parsing, Pages audit, local HTTP,
+  `git diff --check`, and the full project test suite.
+
+## Idir place-to-place comparison bridge — 2026-08-21
+
+- Extended the two-place comparison tray with an `Idir / between places`
+  relationship layer. It reports straight-line centroid span and bearing,
+  same-settlement or same-county context, NIAH type/join relationship, shared
+  mathematical screens, mapped-group relationship, and B−A shape deltas.
+- Added a compact A→B field plot and responsive relationship ledger. The bridge
+  stays hidden until two places are held, preserves comparison URL state, and
+  keeps every result descriptive: distance is not a route and shared signals
+  are not evidence of shared authorship or historic intent.
+- Added generated-report assertions, regenerated and published the Pages
+  artifact, and passed both full pipeline verification passes,
+  generated-JavaScript parsing, Pages audit, local HTTP, `git diff --check`,
+  and the full project test suite.
+
+## Idir relationship-to-studio bridge — 2026-08-21
+
+- Added a `Carry relationship to studio` handoff to the two-place Idir field.
+  A/B place context, NIAH join status, centroid span, bearing, county bridge,
+  and shared geometry screens now travel into a paired studio reference.
+- Added shareable `studio_pair_a` and `studio_pair_b` state, a paired-place
+  studio card, and an editable `Use A→B bearing as path rotation` control.
+  The bearing is reduced to a directionless axis for the contemporary test-fit;
+  it never becomes a claim about the historic relationship between buildings.
+- Added responsive styling and report assertions, regenerated and published
+  the Pages artifact, and passed both full pipeline verification passes,
+  generated-JavaScript parsing, Pages audit, local HTTP, `git diff --check`,
+  and the full project test suite.
+
+## Idir land chord on the map — 2026-08-21
+
+- Added a measured A→B chord to the actual map layer whenever two comparison
+  places are held. The live Leaflet view now carries a dashed relationship line
+  with A/B endpoint markers and hover readouts for straight-line span and
+  bearing; the offline SVG fallback carries the same chord and labels.
+- Comparison bounds now include both held places even when filters or a route
+  would otherwise hide them, so the relationship remains visible as a land
+  connection rather than only a card-level calculation.
+- Added regression assertions, regenerated after versioning, published the
+  updated Pages artifact, and passed pipeline verification, generated-
+  JavaScript parsing, Pages audit, local HTTP, `git diff --check`, and the full
+  project test suite.

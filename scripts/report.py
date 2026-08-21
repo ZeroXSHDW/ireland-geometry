@@ -38,6 +38,7 @@ REPORT_EXPORT_CONTRACT = "ireland-geometry.report-export.v1"
 REPORT_PAGE_DEFAULT_LIMIT = 50
 REPORT_PAGE_MAX_LIMIT = 100
 REPORT_FILTER_SORT_KEYS = ("name", "group", "area_m2", "score", "flags")
+REPORT_PAGE_SORT_TIEBREAKER = "osm_id"
 REPORT_EXPORT_COLUMNS = (
     "osm_id",
     "name",
@@ -285,6 +286,10 @@ def report_filter_options(data: dict) -> dict[str, list[str]]:
         "century": values(lambda row: (row.get("niah") or {}).get("century", "")),
         "rating": values(lambda row: (row.get("niah") or {}).get("rating", "")),
         "type": values(lambda row: (row.get("niah") or {}).get("type", "")),
+        "county": values(
+            lambda row: (row.get("spatial") or {}).get("county")
+            or (row.get("niah") or {}).get("county", "")
+        ),
         "review": values(report_review_state),
         "pattern": [item["key"] for item in build_pattern_catalog(rows)],
         "culture": list(CULTURE_LENS_KEYS),
@@ -312,6 +317,7 @@ def report_matching_targets(
     century: str = "",
     rating: str = "",
     niah_type: str = "",
+    county: str = "",
     review_state: str = "",
     pattern: str = "",
     culture: str = "",
@@ -366,6 +372,14 @@ def report_matching_targets(
             and (not century or niah.get("century") == century)
             and (not rating or niah.get("rating") == rating)
             and (not niah_type or niah.get("type") == niah_type)
+            and (
+                not county
+                or (
+                    (row.get("spatial") or {}).get("county")
+                    or niah.get("county")
+                )
+                == county
+            )
             and (not review_state or report_review_state(row) == review_state)
             and (not pattern or pattern in flags)
             and (not culture or cultural_lens_matches(row, culture))
@@ -377,6 +391,12 @@ def report_matching_targets(
         )
 
     matched = [row for row in rows if isinstance(row, dict) and matches(row)]
+
+    def sort_tiebreaker(row):
+        value = str(row.get(REPORT_PAGE_SORT_TIEBREAKER) or "")
+        return value.casefold(), value
+
+    matched = sorted(matched, key=sort_tiebreaker)
     if sort_key in {"name", "group", "flags"}:
         def sort_value(row):
             if sort_key == "flags":
@@ -416,6 +436,8 @@ def report_page_payload(
             "count": len(page_rows),
             "total": len(matched),
             "has_more": offset + limit < len(matched),
+            "next_offset": offset + limit if offset + limit < len(matched) else None,
+            "sort_tiebreaker": REPORT_PAGE_SORT_TIEBREAKER,
             "matching_golden_angle": sum(bool(row.get("has_golden_angle")) for row in matched),
             "matching_niah": sum(bool((row.get("niah") or {}).get("reg_no")) for row in matched),
         },
@@ -1173,13 +1195,32 @@ def build_lazy_report(out: Path) -> str:
     body = template[start:end]
     body = body.rsplit("reportLaunch();", 1)[0]
     script = """<script>
+function showInitialReportError(error) {
+  const message=error?.message || String(error || 'unknown error');
+  const notice=document.getElementById('reportLoadError');
+  const text=document.getElementById('reportLoadErrorText');
+  const retry=document.getElementById('reportRetry');
+  if(notice && text) {
+    const intro=document.getElementById('siteIntro');
+    if(intro) { intro.hidden=true; intro.classList.add('is-dismissed'); }
+    document.body.classList.remove('intro-open');
+    text.textContent=`Report could not load: ${message}`;
+    notice.hidden=false;
+    retry?.addEventListener('click',()=>location.reload(),{once:true});
+    return;
+  }
+  document.body.textContent='';
+  const pre=document.createElement('pre');
+  pre.style.padding='20px';
+  pre.textContent=`Report could not load: ${message}`;
+  document.body.appendChild(pre);
+}
 async function loadPack() {
   const params = new URLSearchParams(location.search);
   const offline = params.get('offline') === '1';
-  const url = offline
-    ? 'report_data.json'
-    : `/api/report/page?${new URLSearchParams({initial:'1',limit:'50',offset:'0'})}`;
-  const response = await fetch(url);
+  const response = offline
+    ? await fetch('report_data.json')
+    : await fetch('/api/report/page',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initial:true,limit:50,offset:0})});
   if (!response.ok) {
     throw new Error(offline
       ? `Could not load report_data.json (${response.status})`
@@ -1188,7 +1229,7 @@ async function loadPack() {
   boot(await response.json());
 }
 function boot(PACK) {
-""" + body + "\nreportLaunch();\n}\nloadPack().catch(error => { document.body.innerHTML = `<pre style=\"padding:20px\">${error}</pre>`; });\n</script>"
+""" + body + "\nreportLaunch();\n}\nloadPack().catch(showInitialReportError);\n</script>"
     return template[: start - len(marker)] + script + template[end + len("\n</script>") :]
 
 
@@ -1197,15 +1238,53 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Civic Geometry Atlas</title>
+<title>Cruth — Ireland Field Atlas V2</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
         --deep:#103537; --deep-2:#1f514f; --paper:#f7f3ea; --panel:rgba(247,243,234,.97); }
 * { box-sizing:border-box; }
 html,body { margin:0; height:100%; color:var(--ink); background:var(--deep); font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-#map { position:fixed; inset:0; background:linear-gradient(135deg,#173e40 0%,#0d2d31 47%,#1a4745 100%); }
+#map { position:fixed; inset:0; background:radial-gradient(circle at 18% 22%,rgba(94,148,128,.24),transparent 28%),radial-gradient(circle at 76% 70%,rgba(184,132,61,.18),transparent 30%),linear-gradient(135deg,#173e40 0%,#0d2d31 47%,#1a4745 100%); }
+#map::before { content:""; position:absolute; inset:-18%; pointer-events:none; opacity:.48; background:radial-gradient(ellipse at 30% 44%,rgba(218,189,109,.16),transparent 20%),radial-gradient(ellipse at 70% 58%,rgba(87,145,122,.15),transparent 22%); filter:blur(24px); animation:map-breathe 14s ease-in-out infinite alternate; }
 #map::after { content:""; position:absolute; inset:0; pointer-events:none; opacity:.22; background-image:linear-gradient(rgba(232,218,184,.16) 1px,transparent 1px),linear-gradient(90deg,rgba(232,218,184,.16) 1px,transparent 1px); background-size:64px 64px; mask-image:linear-gradient(90deg,rgba(0,0,0,.95),transparent 68%); }
+@keyframes map-breathe { from { transform:translate3d(-1%,1%,0) scale(1); } to { transform:translate3d(2%,-1%,0) scale(1.06); } }
+#panel { transition:filter .72s ease,transform .72s ease; }
+body.intro-open #panel { filter:blur(10px); transform:translateY(16px) scale(.985); pointer-events:none; }
+body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opacity .72s ease; }
+.site-intro { position:fixed; inset:0; z-index:1800; display:grid; place-items:center; padding:28px; color:#f8f2e5; background:radial-gradient(circle at 58% 45%,rgba(53,108,105,.32),transparent 30%),linear-gradient(135deg,rgba(9,35,38,.985),rgba(13,48,48,.96) 56%,rgba(23,55,48,.98)); transition:opacity .72s ease,transform .72s ease; overflow:hidden; }
+.site-intro[hidden] { display:none; }
+.site-intro::before { content:""; position:absolute; inset:6%; border:1px solid rgba(225,197,124,.2); border-radius:32px; pointer-events:none; }
+.site-intro::after { content:"᚛ ᚜"; position:absolute; right:5vw; bottom:-7vw; color:rgba(231,201,135,.09); font:clamp(190px,30vw,460px)/1 Georgia,serif; letter-spacing:-.22em; transform:rotate(-9deg); pointer-events:none; }
+.site-intro.is-dismissed { opacity:0; transform:scale(1.035); pointer-events:none; }
+.intro-shell { position:relative; z-index:1; display:grid; grid-template-columns:minmax(0,1.08fr) minmax(280px,.92fr); align-items:center; gap:clamp(34px,7vw,100px); width:min(1180px,100%); }
+.intro-main { max-width:690px; }
+.intro-topline { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:34px; color:#dec17b; font-size:10px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+.intro-topline span:last-child { color:rgba(248,242,229,.48); }
+.intro-kicker { display:flex; align-items:center; gap:10px; color:#a6cfaf; font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+.intro-kicker::before { content:""; width:34px; height:1px; background:#e1bd66; }
+.intro-main h2 { max-width:700px; margin:18px 0 0; font:700 clamp(48px,8vw,104px)/.88 Georgia,serif; letter-spacing:-.075em; }
+.intro-main h2 em { color:#e1bd66; font-style:normal; }
+.intro-main p { max-width:570px; margin:24px 0 0; color:rgba(248,242,229,.68); font-size:15px; line-height:1.65; }
+.intro-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:30px; }
+.intro-actions button { min-height:42px; padding:9px 15px; border-color:rgba(225,189,102,.6); border-radius:999px; color:#163a3a; background:#e1bd66; font-size:11px; font-weight:800; letter-spacing:.04em; }
+.intro-actions button:hover { border-color:#f7e2a8; color:#163a3a; background:#f0d48c; }
+.intro-actions button.secondary { border-color:rgba(248,242,229,.22); color:rgba(248,242,229,.7); background:rgba(248,242,229,.06); }
+.intro-actions button.secondary:hover { border-color:rgba(248,242,229,.55); color:#f8f2e5; background:rgba(248,242,229,.12); }
+.intro-aside { position:relative; min-height:440px; display:grid; place-items:center; }
+.intro-orbit { position:relative; width:min(39vw,430px); aspect-ratio:1; border:1px solid rgba(225,189,102,.26); border-radius:50%; transform:rotate(-12deg); }
+.intro-orbit::before, .intro-orbit::after { content:""; position:absolute; inset:11%; border:1px dashed rgba(166,207,175,.32); border-radius:50%; }
+.intro-orbit::after { inset:27%; border-style:solid; border-color:rgba(191,91,69,.4); }
+.intro-orbit-line { position:absolute; top:50%; left:2%; width:96%; height:1px; background:linear-gradient(90deg,transparent,#e1bd66 22%,rgba(248,242,229,.55) 50%,transparent 78%); transform:rotate(37deg); }
+.intro-orbit-line.second { transform:rotate(-53deg); background:linear-gradient(90deg,transparent,#77a897 20%,rgba(248,242,229,.42) 50%,transparent 80%); }
+.intro-orbit-core { position:absolute; inset:39%; display:grid; place-items:center; border:1px solid #e1bd66; border-radius:50%; color:#153b3b; background:#e1bd66; box-shadow:0 0 0 14px rgba(225,189,102,.08),0 0 70px rgba(225,189,102,.22); font:700 clamp(28px,4vw,44px)/1 Georgia,serif; }
+.intro-orbit-label { position:absolute; padding:5px 8px; border:1px solid rgba(248,242,229,.2); border-radius:999px; color:rgba(248,242,229,.66); background:rgba(8,31,34,.4); font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; backdrop-filter:blur(8px); }
+.intro-orbit-label.north { top:2%; left:50%; transform:translateX(-50%); }
+.intro-orbit-label.east { top:51%; right:-5%; }
+.intro-orbit-label.south { bottom:2%; left:50%; transform:translateX(-50%); }
+.intro-orbit-label.west { top:51%; left:-7%; }
+.intro-foot { position:absolute; right:28px; bottom:22px; left:28px; display:flex; align-items:center; justify-content:space-between; gap:20px; color:rgba(248,242,229,.42); font-size:10px; }
+.intro-foot span:last-child { color:#dec17b; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
 #panel { position:fixed; z-index:1000; top:18px; right:18px; bottom:18px; width:min(780px,calc(100vw - 36px));
          display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; border:1px solid rgba(228,218,193,.78); border-radius:26px;
          background:var(--panel); box-shadow:0 22px 80px rgba(4,20,23,.38); }
@@ -1222,6 +1301,85 @@ html,body { margin:0; height:100%; color:var(--ink); background:var(--deep); fon
 .header-actions a { padding:8px 11px; border:1px solid rgba(247,242,230,.26); border-radius:999px; background:#f1d893; }
 .header-actions a:last-child { color:#f7f2e6; background:transparent; }
 .header-actions a:hover, .review-link:hover { text-decoration:underline; }
+.header-actions button { display:inline-block; padding:8px 11px; border:1px solid rgba(247,242,230,.26); border-radius:999px; color:#f7f2e6; background:transparent; font-size:11px; font-weight:750; }
+.header-actions button:hover { border-color:#e0bd6e; color:#f1d893; }
+.hero-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:20px; padding-top:15px; border-top:1px solid rgba(247,242,230,.14); }
+.hero-metric { min-width:0; }
+.hero-metric strong { display:block; color:#f7f0dc; font:700 18px/1 Georgia,serif; letter-spacing:-.04em; }
+.hero-metric span { display:block; margin-top:4px; color:rgba(247,242,230,.5); font-size:9px; line-height:1.2; text-transform:uppercase; letter-spacing:.08em; }
+.field-section { position:relative; padding:28px 24px 25px; border-bottom:1px solid #d9cfbd; color:#f7f0dc; background:linear-gradient(135deg,#153f40 0%,#1c504c 58%,#345d50 100%); overflow:hidden; }
+.field-section::before { content:""; position:absolute; inset:0; opacity:.23; background-image:linear-gradient(rgba(238,218,174,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(238,218,174,.22) 1px,transparent 1px); background-size:30px 30px; mask-image:linear-gradient(90deg,black,transparent 72%); pointer-events:none; }
+.field-section::after { content:""; position:absolute; right:-86px; top:-100px; width:270px; height:270px; border:1px solid rgba(225,189,102,.34); border-radius:50%; box-shadow:0 0 0 21px rgba(225,189,102,.05),0 0 0 46px rgba(225,189,102,.04); pointer-events:none; }
+.field-content { position:relative; z-index:1; display:grid; grid-template-columns:minmax(0,1fr) minmax(245px,.75fr); gap:22px; align-items:start; }
+.field-kicker { display:flex; align-items:center; gap:8px; color:#e1bd66; font-size:10px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+.field-kicker::before { content:"01"; display:grid; place-items:center; width:23px; height:23px; border:1px solid rgba(225,189,102,.58); border-radius:50%; font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.field-section h2 { max-width:620px; margin:14px 0 0; color:#f7f0dc; font:700 clamp(27px,3.4vw,44px)/.98 Georgia,serif; letter-spacing:-.055em; }
+.field-section h2 em { color:#e1bd66; font-style:normal; }
+.field-section p { max-width:650px; margin:12px 0 0; color:rgba(247,240,220,.7); font-size:12px; line-height:1.6; }
+.field-principles { display:flex; flex-wrap:wrap; gap:6px; margin-top:17px; }
+.field-principles span { padding:6px 8px; border:1px solid rgba(247,240,220,.18); border-radius:999px; color:rgba(247,240,220,.72); background:rgba(7,33,35,.2); font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; }
+.field-coordinate { min-height:187px; padding:15px; border:1px solid rgba(225,189,102,.3); background:rgba(8,34,36,.22); }
+.field-coordinate-top { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#dec17b; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.field-coordinate-top small { color:rgba(247,240,220,.48); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; }
+.coordinate-plot { position:relative; height:104px; margin-top:14px; border-top:1px solid rgba(225,189,102,.38); border-bottom:1px solid rgba(225,189,102,.22); background:repeating-linear-gradient(90deg,transparent 0,transparent calc(25% - 1px),rgba(225,189,102,.16) 25%,transparent calc(25% + 1px)); }
+.coordinate-plot::before { content:""; position:absolute; top:50%; left:4%; width:90%; height:1px; background:linear-gradient(90deg,transparent,#8ab89f 17%,#e1bd66 48%,#bf5b45 83%,transparent); transform:rotate(-8deg); transform-origin:center; }
+.coordinate-plot::after { content:""; position:absolute; top:14%; left:59%; width:7px; height:7px; border:2px solid #e1bd66; border-radius:50%; box-shadow:0 0 0 5px rgba(225,189,102,.1),0 0 30px rgba(225,189,102,.38); }
+.coordinate-axis { position:absolute; display:flex; justify-content:space-between; right:0; bottom:5px; left:0; color:rgba(247,240,220,.45); font:9px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.coordinate-note { margin-top:10px; color:rgba(247,240,220,.5); font-size:9px; line-height:1.35; }
+.field-signals { position:relative; z-index:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:20px; }
+.field-sequence { position:relative; z-index:1; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; margin-top:22px; padding-top:16px; }
+.field-sequence::before { content:""; position:absolute; top:5px; right:4%; left:4%; height:1px; background:linear-gradient(90deg,#8ab89f,#e1bd66 46%,#bf5b45 83%,rgba(247,240,220,.2)); }
+.field-sequence-step { position:relative; min-width:0; padding:0 5px; color:rgba(247,240,220,.62); }
+.field-sequence-step::before { content:""; position:absolute; top:-20px; left:8px; width:7px; height:7px; border:1px solid #e1bd66; border-radius:50%; background:#153f40; box-shadow:0 0 0 4px rgba(225,189,102,.1); }
+.field-sequence-step span { display:block; color:#e1bd66; font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.field-sequence-step strong { display:block; margin-top:5px; color:#f7f0dc; font:700 13px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.field-sequence-step small { display:block; margin-top:4px; color:rgba(247,240,220,.46); font-size:9px; line-height:1.25; }
+.field-signal { display:block; width:100%; min-width:0; min-height:192px; padding:11px; border:1px solid rgba(247,240,220,.16); color:#f7f0dc; background:rgba(9,37,39,.28); text-align:left; font:inherit; cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.field-signal:hover, .field-signal:focus-visible { border-color:rgba(225,189,102,.72); background:rgba(9,37,39,.48); box-shadow:0 7px 18px rgba(4,20,23,.14); transform:translateY(-2px); }
+.field-signal.is-active { border-color:#e1bd66; background:rgba(9,37,39,.58); box-shadow:0 0 0 2px rgba(225,189,102,.16); }
+.field-signal:nth-child(2) { border-top:2px solid #e1bd66; }
+.field-signal:nth-child(3) { border-top:2px solid #bf5b45; }
+.field-signal:nth-child(4) { border-top:2px solid #8ab89f; }
+.field-signal-top { display:flex; align-items:center; justify-content:space-between; gap:8px; color:rgba(247,240,220,.58); font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
+.field-signal-top b { color:#e1bd66; font:700 18px/1 Georgia,serif; letter-spacing:-.05em; }
+.field-signal strong { display:block; margin-top:13px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.field-signal p { min-height:38px; margin:6px 0 0; color:rgba(247,240,220,.55); font-size:10px; line-height:1.4; }
+.field-meter { height:4px; margin-top:10px; overflow:hidden; border-radius:99px; background:rgba(247,240,220,.12); }
+.field-meter i { display:block; width:0; height:100%; border-radius:inherit; background:linear-gradient(90deg,#e1bd66,#bf5b45); transition:width .7s ease; }
+.field-signal-action { display:block; margin-top:11px; color:#e1bd66; font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; text-transform:uppercase; }
+.field-signal-detail { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:8px; padding:11px 12px; border:1px solid rgba(225,189,102,.26); background:rgba(8,34,36,.24); }
+.field-signal-detail > span { color:#e1bd66; font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.field-signal-detail strong { display:block; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.field-signal-detail p { margin:4px 0 0; color:rgba(247,240,220,.56); font-size:10px; line-height:1.4; }
+.measure-ledger { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; margin-top:8px; border:1px solid rgba(225,189,102,.2); background:rgba(225,189,102,.2); }
+.measure-ledger article { min-width:0; min-height:78px; padding:10px; background:rgba(8,34,36,.3); }
+.measure-ledger span { display:block; color:rgba(247,240,220,.47); font:700 9px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.measure-ledger strong { display:block; margin-top:7px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.measure-ledger small { display:block; margin-top:5px; color:rgba(247,240,220,.44); font-size:9px; line-height:1.25; }
+.field-footnote { position:relative; z-index:1; margin:15px 0 0; color:rgba(247,240,220,.43); font-size:9px; line-height:1.45; }
+.maths-section { padding:22px 24px 24px; border-bottom:1px solid #0c3738; color:#f7f0dc; background:linear-gradient(140deg,#103d3e 0%,#1a5651 58%,#2b6b5d 100%); }
+.maths-head { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.maths-kicker { color:#e1bd66; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+.maths-head h2 { max-width:620px; margin:8px 0 0; color:#f7f0dc; font:700 clamp(27px,3vw,39px)/1.02 Georgia,serif; letter-spacing:-.05em; }
+.maths-head h2 em { color:#e1bd66; font-style:normal; }
+.maths-head p { max-width:650px; margin:10px 0 0; color:rgba(247,240,220,.68); font-size:11px; line-height:1.55; }
+.maths-notation { flex:0 0 148px; display:flex; align-items:center; justify-content:center; width:148px; height:108px; border:1px solid rgba(225,189,102,.42); border-radius:50%; color:#e1bd66; font:700 20px/1.5 Georgia,serif; letter-spacing:.08em; transform:rotate(-7deg); }
+.maths-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin-top:18px; }
+.maths-card { min-width:0; min-height:184px; padding:11px; border:1px solid rgba(247,240,220,.2); border-radius:10px; color:#f7f0dc; background:rgba(7,29,32,.28); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.maths-card:hover, .maths-card:focus-visible { border-color:#e1bd66; background:rgba(7,29,32,.48); box-shadow:0 7px 18px rgba(4,20,23,.18); transform:translateY(-2px); }
+.maths-card[aria-pressed="true"] { border-color:#e1bd66; background:rgba(7,29,32,.58); box-shadow:0 0 0 2px rgba(225,189,102,.16); }
+.maths-card-top { display:flex; align-items:center; justify-content:space-between; gap:7px; color:rgba(247,240,220,.57); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.maths-card-symbol { display:grid; width:31px; height:31px; place-items:center; margin-top:12px; border:1px solid rgba(225,189,102,.42); border-radius:50%; color:#e1bd66; font:700 16px/1 Georgia,serif; }
+.maths-card h3 { min-height:28px; margin:10px 0 0; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.maths-card-equation { margin-top:6px; color:#e1bd66; font:700 10px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.maths-card p { min-height:44px; margin:7px 0 0; color:rgba(247,240,220,.6); font-size:9px; line-height:1.4; }
+.maths-card-meta { display:block; margin-top:8px; color:rgba(247,240,220,.42); font:8px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.maths-card-action { display:block; margin-top:8px; color:#e1bd66; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; text-transform:uppercase; }
+.maths-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:8px; padding:10px 11px; border:1px solid rgba(225,189,102,.3); background:rgba(7,29,32,.27); }
+.maths-readout > span { color:#e1bd66; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.maths-readout strong { display:block; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.maths-readout p { margin:4px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.maths-caveat { margin:12px 0 0; color:rgba(247,240,220,.44); font-size:9px; line-height:1.45; }
 .atlas-nav { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:10px; min-height:45px; padding:6px 18px; border-bottom:1px solid rgba(215,203,178,.9); background:rgba(248,244,236,.94); box-shadow:0 5px 14px rgba(31,63,59,.06); backdrop-filter:blur(12px); }
 .atlas-nav-links { display:flex; align-items:center; gap:3px; min-width:0; overflow-x:auto; scrollbar-width:none; }
 .atlas-nav-links::-webkit-scrollbar { display:none; }
@@ -1262,9 +1420,88 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .route-grid input, .route-grid select { min-width:0; }
 .route-grid .route-check { flex-direction:row; align-items:center; grid-column:span 2; }
 .route-grid .route-check input { min-height:auto; }
-.route-actions { display:flex; align-items:center; gap:7px; grid-column:1 / -1; }
+.route-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; grid-column:1 / -1; }
 .route-actions button { min-width:80px; }
 .route-status { margin-top:7px; }
+.route-share-status { flex:1 1 180px; min-width:180px; }
+.route-compare { margin-top:10px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-compare-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-compare-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-compare-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(190px,1fr); gap:7px; margin-top:7px; }
+.route-compare-grid label { display:flex; flex-direction:column; gap:3px; color:var(--muted); font-size:10px; }
+.route-compare-profiles { min-height:78px; resize:vertical; font:10px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.route-compare-actions { display:flex; align-content:flex-start; align-items:flex-start; flex-wrap:wrap; gap:7px; }
+.route-compare-actions .route-check { flex:1 1 100%; min-width:150px; }
+.route-compare-actions .route-check input { min-height:auto; }
+.route-compare-status { margin-top:7px; }
+.route-compare-results { margin-top:8px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-compare-results[hidden] { display:none; }
+.route-compare-results-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-compare-results-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-compare-table-wrap { margin-top:7px; overflow:auto; border:1px solid #e4dccd; border-radius:7px; background:#fff; }
+.route-compare-table { width:100%; min-width:700px; border-collapse:collapse; font-size:10px; }
+.route-compare-table th, .route-compare-table td { padding:5px 6px; border-bottom:1px solid #eee8dc; text-align:left; vertical-align:top; }
+.route-compare-table thead th { color:var(--muted); background:#f7f2e8; font-size:9px; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+.route-compare-table tbody tr:last-child th, .route-compare-table tbody tr:last-child td { border-bottom:0; }
+.route-compare-table tbody th { color:var(--deep); font-variant-numeric:tabular-nums; }
+.route-compare-table td strong, .route-compare-table td small, .route-compare-table th strong, .route-compare-table th small { display:block; overflow-wrap:anywhere; }
+.route-compare-table td small, .route-compare-table th small { margin-top:2px; color:var(--muted); font-weight:500; }
+.route-compare-table .route-compare-unreachable { color:#a5322e; font-weight:700; }
+.route-compare-path { min-height:26px; padding:4px 7px; font-size:10px; }
+.route-compare-path[aria-current="true"] { border-color:var(--blue); color:var(--blue); background:#eef5f2; }
+.route-compare-result { max-height:180px; }
+.route-matrix { margin-top:10px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-matrix-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-matrix-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-matrix-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:7px; }
+.route-matrix-grid label { display:flex; flex-direction:column; gap:3px; color:var(--muted); font-size:10px; }
+.route-matrix-points { min-height:78px; resize:vertical; font:10px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.route-matrix-actions { display:flex; align-items:flex-start; flex-wrap:wrap; gap:7px; grid-column:1 / -1; }
+.route-matrix-actions .route-check { min-width:150px; }
+.route-matrix-actions .route-check input { min-height:auto; }
+.route-matrix-status { margin-top:7px; }
+.route-matrix-results { margin-top:8px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-matrix-results[hidden] { display:none; }
+.route-matrix-results-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-matrix-results-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-matrix-table-wrap { margin-top:7px; max-height:270px; overflow:auto; border:1px solid #e4dccd; border-radius:7px; background:#fff; }
+.route-matrix-table { width:100%; min-width:690px; border-collapse:collapse; font-size:10px; }
+.route-matrix-table th, .route-matrix-table td { padding:5px 6px; border-bottom:1px solid #eee8dc; text-align:left; vertical-align:top; }
+.route-matrix-table thead th { position:sticky; top:0; color:var(--muted); background:#f7f2e8; font-size:9px; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+.route-matrix-table tbody tr:last-child th, .route-matrix-table tbody tr:last-child td { border-bottom:0; }
+.route-matrix-table tbody th { color:var(--deep); font-variant-numeric:tabular-nums; }
+.route-matrix-table td strong, .route-matrix-table td small, .route-matrix-table th strong, .route-matrix-table th small { display:block; overflow-wrap:anywhere; }
+.route-matrix-table td small, .route-matrix-table th small { margin-top:2px; color:var(--muted); font-weight:500; }
+.route-matrix-table .route-matrix-unreachable { color:#a5322e; font-weight:700; }
+.route-matrix-path { min-height:26px; padding:4px 7px; font-size:10px; }
+.route-matrix-path[aria-current="true"] { border-color:var(--blue); color:var(--blue); background:#eef5f2; }
+.route-matrix-result { max-height:180px; }
+.route-maneuvers { margin-top:8px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-maneuver-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-maneuver-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-maneuver-list { display:grid; gap:4px; margin:7px 0 0; padding:0; list-style:none; }
+.route-maneuver { display:grid; grid-template-columns:25px minmax(0,1fr); width:100%; min-height:0; padding:6px; border:1px solid #e4dccd; border-radius:7px; color:var(--ink); background:#fff; text-align:left; }
+.route-maneuver:hover, .route-maneuver[aria-current="true"] { border-color:var(--blue); background:#eef5f2; }
+.route-maneuver-index { display:grid; place-items:center; width:20px; height:20px; border-radius:50%; color:#f7f2e6; background:var(--deep-2); font-size:10px; font-weight:800; }
+.route-maneuver-copy { min-width:0; }
+.route-maneuver-copy strong, .route-maneuver-copy small { display:block; overflow-wrap:anywhere; }
+.route-maneuver-copy strong { color:var(--deep); font-size:11px; line-height:1.3; }
+.route-maneuver-copy small { margin-top:2px; color:var(--muted); font-size:10px; font-weight:500; }
+.route-segments { margin-top:8px; padding:8px; border:1px solid #cfc09c; border-radius:9px; background:#fffdf8; }
+.route-segment-heading { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:var(--deep); font-size:11px; }
+.route-segment-heading small { color:var(--muted); font-size:10px; font-weight:500; }
+.route-segment-table-wrap { margin-top:7px; max-height:260px; overflow:auto; border:1px solid #e4dccd; border-radius:7px; background:#fff; }
+.route-segment-table { width:100%; min-width:570px; border-collapse:collapse; font-size:10px; }
+.route-segment-table th, .route-segment-table td { padding:5px 6px; border-bottom:1px solid #eee8dc; text-align:left; vertical-align:top; }
+.route-segment-table thead th { position:sticky; top:0; color:var(--muted); background:#f7f2e8; font-size:9px; letter-spacing:.04em; text-transform:uppercase; }
+.route-segment-table tbody tr:last-child th, .route-segment-table tbody tr:last-child td { border-bottom:0; }
+.route-segment-table tbody th { color:var(--deep); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.route-segment-table td strong, .route-segment-table td small { display:block; overflow-wrap:anywhere; }
+.route-segment-table td strong { color:var(--deep); font-weight:700; }
+.route-segment-table td small { margin-top:2px; color:var(--muted); }
+.route-segment-checks summary { cursor:pointer; color:var(--blue); font-weight:700; }
+.route-segment-check-list { display:grid; gap:3px; min-width:220px; margin:5px 0 0; padding-left:16px; color:var(--muted); }
+.route-segment-check-list li { overflow-wrap:anywhere; }
 .route-result { max-height:180px; margin:7px 0 0; padding:7px; overflow:auto; border:1px solid var(--line);
                 border-radius:7px; background:#f7f8fa; white-space:pre-wrap; word-break:break-word; font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .toolbar { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); }
@@ -1277,6 +1514,12 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .runtime-status.pass { color:#166534; background:#e8f5ee; font-weight:700; }
 .runtime-status.incomplete { color:#a05a00; background:#fff7e8; font-weight:700; }
 .runtime-status.fail { color:#a5322e; background:#fff1f0; font-weight:700; }
+.runtime-reload { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0 0; padding:8px 10px; border:1px solid #e1b45f; border-radius:6px; color:#744b00; background:#fff8e8; font-size:11px; }
+.runtime-reload[hidden] { display:none; }
+.runtime-reload button { border:1px solid #a87922; border-radius:4px; padding:4px 8px; color:#fff; background:#8b6419; font:inherit; font-weight:700; cursor:pointer; }
+.report-error { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0 0; padding:8px 10px; border:1px solid #d48b87; border-radius:6px; color:#7b2621; background:#fff1f0; font-size:11px; }
+.report-error[hidden] { display:none; }
+.report-error button { border:1px solid #a5322e; border-radius:4px; padding:4px 8px; color:#fff; background:#a5322e; font:inherit; font-weight:700; cursor:pointer; }
 .clear-button { color:#526071; font-size:11px; }
 .selection-card { margin:0 18px 10px; padding:13px 14px; border:1px solid #cfc09c; border-radius:12px; background:linear-gradient(135deg,#f7f0df 0%,#edf3eb 100%); box-shadow:0 7px 18px rgba(31,63,59,.07); }
 .selection-card[hidden] { display:none; }
@@ -1289,9 +1532,122 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-fact { min-width:0; padding:8px; border:1px solid rgba(207,192,156,.75); border-radius:8px; background:rgba(255,253,248,.7); }
 .selection-fact span { display:block; color:#897c67; font-size:9px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
 .selection-fact strong { display:block; margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font-size:11px; line-height:1.3; }
+.selection-math { margin-top:8px; padding:9px 10px; border-left:3px solid var(--gold); background:rgba(255,253,248,.72); }
+.selection-math span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-math strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-math small { display:block; margin-top:4px; color:#6c786f; font-size:9px; line-height:1.35; }
+.selection-evidence { margin-top:8px; padding:9px 10px; border:1px solid rgba(110,139,127,.48); background:rgba(235,241,232,.68); }
+.selection-evidence-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.selection-evidence-head > div { min-width:0; }
+.selection-evidence-head span { display:block; color:#527b85; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-evidence-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-evidence-head p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.selection-evidence-status { flex:0 0 auto; padding:5px 7px; border:1px solid #b9cdbd; border-radius:999px; color:#356c69; background:#e6f0e8; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.selection-evidence-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:10px; }
+.selection-evidence-step { min-width:0; min-height:145px; padding:9px; border:1px solid #c7d4c9; border-radius:8px; background:rgba(255,253,248,.74); }
+.selection-evidence-step.check { border-color:#d8c69e; background:#fff9e9; }
+.selection-evidence-step.missing { border-color:#d8c4bd; background:#fbf0ec; }
+.selection-evidence-top { display:flex; align-items:center; justify-content:space-between; gap:5px; color:#897c67; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.selection-evidence-top b { padding:3px 5px; border-radius:999px; color:#356c69; background:#e6f0e8; font-size:7px; }
+.selection-evidence-step.check .selection-evidence-top b { color:#8b6419; background:#fff0cc; }
+.selection-evidence-step.missing .selection-evidence-top b { color:#a04e40; background:#f8e3dd; }
+.selection-evidence-step h4 { min-height:31px; margin:10px 0 0; color:var(--deep); font:700 14px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.selection-evidence-step > strong { display:block; margin-top:7px; overflow-wrap:anywhere; color:var(--deep); font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-evidence-step p { min-height:38px; margin:6px 0 0; color:#69766e; font-size:8px; line-height:1.35; }
+.selection-evidence-links { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+.selection-evidence-links a { color:#315c57; font-size:8px; font-weight:800; text-decoration:none; }
+.selection-evidence-links a:hover { color:var(--red); text-decoration:underline; }
+.selection-evidence-links small { color:#897c68; font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-evidence-note { margin:9px 0 0; padding-top:8px; border-top:1px solid rgba(110,139,127,.28); color:#6d786f; font-size:9px; line-height:1.4; }
+.selection-context { margin-top:8px; padding:9px 10px; border:1px solid rgba(91,119,132,.46); background:linear-gradient(135deg,rgba(232,239,237,.84),rgba(247,240,222,.72)); }
+.selection-context-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.selection-context-head > div { min-width:0; }
+.selection-context-head span { display:block; color:#527b85; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-context-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-context-head p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.selection-context-status { flex:0 0 auto; padding:5px 7px; border:1px solid #b9c9ce; border-radius:999px; color:#315c67; background:#e1ecec; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.selection-context-grid { display:grid; grid-template-columns:minmax(190px,.72fr) minmax(0,1.28fr); gap:7px; margin-top:10px; }
+.selection-context-plot-frame { min-width:0; padding:7px; border:1px solid rgba(91,119,132,.26); background:rgba(255,253,248,.64); }
+.selection-context-canvas { display:block; width:100%; height:150px; border:1px solid #c6d1cf; background:#f2f0e8; }
+.selection-context-plot-note { display:block; margin-top:5px; color:#68776f; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-context-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; align-content:start; }
+.selection-context-card { min-width:0; min-height:93px; padding:8px; border:1px solid #c5d1cd; border-radius:7px; color:var(--deep); background:rgba(255,253,248,.76); text-align:left; cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.selection-context-card:hover, .selection-context-card:focus-visible { border-color:#527b85; background:#f7fbf7; box-shadow:0 5px 14px rgba(49,92,103,.11); transform:translateY(-1px); }
+.selection-context-card-top { display:flex; align-items:center; justify-content:space-between; gap:5px; color:#897c67; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; text-transform:uppercase; }
+.selection-context-card-top b { color:#527b85; font-size:8px; }
+.selection-context-card h4 { min-height:26px; margin:8px 0 0; overflow:hidden; color:var(--deep); font:700 13px/1.08 Georgia,serif; letter-spacing:-.03em; text-overflow:ellipsis; white-space:nowrap; }
+.selection-context-card p { min-height:24px; margin:5px 0 0; overflow:hidden; color:#69766e; font-size:8px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.selection-context-card small { display:block; margin-top:6px; overflow:hidden; color:#315c57; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.selection-context-note { margin:9px 0 0; padding-top:8px; border-top:1px solid rgba(91,119,132,.25); color:#6d786f; font-size:9px; line-height:1.4; }
+.selection-fingerprint { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,.48fr); gap:8px; margin-top:8px; padding:9px 10px; border:1px solid rgba(207,192,156,.75); background:rgba(255,253,248,.72); }
+.selection-fingerprint-head { min-width:0; }
+.selection-fingerprint-head span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-fingerprint-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-fingerprint-head p { margin:6px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.selection-fingerprint-canvas { display:block; width:100%; min-width:0; height:132px; border:1px solid #d8cdb8; background:#fbf7ee; }
+.selection-fingerprint-note { display:block; margin-top:5px; color:#897c68; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-weave { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,.48fr); gap:8px; margin-top:8px; padding:9px 10px; border:1px solid rgba(110,139,127,.48); background:rgba(235,241,232,.68); }
+.selection-weave-head { min-width:0; }
+.selection-weave-head span { display:block; color:#527b85; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-weave-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-weave-head p { margin:6px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.selection-weave-canvas { display:block; width:100%; min-width:0; height:132px; border:1px solid #c6d2c8; background:#eef2e8; }
+.selection-weave-note { display:block; margin-top:5px; color:#6d786f; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .selection-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:10px; }
 .selection-actions a, .selection-actions button { min-height:27px; padding:4px 8px; border:1px solid #c9b995; border-radius:7px; color:#315c57; background:rgba(255,253,248,.78); font-size:10px; font-weight:750; text-decoration:none; }
 .selection-actions a:hover, .selection-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.selection-actions button:disabled { cursor:not-allowed; opacity:.5; }
+.selection-share-status { color:#6c786f; font-size:9px; }
+.comparison-tray { margin:0 18px 10px; padding:14px; border:1px solid #bbaa7d; border-radius:14px; background:linear-gradient(135deg,#f3ead8 0%,#e8f0e8 100%); box-shadow:0 7px 18px rgba(31,63,59,.06); }
+.comparison-tray[hidden] { display:none; }
+.comparison-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.comparison-head h2 { margin:4px 0 0; color:var(--deep); font:700 21px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.comparison-head p { max-width:650px; margin:5px 0 0; color:#617069; font-size:10px; line-height:1.4; }
+.comparison-head-actions { display:flex; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.comparison-clear { flex:0 0 auto; min-height:27px; padding:4px 8px; color:#65726a; background:rgba(255,253,248,.72); font-size:10px; }
+.comparison-copy { flex:0 0 auto; min-height:27px; padding:4px 8px; color:#315c57; background:rgba(255,253,248,.86); font-size:10px; }
+.comparison-copy:disabled { cursor:not-allowed; opacity:.45; }
+.comparison-share-status { flex-basis:100%; color:#6c786f; font-size:9px; text-align:right; }
+.comparison-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:11px; }
+.comparison-target { min-width:0; padding:10px; border:1px solid rgba(187,170,125,.78); border-radius:10px; background:rgba(255,253,248,.72); }
+.comparison-target-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.comparison-target-head span { color:#897c67; font-size:8px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+.comparison-target-head button { min-height:24px; padding:3px 6px; color:#65726a; background:rgba(255,253,248,.76); font-size:9px; }
+.comparison-target h3 { margin:7px 0 0; overflow-wrap:anywhere; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.comparison-target > p { margin:4px 0 0; color:#6b776f; font-size:9px; line-height:1.35; }
+.comparison-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin-top:9px; }
+.comparison-metric { min-width:0; padding:6px; border:1px solid #ddd2bd; background:#fbf7ee; }
+.comparison-metric span { display:block; color:#897c67; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.comparison-metric strong { display:block; margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font:700 12px/1.05 Georgia,serif; }
+.comparison-signals { margin-top:7px; padding:7px 8px; border-left:3px solid var(--gold); color:#6b776f; font-size:9px; line-height:1.4; }
+.comparison-signals b { color:var(--deep); }
+.comparison-delta { margin-top:8px; padding:10px 11px; border:1px solid #bbaa7d; background:rgba(255,253,248,.6); }
+.comparison-delta > span { color:#897c67; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.comparison-delta strong { display:block; margin-top:6px; color:var(--deep); font:700 15px/1.08 Georgia,serif; }
+.comparison-delta p { margin:5px 0 0; color:#68766e; font-size:9px; line-height:1.45; }
+.comparison-awaiting { margin-top:10px; padding:10px; border:1px dashed #bbaa7d; color:#68766e; background:rgba(255,253,248,.5); font-size:10px; line-height:1.45; }
+.comparison-relation { margin-top:8px; padding:11px 12px; border:1px solid #9ab1aa; border-radius:11px; background:linear-gradient(135deg,#e8f0ec 0%,#f4ead9 100%); }
+.comparison-relation[hidden] { display:none; }
+.comparison-relation-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.comparison-relation-head > div { min-width:0; }
+.comparison-relation-head span { display:block; color:#527b85; font-size:9px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+.comparison-relation-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.035em; }
+.comparison-relation-head p { max-width:660px; margin:5px 0 0; color:#68766e; font-size:9px; line-height:1.45; }
+.comparison-relation-status { flex:0 0 auto; padding:5px 7px; border:1px solid #b1c6bb; border-radius:999px; color:#315c57; background:#e2eee5; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.comparison-relation-grid { display:grid; grid-template-columns:minmax(190px,.75fr) minmax(0,1.25fr); gap:7px; margin-top:10px; }
+.comparison-relation-plot-frame { min-width:0; padding:7px; border:1px solid rgba(82,123,133,.25); background:rgba(255,253,248,.66); }
+.comparison-relation-canvas { display:block; width:100%; height:132px; border:1px solid #c6d1cf; background:#f2f0e8; }
+.comparison-relation-plot-note { display:block; margin-top:5px; color:#68776f; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.comparison-relation-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; align-content:start; }
+.comparison-relation-metric { min-width:0; min-height:69px; padding:8px; border:1px solid #c5d1cd; border-radius:7px; background:rgba(255,253,248,.74); }
+.comparison-relation-metric span { display:block; color:#897c67; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
+.comparison-relation-metric strong { display:block; margin-top:6px; overflow-wrap:anywhere; color:var(--deep); font:700 13px/1.08 Georgia,serif; letter-spacing:-.025em; }
+.comparison-relation-metric small { display:block; margin-top:4px; color:#68766e; font-size:8px; line-height:1.3; }
+.comparison-relation-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.comparison-relation-actions button { min-height:27px; padding:4px 8px; border-color:#9ab1aa; color:#315c57; background:#fffaf0; font-size:10px; font-weight:750; }
+.comparison-relation-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.comparison-relation-actions span { color:#68766e; font-size:9px; }
+.comparison-relation-note { margin:9px 0 0; padding-top:8px; border-top:1px solid rgba(82,123,133,.24); color:#6d786f; font-size:9px; line-height:1.4; }
 .section { padding:10px 12px; border-bottom:1px solid var(--line); }
 .section h2 { margin:0 0 7px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#465467; }
 .section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
@@ -1350,6 +1706,13 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .offline-grid { stroke:#b7c8d2; stroke-width:1; stroke-dasharray:4 8; opacity:.75; }
 .offline-outline { fill:rgba(37,99,235,.08); stroke:#526f80; stroke-width:1.2; }
 .offline-route { fill:none; stroke:#1d4ed8; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; opacity:.9; pointer-events:none; }
+.offline-route-focus { fill:#f59e0b; stroke:#fff; stroke-width:2.5; }
+.offline-comparison-chord { pointer-events:none; }
+.offline-comparison-chord line { stroke:#bf5b45; stroke-width:3; stroke-linecap:round; stroke-dasharray:10 7; opacity:.92; }
+.offline-comparison-end { stroke:#fffaf0; stroke-width:2.5; }
+.offline-comparison-end-a { fill:#bf5b45; }
+.offline-comparison-end-b { fill:#527b85; }
+.offline-comparison-label { fill:#173f40; font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace; paint-order:stroke; stroke:#fffaf0; stroke-width:3px; stroke-linejoin:round; }
 .offline-point { stroke:#17324d; stroke-width:1; cursor:pointer; opacity:.82; }
 .offline-point:hover, .offline-point.selected { stroke:#111827; stroke-width:2.5; opacity:1; }
 .offline-map-note, .offline-selection { position:absolute; z-index:2; left:14px; max-width:350px; padding:7px 9px;
@@ -1379,6 +1742,10 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 #mapLabel .map-label-kicker { display:block; margin-bottom:8px; color:#dfb75d; font-size:10px; font-weight:750; letter-spacing:.16em; text-transform:uppercase; }
 #mapLabel strong { display:block; font:700 30px/.95 Georgia,serif; letter-spacing:-.04em; }
 #mapLabel small { display:block; margin-top:10px; max-width:220px; color:rgba(242,232,209,.62); font-size:11px; line-height:1.45; }
+#mapStamp { position:fixed; z-index:4; left:320px; bottom:30px; width:min(235px,calc(100vw - 350px)); padding:10px 12px; border:1px solid rgba(232,218,184,.27); border-radius:12px; color:#f7f2e6; background:rgba(16,53,55,.56); box-shadow:0 10px 26px rgba(4,20,23,.16); backdrop-filter:blur(12px); pointer-events:none; }
+#mapStamp .map-stamp-kicker { display:block; color:#dfb75d; font-size:9px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+#mapStamp strong { display:block; margin-top:5px; color:#f7f0dc; font:700 18px/1 Georgia,serif; letter-spacing:-.04em; }
+#mapStamp small { display:block; margin-top:5px; color:rgba(247,242,230,.58); font:9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; }
 #mapHud { position:fixed; z-index:700; top:86px; left:24px; width:min(330px,calc(100vw - 48px)); color:#f7f2e6; }
 .map-hud-card { padding:12px 13px 11px; border:1px solid rgba(232,218,184,.38); border-radius:16px; background:rgba(16,53,55,.86); box-shadow:0 12px 34px rgba(4,20,23,.24); backdrop-filter:blur(12px); }
 .map-hud-topline { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#d9c58d; font-size:9px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
@@ -1394,6 +1761,15 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .map-layer-button.active { color:var(--deep); background:#f1d893; }
 .map-hud-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:9px; color:rgba(247,242,230,.58); font-size:9px; }
 .map-hud-meta span:last-child { color:#e0bd6e; font-weight:700; text-align:right; }
+.map-constellation { margin-top:10px; padding-top:9px; border-top:1px solid rgba(247,242,230,.13); }
+.map-constellation-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.map-constellation-head span { color:#d9c58d; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.map-constellation-head small { overflow:hidden; color:rgba(247,242,230,.47); font:9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.map-signal-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin-top:6px; }
+.map-signal-cell { min-width:0; padding:6px 5px; border:1px solid rgba(247,242,230,.12); border-radius:7px; background:rgba(7,29,32,.34); }
+.map-signal-cell b { display:block; color:#e0bd6e; font:700 13px/1 Georgia,serif; }
+.map-signal-cell strong { display:block; margin-top:3px; overflow:hidden; color:#f7f2e6; font:700 10px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.map-signal-cell small { display:block; margin-top:3px; overflow:hidden; color:rgba(247,242,230,.47); font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .map-hud-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:9px; }
 .map-hud-action { width:100%; min-height:28px; margin-top:9px; padding:4px 8px; border:1px solid rgba(247,242,230,.2); border-radius:8px; color:#f7f2e6; background:rgba(247,242,230,.08); font-size:10px; }
 .map-hud-actions .map-hud-action { margin-top:0; }
@@ -1411,6 +1787,10 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .studio-head p { max-width:630px; margin:12px 0 0; color:#586764; font-size:12px; line-height:1.6; }
 .studio-disclaimer { display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:5px 8px; border-radius:999px; color:#756c5b; background:#ede5d5; font-size:10px; }
 .studio-disclaimer::before { content:"✳"; color:var(--red); }
+.studio-share { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:12px; }
+.studio-share button { min-height:28px; padding:5px 9px; border-color:#b9aa7c; color:#315c57; background:#fffaf0; font-size:10px; font-weight:750; }
+.studio-share button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.studio-share-status { color:#6c786f; font-size:9px; }
 .equation-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:0 24px 18px; }
 .equation-card { min-height:150px; padding:12px; border:1px solid #e1d8c7; border-radius:15px; color:var(--ink); background:#fbf8f1; text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
 .equation-card:hover { transform:translateY(-2px); border-color:#c8b07b; box-shadow:0 7px 18px rgba(31,63,59,.08); }
@@ -1422,6 +1802,27 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .equation-card.is-active .equation { color:#e0bd6e; }
 .equation-card p { margin:8px 0 0; color:#6d776f; font-size:10px; line-height:1.45; }
 .equation-card.is-active p { color:rgba(248,242,229,.7); }
+.studio-reference { margin:0 24px 15px; padding:13px 14px 14px; border:1px solid #b9aa7c; border-radius:15px; background:linear-gradient(135deg,#e8efe7 0%,#f4edde 100%); box-shadow:0 6px 16px rgba(31,63,59,.06); }
+.studio-reference[hidden] { display:none; }
+.studio-reference-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.studio-reference-head h3 { margin:3px 0 0; color:var(--deep); font:700 19px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.studio-reference-head p { margin:5px 0 0; color:#607068; font-size:10px; line-height:1.4; }
+.studio-reference-clear { flex:0 0 auto; min-height:27px; padding:4px 8px; color:#65726a; background:rgba(255,253,248,.72); font-size:10px; }
+.studio-reference-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:11px; }
+.studio-reference-fact { min-width:0; padding:8px; border:1px solid rgba(185,170,124,.68); border-radius:8px; background:rgba(255,253,248,.64); }
+.studio-reference-fact span { display:block; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.studio-reference-fact strong { display:block; margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font:700 13px/1.15 Georgia,serif; }
+.studio-reference-fact small { display:block; margin-top:4px; overflow-wrap:anywhere; color:#6c786f; font-size:9px; line-height:1.25; }
+.studio-reference-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:10px; }
+.studio-reference-actions button { min-height:28px; padding:4px 9px; border-color:#b9aa7c; color:#315c57; background:#fffaf0; font-size:10px; font-weight:750; }
+.studio-reference-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.studio-reference-actions button:disabled { cursor:not-allowed; opacity:.48; }
+.studio-reference-status { color:#6c786f; font-size:9px; }
+.studio-reference-note { margin:9px 0 0; padding-top:8px; border-top:1px solid rgba(185,170,124,.56); color:#6d6254; font-size:9px; line-height:1.4; }
+.studio-pair-reference { border-color:#89a9a0; background:linear-gradient(135deg,#e3efeb 0%,#f3e8d7 100%); }
+.studio-pair-reference .studio-kicker { color:#527b85; }
+.studio-pair-reference .studio-reference-fact { border-color:rgba(137,169,160,.7); }
+.studio-pair-reference .studio-reference-note { border-top-color:rgba(137,169,160,.56); }
 .lab { margin:0 24px 22px; border:1px solid #ded3bf; border-radius:20px; background:#eee7d9; overflow:hidden; }
 .lab-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:14px; padding:13px 15px; border-bottom:1px solid #ddd1bc; background:rgba(255,252,244,.68); }
 .lab-toolbar label { display:flex; flex-direction:column; gap:5px; color:#6b756d; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
@@ -1442,6 +1843,10 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .performance-heading b { color:var(--deep); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
 .performance-heading small { color:#6f806f; font-size:10px; text-align:right; }
 .performance-control-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.water-event-control { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; padding-top:9px; border-top:1px solid rgba(73,104,94,.16); }
+.water-event-control label { display:flex; align-items:center; gap:7px; color:#52675e; font-size:10px; font-weight:750; }
+.water-event-control select { min-height:28px; padding:5px 8px; border:1px solid #cfc4b0; border-radius:6px; color:var(--deep); background:#f8f2e6; font:10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.water-event-control p { margin:0; color:#718078; font-size:9px; line-height:1.35; }
 .performance-control-grid label { display:flex; flex-direction:column; gap:5px; color:#5f7065; font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
 .performance-control-grid output { color:var(--blue); font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; text-transform:none; }
 .performance-control-grid input[type=range] { width:100%; min-height:18px; padding:0; accent-color:var(--blue); }
@@ -1471,6 +1876,47 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .schedule-card strong { display:block; margin-top:6px; color:var(--deep); font:700 18px/1.05 Georgia,serif; letter-spacing:-.03em; }
 .schedule-card p { margin:6px 0 0; color:#69756e; font-size:10px; line-height:1.35; }
 .schedule-note { grid-column:1 / -1; padding:9px 12px; color:#786b59; background:#f1e9db; font-size:10px; line-height:1.4; }
+.sky-field { margin:14px 24px 0; padding:14px; border:1px solid #d9cfbd; border-radius:14px; background:linear-gradient(135deg,#eef1e8 0%,#f3ead7 100%); }
+.sky-field-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.sky-field-head h3 { margin:0; color:var(--deep); font:700 21px/1.08 Georgia,serif; letter-spacing:-.04em; }
+.sky-field-head p { max-width:570px; margin:6px 0 0; color:#64736a; font-size:10px; line-height:1.45; }
+.sky-field-kicker { display:block; margin-bottom:6px; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.sky-field-scope { flex:0 0 auto; padding:5px 8px; border:1px solid #c8c4aa; border-radius:999px; color:#49685e; background:#f8f2e6; font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; }
+.sky-field-grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(250px,.75fr); gap:8px; margin-top:12px; }
+.sky-plot { position:relative; min-height:170px; overflow:hidden; border:1px solid rgba(73,104,94,.24); background:linear-gradient(180deg,#c4d8d0 0%,#eef0dc 63%,#d2c39b 63%,#c6b68d 100%); }
+.sky-plot::before { content:""; position:absolute; inset:15px 13% 37px; border:1px solid rgba(53,108,105,.38); border-bottom:0; border-radius:50% 50% 0 0; transform:perspective(260px) rotateX(8deg); }
+.sky-plot::after { content:""; position:absolute; right:10%; bottom:31px; left:10%; height:1px; background:rgba(16,53,55,.45); box-shadow:0 -33px 0 rgba(16,53,55,.07),0 -66px 0 rgba(16,53,55,.07); }
+.sky-sun { position:absolute; z-index:1; left:50%; bottom:var(--sky-sun-y,58%); width:19px; height:19px; border:2px solid #f4d783; border-radius:50%; background:#e1bd66; box-shadow:0 0 0 7px rgba(225,189,102,.19),0 0 24px rgba(225,189,102,.52); transform:translateX(-50%); }
+.sky-plot-label { position:absolute; z-index:2; color:rgba(16,53,55,.62); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.sky-plot-label.north { top:10px; left:11px; }
+.sky-plot-label.south { right:11px; bottom:10px; }
+.sky-sun-label { position:absolute; z-index:2; top:10px; right:11px; color:#64522f; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-align:right; text-transform:uppercase; }
+.sky-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; border:1px solid #d1c7b5; background:#d1c7b5; }
+.sky-fact { min-height:77px; padding:10px; background:#f8f2e6; }
+.sky-fact span { display:block; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.sky-fact strong { display:block; margin-top:7px; color:var(--deep); font:700 17px/1 Georgia,serif; }
+.sky-fact small { display:block; margin-top:5px; color:#718078; font-size:9px; line-height:1.25; }
+.sky-field-note { margin:10px 0 0; padding-top:9px; border-top:1px solid rgba(73,104,94,.2); color:#6d786f; font-size:9px; line-height:1.45; }
+.water-field { margin:14px 24px 0; padding:14px; border:1px solid #c9d2d0; border-radius:14px; background:linear-gradient(135deg,#e5efed 0%,#f2eadb 100%); }
+.water-field-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.water-field-head h3 { margin:0; color:var(--deep); font:700 21px/1.08 Georgia,serif; letter-spacing:-.04em; }
+.water-field-head p { max-width:570px; margin:6px 0 0; color:#64736a; font-size:10px; line-height:1.45; }
+.water-field-kicker { display:block; margin-bottom:6px; color:#527b85; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+.water-field-badge { flex:0 0 auto; padding:5px 8px; border:1px solid #b8c9c5; border-radius:999px; color:#315c57; background:#f8f2e6; font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; }
+.water-field-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,1fr); gap:8px; margin-top:12px; }
+.water-equation { min-height:166px; padding:14px; border:1px solid rgba(82,123,133,.24); background:rgba(248,242,230,.78); }
+.water-equation > span { display:block; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.water-equation strong { display:block; margin-top:14px; color:var(--deep); font:700 clamp(22px,3vw,34px)/1 Georgia,serif; letter-spacing:-.06em; }
+.water-equation p { margin:10px 0 0; color:#65766f; font-size:10px; line-height:1.45; }
+.water-route { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-top:15px; padding-top:9px; border-top:1px solid #d7d8cd; }
+.water-route span { color:#897c67; font-size:8px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.water-route b { color:#315c57; font-size:10px; text-align:right; }
+.water-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; border:1px solid #c8d0c9; background:#c8d0c9; }
+.water-fact { min-height:77px; padding:10px; background:#f8f2e6; }
+.water-fact span { display:block; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+.water-fact strong { display:block; margin-top:7px; color:var(--deep); font:700 17px/1 Georgia,serif; }
+.water-fact small { display:block; margin-top:5px; color:#718078; font-size:9px; line-height:1.25; }
+.water-field-note { margin:10px 0 0; padding-top:9px; border-top:1px solid rgba(82,123,133,.2); color:#6d786f; font-size:9px; line-height:1.45; }
 .brief-panel { padding:16px; border-top:1px solid #ddd1bc; background:#e9e4d8; }
 .brief-head { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .brief-head .studio-kicker { margin-bottom:7px; }
@@ -1533,16 +1979,304 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .culture-focus:hover, .culture-focus[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .culture-focus span { color:var(--red); font-size:14px; line-height:1; }
 .culture-focus[aria-pressed="true"] span { color:#e5c874; }
+.culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
+.culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
+.culture-timeline .culture-mosaic-label { color:#e1c276; }
+.culture-timeline h3 { max-width:530px; margin:7px 0 0; color:#f7f0dc; font:700 24px/1.04 Georgia,serif; letter-spacing:-.045em; }
+.culture-timeline-head p { max-width:620px; margin:8px 0 0; color:rgba(247,240,220,.65); font-size:10px; line-height:1.5; }
+.heritage-timeline-readout { min-height:104px; padding:11px 12px; border:1px solid rgba(225,194,118,.4); background:rgba(7,29,32,.3); }
+.heritage-timeline-readout > span { color:#e1c276; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.heritage-timeline-readout strong { display:block; margin-top:8px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.heritage-timeline-readout p { margin:5px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.heritage-timeline { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(84px,1fr); gap:5px; margin-top:15px; padding:1px 1px 5px; overflow-x:auto; scrollbar-color:#c6a85d rgba(247,240,220,.12); }
+.heritage-era { position:relative; min-height:116px; padding:8px 8px 17px; border:1px solid rgba(247,240,220,.18); border-radius:8px; color:#f7f0dc; background:rgba(7,29,32,.28); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.heritage-era:hover, .heritage-era:focus-visible { border-color:#e1c276; background:rgba(7,29,32,.5); box-shadow:0 6px 16px rgba(4,20,23,.18); transform:translateY(-2px); }
+.heritage-era[aria-selected="true"] { border-color:#e1c276; background:rgba(7,29,32,.62); box-shadow:0 0 0 2px rgba(225,194,118,.16); }
+.heritage-era-top { display:flex; align-items:center; justify-content:space-between; gap:5px; color:rgba(247,240,220,.58); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; }
+.heritage-era-top small { max-width:47px; overflow:hidden; color:#e1c276; font:700 7px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; text-transform:uppercase; }
+.heritage-era strong { display:block; margin-top:13px; color:#f7f0dc; font:700 20px/1 Georgia,serif; letter-spacing:-.05em; }
+.heritage-era > small { display:block; min-height:26px; margin-top:5px; color:rgba(247,240,220,.55); font-size:8px; line-height:1.3; }
+.heritage-era-meter { position:absolute; right:8px; bottom:8px; left:8px; height:4px; overflow:hidden; border-radius:99px; background:rgba(247,240,220,.13); }
+.heritage-era-meter i { display:block; height:100%; min-width:2px; border-radius:inherit; background:linear-gradient(90deg,#e1c276,#bf6d52); }
+.heritage-timeline-caveat { margin:12px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
+.heritage-type-field { margin-top:10px; padding:15px; border:1px solid #c4b58c; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#213f40 0%,#315b51 55%,#806d48 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
+.heritage-type-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
+.heritage-type-field .culture-mosaic-label { color:#e1c276; }
+.heritage-type-field h3 { max-width:560px; margin:7px 0 0; color:#f7f0dc; font:700 24px/1.04 Georgia,serif; letter-spacing:-.045em; }
+.heritage-type-head p { max-width:620px; margin:8px 0 0; color:rgba(247,240,220,.65); font-size:10px; line-height:1.5; }
+.heritage-type-readout { min-height:104px; padding:11px 12px; border:1px solid rgba(225,194,118,.4); background:rgba(7,29,32,.3); }
+.heritage-type-readout > span { color:#e1c276; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.heritage-type-readout strong { display:block; margin-top:8px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.heritage-type-readout p { margin:5px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.heritage-type-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:15px; }
+.heritage-type-card { min-width:0; min-height:183px; padding:10px; border:1px solid rgba(247,240,220,.18); border-radius:8px; color:#f7f0dc; background:rgba(7,29,32,.28); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.heritage-type-card:hover, .heritage-type-card:focus-visible { border-color:#e1c276; background:rgba(7,29,32,.5); box-shadow:0 6px 16px rgba(4,20,23,.18); transform:translateY(-2px); }
+.heritage-type-card[aria-pressed="true"] { border-color:#e1c276; background:rgba(7,29,32,.62); box-shadow:0 0 0 2px rgba(225,194,118,.16); }
+.heritage-type-card-top { display:flex; align-items:baseline; justify-content:space-between; gap:5px; color:rgba(247,240,220,.58); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.heritage-type-card-top small { color:#e1c276; font-size:7px; }
+.heritage-type-card h4 { min-height:34px; margin:12px 0 0; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.035em; }
+.heritage-type-card > strong { display:block; margin-top:8px; color:#f7f0dc; font:700 19px/1 Georgia,serif; letter-spacing:-.05em; }
+.heritage-type-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:10px; }
+.heritage-type-metrics span { min-width:0; padding:6px; border:1px solid rgba(247,240,220,.13); background:rgba(7,29,32,.22); }
+.heritage-type-metrics small { display:block; color:rgba(247,240,220,.48); font:700 7px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
+.heritage-type-metrics b { display:block; margin-top:4px; overflow:hidden; color:#e1c276; font:700 10px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.heritage-type-track { display:block; height:4px; margin-top:9px; overflow:hidden; border-radius:99px; background:rgba(247,240,220,.13); }
+.heritage-type-track i { display:block; height:100%; min-width:2px; border-radius:inherit; background:linear-gradient(90deg,#8fbe9c,#e1c276); }
+.heritage-type-card em { display:block; margin-top:7px; overflow:hidden; color:rgba(247,240,220,.46); font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.heritage-type-caveat { margin:12px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
+.place-braid-field { margin-top:10px; padding:15px; border:1px solid #cbd2bf; border-radius:14px; background:linear-gradient(135deg,#e7eee8 0%,#f2eadb 56%,#e7e9df 100%); }
+.place-braid-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.place-braid-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.place-braid-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.place-braid-readout { flex:0 0 235px; min-height:104px; padding:11px 12px; border:1px solid #bdcbbd; background:rgba(248,242,230,.72); }
+.place-braid-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.place-braid-readout strong { display:block; margin-top:8px; color:var(--deep); font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.place-braid-readout p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.place-braid-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.place-braid-card { min-width:0; padding:10px; border:1px solid #c6d1c5; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.84); }
+.place-braid-card:has(.place-braid-county[aria-pressed="true"]) { border-color:var(--deep-2); box-shadow:0 0 0 2px rgba(31,81,79,.1); }
+.place-braid-county { display:block; width:100%; padding:0 0 8px; border:0; border-bottom:1px solid #d7dfd5; color:var(--deep); background:transparent; text-align:left; }
+.place-braid-county:hover, .place-braid-county[aria-pressed="true"] { color:var(--blue); }
+.place-braid-county-top { display:flex; align-items:baseline; justify-content:space-between; gap:6px; color:#897c67; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.07em; text-transform:uppercase; }
+.place-braid-county-top small { color:#6c806e; font-size:7px; }
+.place-braid-county strong { display:block; margin-top:7px; color:var(--deep); font:700 20px/1 Georgia,serif; letter-spacing:-.05em; }
+.place-braid-county > small { display:block; margin-top:5px; color:#69766e; font:8px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.place-braid-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:9px; }
+.place-braid-metrics span { min-width:0; padding:6px; border:1px solid #d9e0d7; background:rgba(255,252,244,.62); }
+.place-braid-metrics small { display:block; color:#897c68; font:700 7px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
+.place-braid-metrics b { display:block; margin-top:4px; overflow:hidden; color:var(--deep); font:700 11px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.place-braid-types { display:grid; gap:4px; margin-top:9px; }
+.place-braid-type { display:flex; align-items:center; justify-content:space-between; gap:7px; width:100%; min-height:25px; padding:4px 6px; border:1px solid #d3ddcf; border-radius:6px; color:#49685e; background:#f8f2e6; font-size:8px; text-align:left; }
+.place-braid-type:hover, .place-braid-type[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.place-braid-type span { overflow:hidden; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.place-braid-type small { flex:0 0 auto; color:#897c68; font:8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.place-braid-type:hover small, .place-braid-type[aria-pressed="true"] small { color:#e1c276; }
+.place-braid-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid #71977b; color:#6d6254; background:rgba(248,242,230,.75); font-size:9px; line-height:1.4; }
+.land-field { margin-top:10px; padding:15px; border:1px solid #416b64; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#12383b 0%,#1f514d 58%,#3e6955 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
+.land-field-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
+.land-field .culture-mosaic-label { color:#e1c276; }
+.land-field h3 { max-width:560px; margin:7px 0 0; color:#f7f0dc; font:700 24px/1.04 Georgia,serif; letter-spacing:-.045em; }
+.land-field-head p { max-width:620px; margin:8px 0 0; color:rgba(247,240,220,.65); font-size:10px; line-height:1.5; }
+.land-field-readout { min-height:104px; padding:11px 12px; border:1px solid rgba(225,194,118,.4); background:rgba(7,29,32,.3); }
+.land-field-readout > span, .land-density-panel > span, .land-source-panel > span { color:#e1c276; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.land-field-readout strong { display:block; margin-top:8px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.land-field-readout p { margin:5px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.land-group-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(126px,1fr)); gap:5px; margin-top:15px; }
+.land-group { min-width:0; min-height:132px; padding:9px; border:1px solid rgba(247,240,220,.18); border-radius:8px; color:#f7f0dc; background:rgba(7,29,32,.28); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.land-group:hover, .land-group:focus-visible { border-color:#e1c276; background:rgba(7,29,32,.5); box-shadow:0 6px 16px rgba(4,20,23,.18); transform:translateY(-2px); }
+.land-group[aria-pressed="true"] { border-color:#e1c276; background:rgba(7,29,32,.62); box-shadow:0 0 0 2px rgba(225,194,118,.16); }
+.land-group:disabled { cursor:default; opacity:.64; }
+.land-group-top { display:flex; align-items:center; justify-content:space-between; gap:6px; color:rgba(247,240,220,.58); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.land-group-top small { color:#e1c276; font-size:7px; }
+.land-group strong { display:block; margin-top:13px; color:#f7f0dc; font:700 20px/1 Georgia,serif; letter-spacing:-.05em; }
+.land-group > small { display:block; min-height:24px; margin-top:5px; color:rgba(247,240,220,.55); font-size:8px; line-height:1.3; }
+.land-group-track { height:4px; margin-top:9px; overflow:hidden; border-radius:99px; background:rgba(247,240,220,.13); }
+.land-group-track i { display:block; height:100%; min-width:2px; border-radius:inherit; background:linear-gradient(90deg,#8fbe9c,#e1c276); }
+.land-group-meta { display:block; margin-top:6px; color:rgba(247,240,220,.44); font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.land-field-bottom { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr); gap:1px; margin-top:10px; border:1px solid rgba(225,194,118,.22); background:rgba(225,194,118,.22); }
+.land-density-panel, .land-source-panel { min-height:126px; padding:12px; background:rgba(7,29,32,.28); }
+.land-density-panel strong { display:block; margin-top:8px; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.land-density-panel p, .land-source-panel p { margin:6px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.land-density-bars { display:grid; gap:5px; margin-top:10px; }
+.land-density-row { display:grid; grid-template-columns:54px minmax(0,1fr) auto; gap:6px; align-items:center; color:rgba(247,240,220,.58); font:8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.land-density-track { height:4px; overflow:hidden; border-radius:99px; background:rgba(247,240,220,.13); }
+.land-density-track i { display:block; height:100%; min-width:2px; border-radius:inherit; background:#8fbe9c; }
+.land-source-panel p b { color:#e1c276; }
 .culture-mosaic { display:grid; grid-template-columns:1.15fr .85fr; gap:1px; margin-top:10px; border:1px solid #d6cdbd; background:#d6cdbd; }
 .culture-mosaic > div { min-height:118px; padding:15px; background:rgba(255,252,244,.78); }
 .culture-mosaic h3 { margin:8px 0 0; color:var(--deep); font:700 19px/1.08 Georgia,serif; letter-spacing:-.035em; }
 .culture-mosaic h3 b { color:var(--red); }
 .culture-mosaic p { margin:8px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.county-field { margin-top:13px; padding-top:10px; border-top:1px solid #ddd2c0; }
+.county-field-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.county-field-head span { color:#52675e; font-size:9px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.county-field-head small { color:#8a7c68; font-size:9px; }
+.county-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+.county-chip { min-height:25px; padding:4px 7px; border:1px solid #d1c4aa; border-radius:999px; color:#49685e; background:#f8f2e6; font-size:9px; font-weight:750; }
+.county-chip:hover, .county-chip[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.county-field-note { margin-top:9px; padding:8px 9px; border:1px solid #d8cdb8; border-radius:8px; background:rgba(247,240,223,.7); }
+.county-field-note > span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.county-field-note p { margin:5px 0 0; color:#65736b; font-size:10px; line-height:1.4; }
+.county-field-metrics { display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:7px; color:#49685e; font:700 9px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.county-pulse-field { margin-top:10px; padding:15px; border:1px solid #c8d5cb; border-radius:14px; background:linear-gradient(135deg,#e9f0e8 0%,#f4ead9 100%); }
+.county-pulse-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.county-pulse-head h3 { max-width:540px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.county-pulse-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.county-pulse-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.county-pulse { min-width:0; padding:9px; border:1px solid #cbd4c8; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.82); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.county-pulse:hover, .county-pulse:focus-visible, .county-pulse[aria-pressed="true"] { border-color:var(--deep-2); background:#f8f2e6; box-shadow:0 5px 13px rgba(31,63,59,.09); transform:translateY(-2px); }
+.county-pulse-top { display:flex; align-items:baseline; justify-content:space-between; gap:5px; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.county-pulse strong { display:block; margin-top:7px; color:var(--deep); font:700 18px/1 Georgia,serif; letter-spacing:-.04em; }
+.county-pulse small { display:block; margin-top:5px; color:#49685e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.county-pulse-track { display:block; height:4px; margin-top:8px; overflow:hidden; border-radius:99px; background:#dce3d8; }
+.county-pulse-track i { display:block; height:100%; min-width:2px; border-radius:inherit; background:linear-gradient(90deg,#527b85,#d0a34c); }
+.county-pulse em { display:block; margin-top:6px; overflow:hidden; color:#897c68; font-size:8px; font-style:normal; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.county-pulse-note { margin:10px 0 0; padding-top:9px; border-top:1px solid rgba(73,104,94,.2); color:#6d786f; font-size:9px; line-height:1.45; }
+.makers-field { margin-top:10px; padding:15px; border:1px solid #d6c3a0; border-radius:14px; background:linear-gradient(135deg,#f3eadb 0%,#e8efea 100%); }
+.makers-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.makers-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.makers-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.makers-stat { flex:0 0 142px; padding:10px; border:1px solid #d8c29b; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.makers-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.makers-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.makers-binary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-top:13px; border:1px solid #d5c9b6; background:#d5c9b6; }
+.makers-binary-card { min-height:104px; padding:11px; background:rgba(248,242,230,.85); }
+.makers-binary-card span { display:block; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.makers-binary-card strong { display:block; margin-top:7px; color:var(--deep); font:700 20px/1 Georgia,serif; }
+.makers-binary-card p { margin:6px 0 0; color:#69766e; font-size:9px; line-height:1.35; }
+.makers-grid { display:flex; flex-wrap:wrap; gap:5px; margin-top:12px; }
+.maker-chip { display:flex; flex-direction:column; align-items:flex-start; min-width:132px; padding:7px 8px; border:1px solid #d1c4aa; border-radius:8px; color:#315c57; background:#f8f2e6; text-align:left; }
+.maker-chip:hover, .maker-chip:focus-visible { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.maker-chip strong { max-width:180px; overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.maker-chip small { margin-top:4px; color:#897c68; font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.maker-chip:hover small, .maker-chip:focus-visible small { color:#e1c276; }
+.makers-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:9px; line-height:1.4; }
+.rhythm-field { margin-top:10px; padding:15px; border:1px solid #bdcfc3; border-radius:14px; background:linear-gradient(135deg,#e8efea 0%,#edf1e7 56%,#f3e8d6 100%); }
+.rhythm-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.rhythm-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.rhythm-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.rhythm-stat { flex:0 0 142px; padding:10px; border:1px solid #b9cdbd; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.rhythm-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.rhythm-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.rhythm-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.rhythm-card { min-width:0; padding:10px; border:1px solid #c5d2c6; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.84); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.rhythm-card:hover, .rhythm-card:focus-visible, .rhythm-card[aria-pressed="true"] { border-color:var(--deep-2); background:#f8f2e6; box-shadow:0 5px 13px rgba(31,63,59,.09); transform:translateY(-2px); }
+.rhythm-card-top { display:flex; align-items:baseline; justify-content:space-between; gap:5px; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.rhythm-card strong { display:block; margin-top:10px; color:var(--deep); font:700 21px/1 Georgia,serif; letter-spacing:-.05em; }
+.rhythm-card small { display:block; margin-top:5px; color:#49685e; font-size:9px; line-height:1.25; }
+.rhythm-track { display:block; height:5px; margin-top:10px; overflow:hidden; border-radius:99px; background:linear-gradient(90deg,#c8d9cd 49.5%,#d6bd80 50%,#d9c8a4 50.5%); }
+.rhythm-track i { display:block; height:100%; min-width:3px; border-radius:inherit; background:linear-gradient(90deg,#6d9a84,#d0a34c); }
+.rhythm-card em { display:block; margin-top:7px; color:#897c68; font-size:8px; font-style:normal; line-height:1.25; }
+.rhythm-card-meta { color:#897c68 !important; font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace !important; }
+.rhythm-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:11px; padding:10px 11px; border:1px solid rgba(73,104,94,.24); background:rgba(248,242,230,.62); }
+.rhythm-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.rhythm-readout strong { display:block; color:var(--deep); font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.rhythm-readout p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.rhythm-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid #6d9a84; color:#6d6254; background:rgba(248,242,230,.72); font-size:9px; line-height:1.4; }
+.scale-field { margin-top:10px; padding:15px; border:1px solid #c9b98e; border-radius:14px; background:linear-gradient(135deg,#f2eadb 0%,#e9efe7 58%,#e3eee9 100%); }
+.scale-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.scale-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.scale-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.scale-stat { flex:0 0 142px; padding:10px; border:1px solid #d8c29b; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.scale-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.scale-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.scale-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.scale-card { min-width:0; padding:10px; border:1px solid #d3c6a9; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.86); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.scale-card:hover, .scale-card:focus-visible, .scale-card[aria-pressed="true"] { border-color:var(--deep-2); background:#f8f2e6; box-shadow:0 5px 13px rgba(31,63,59,.09); transform:translateY(-2px); }
+.scale-card-top { display:flex; align-items:baseline; justify-content:space-between; gap:5px; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.scale-card strong { display:block; margin-top:9px; color:var(--deep); font:700 18px/1 Georgia,serif; letter-spacing:-.05em; }
+.scale-steps { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); align-items:end; gap:3px; height:100px; margin-top:10px; padding:6px 3px 0; border-bottom:1px solid #c9c0ab; background:repeating-linear-gradient(0deg,transparent 0,transparent 24px,rgba(73,104,94,.1) 25px); }
+.scale-step { display:flex; flex-direction:column; align-items:stretch; justify-content:end; min-width:0; height:100%; }
+.scale-step i { display:block; min-height:4px; border-radius:3px 3px 0 0; background:linear-gradient(180deg,#d0a34c,#6b9680); }
+.scale-step small { display:block; margin-top:5px; overflow:hidden; color:#897c68; font:7px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.scale-step b { display:block; margin-top:3px; overflow:hidden; color:#49685e; font:700 7px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.scale-card-meta { display:block; margin-top:8px; color:#897c68; font:8px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.scale-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:11px; padding:10px 11px; border:1px solid rgba(73,104,94,.24); background:rgba(248,242,230,.62); }
+.scale-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.scale-readout strong { display:block; color:var(--deep); font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.scale-readout p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.scale-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.72); font-size:9px; line-height:1.4; }
+.alignment-field { margin-top:10px; padding:15px; border:1px solid #c8b9c5; border-radius:14px; background:linear-gradient(135deg,#eee6df 0%,#e9efeb 58%,#e8e7ef 100%); }
+.alignment-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.alignment-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.alignment-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.alignment-stat { flex:0 0 142px; padding:10px; border:1px solid #c9bac7; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.alignment-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.alignment-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.alignment-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.alignment-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; min-width:0; padding:11px; border:1px solid #cfc5d0; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.86); }
+.alignment-card:hover, .alignment-card:focus-within { border-color:var(--deep-2); box-shadow:0 5px 13px rgba(31,63,59,.09); }
+.alignment-compass { position:relative; width:82px; height:82px; border:1px solid #b8a8b6; border-radius:50%; background:radial-gradient(circle at center,#f7f0e3 0 5px,transparent 6px),repeating-conic-gradient(from 0deg,rgba(73,104,94,.16) 0 1deg,transparent 1deg 45deg); box-shadow:inset 0 0 0 7px rgba(73,104,94,.04); }
+.alignment-compass::before { content:""; position:absolute; top:8px; left:50%; width:2px; height:33px; border-radius:99px; background:linear-gradient(#bf5b45,#d0a34c); transform:translateX(-50%) rotate(var(--needle-angle,0deg)); transform-origin:50% 33px; }
+.alignment-compass::after { content:""; position:absolute; top:50%; left:50%; width:7px; height:7px; border:1px solid #f8f2e6; border-radius:50%; background:#49685e; transform:translate(-50%,-50%); }
+.alignment-compass-label { display:block; margin-top:6px; color:#897c68; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; text-align:center; }
+.alignment-card-body { min-width:0; }
+.alignment-card-top { display:flex; align-items:baseline; justify-content:space-between; gap:6px; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.alignment-card-top small { color:#6c806e; font-size:8px; letter-spacing:0; text-transform:none; }
+.alignment-card h4 { margin:7px 0 0; color:var(--deep); font:700 17px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.alignment-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:10px; }
+.alignment-metric { min-width:0; padding:7px; border:1px solid #d8ced8; background:rgba(255,252,244,.58); }
+.alignment-metric span { display:block; min-height:18px; color:#897c68; font-size:7px; font-weight:800; line-height:1.2; text-transform:uppercase; }
+.alignment-metric strong { display:block; margin-top:4px; color:var(--deep); font:700 14px/1 Georgia,serif; letter-spacing:-.04em; }
+.alignment-metric small { display:block; margin-top:4px; overflow:hidden; color:#69766e; font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.alignment-meta { display:block; margin-top:8px; color:#897c68; font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.alignment-action { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:27px; margin-top:8px; padding:5px 7px; border:1px solid #cbbdcc; border-radius:7px; color:#49685e; background:#f8f2e6; font-size:9px; font-weight:750; text-align:left; }
+.alignment-action:hover, .alignment-action[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.alignment-action span { color:var(--red); font-size:13px; line-height:1; }
+.alignment-action[aria-pressed="true"] span { color:#e5c874; }
+.alignment-reference { display:block; margin-top:8px; color:#897c68; font-size:8px; line-height:1.25; }
+.alignment-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:11px; padding:10px 11px; border:1px solid rgba(73,104,94,.24); background:rgba(248,242,230,.62); }
+.alignment-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.alignment-readout strong { display:block; color:var(--deep); font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.alignment-readout p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.alignment-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid #8b7190; color:#6d6254; background:rgba(248,242,230,.72); font-size:9px; line-height:1.4; }
+.source-field { margin-top:10px; padding:15px; border:1px solid #b8c9c7; border-radius:14px; background:linear-gradient(135deg,#e8efec 0%,#f2eadb 58%,#e8ece8 100%); }
+.source-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.source-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.source-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.source-stat { flex:0 0 142px; padding:10px; border:1px solid #b7c9c1; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.source-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.source-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.source-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.source-root-card { min-width:0; min-height:164px; padding:10px; border:1px solid #c7d2cc; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.84); }
+.source-root-top { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.source-root-top > span:first-child { color:#897c67; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
+.source-status { padding:4px 6px; border:1px solid #c5d3c8; border-radius:999px; color:#356c69; background:#e6f0e8; font-size:7px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.source-status.fallback { border-color:#d8c69e; color:#8b6419; background:#fff3dc; }
+.source-status.missing { border-color:#d5bdb5; color:#a04e40; background:#f8e9e4; }
+.source-root-card h4 { min-height:34px; margin:12px 0 0; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.source-root-card p { min-height:39px; margin:7px 0 0; color:#69766e; font-size:9px; line-height:1.35; }
+.source-root-card small { display:block; margin-top:8px; color:#897c68; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.source-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:11px; padding:10px 11px; border:1px solid rgba(73,104,94,.24); background:rgba(248,242,230,.62); }
+.source-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.source-readout strong { display:block; color:var(--deep); font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.source-readout p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.source-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid #527b85; color:#6d6254; background:rgba(248,242,230,.72); font-size:9px; line-height:1.4; }
+.trust-field { margin-top:10px; padding:15px; border:1px solid #c8b997; border-radius:14px; background:radial-gradient(circle at 92% 12%,rgba(208,163,76,.2),transparent 30%),linear-gradient(135deg,#f1eadb 0%,#e7efea 58%,#eee6dc 100%); }
+.trust-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.trust-head h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.trust-head p { max-width:650px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.trust-stat { flex:0 0 142px; padding:10px; border:1px solid #cbbd9d; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.trust-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.trust-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.trust-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:13px; }
+.trust-card { min-width:0; min-height:166px; padding:10px; border:1px solid #d2c7b3; border-radius:8px; color:var(--deep); background:rgba(248,242,230,.86); }
+.trust-card.pass { border-color:#b7cbbd; background:rgba(239,247,239,.82); }
+.trust-card.available { border-color:#d5c29a; background:rgba(255,248,228,.86); }
+.trust-card.missing { border-color:#d8c0b8; background:rgba(251,239,232,.8); }
+.trust-card-top { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.trust-card-top > span:first-child { color:#897c67; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
+.trust-status { padding:4px 6px; border:1px solid #b7cbbd; border-radius:999px; color:#356c69; background:#e6f0e8; font-size:7px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.trust-status.available { border-color:#d8c69e; color:#8b6419; background:#fff3dc; }
+.trust-status.missing { border-color:#d5bdb5; color:#a04e40; background:#f8e9e4; }
+.trust-status.check { border-color:#c9c2ae; color:#756a57; background:#f1ebdf; }
+.trust-card h4 { min-height:34px; margin:12px 0 0; color:var(--deep); font:700 16px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.trust-card strong { display:block; margin-top:8px; color:var(--deep); font:700 17px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.trust-card p { min-height:38px; margin:7px 0 0; color:#69766e; font-size:9px; line-height:1.35; }
+.trust-card small { display:block; margin-top:8px; color:#897c68; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.trust-readout { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; align-items:start; margin-top:11px; padding:10px 11px; border:1px solid rgba(73,104,94,.24); background:rgba(248,242,230,.62); }
+.trust-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.trust-readout strong { display:block; color:var(--deep); font:700 15px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.trust-readout p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.trust-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--red); color:#6d6254; background:rgba(248,242,230,.72); font-size:9px; line-height:1.4; }
 .culture-mosaic-label { color:#897c67; font-size:9px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
 .culture-word-links { display:flex; flex-wrap:wrap; gap:6px; margin-top:15px; }
 .culture-word-links a { display:flex; flex-direction:column; min-width:74px; padding:7px 8px; border:1px solid #d8cdb8; border-radius:7px; color:var(--deep); background:#f7f0e3; font:700 12px/1 Georgia,serif; text-decoration:none; }
 .culture-word-links a:hover { border-color:var(--blue); color:var(--blue); }
 .culture-word-links small { margin-top:4px; color:#8a7c68; font:600 9px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.place-name-field { margin-top:10px; padding:15px; border:1px solid #d6c3a0; border-radius:14px; background:rgba(255,252,244,.76); }
+.place-name-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.place-name-head h3 { max-width:540px; margin:7px 0 0; color:var(--deep); font:700 22px/1.04 Georgia,serif; letter-spacing:-.04em; }
+.place-name-head p { max-width:620px; margin:7px 0 0; color:#69766e; font-size:10px; line-height:1.45; }
+.place-name-stat { flex:0 0 142px; padding:10px; border:1px solid #d8c29b; border-radius:10px; color:#49685e; background:#f7f0e3; text-align:right; }
+.place-name-stat strong { display:block; color:var(--deep); font:700 22px/1 Georgia,serif; letter-spacing:-.05em; }
+.place-name-stat small { display:block; margin-top:4px; color:#897c68; font-size:8px; line-height:1.25; }
+.place-name-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:13px; }
+.place-name-chip { display:flex; align-items:center; gap:7px; min-height:27px; padding:4px 7px; border:1px solid #d1c4aa; border-radius:999px; color:#49685e; background:#f8f2e6; font-size:9px; font-weight:750; }
+.place-name-chip small { color:#897c68; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.place-name-chip:hover, .place-name-chip[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
+.place-name-chip:hover small, .place-name-chip[aria-pressed="true"] small { color:#e1c276; }
+.place-name-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:9px; line-height:1.4; }
 .culture-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:10px; line-height:1.45; }
 .diagram-kicker { fill:#857962; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
 .diagram-baseline { stroke:#c7bba6; stroke-width:1; }
@@ -1593,46 +2327,165 @@ tr:hover td { background:#f1f6f1; }
 @media (max-width:900px) {
   #mapHud { top:78px; left:16px; }
   #mapLabel { left:22px; bottom:22px; }
+  #mapStamp { left:22px; bottom:112px; width:220px; }
   .equation-grid, .typology-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .culture-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .culture-timeline-head { grid-template-columns:1fr; }
+  .heritage-type-head { grid-template-columns:1fr; }
+  .heritage-type-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .place-braid-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .land-field-head, .land-field-bottom { grid-template-columns:1fr; }
+  .intro-shell { grid-template-columns:minmax(0,1fr) minmax(220px,.75fr); gap:28px; }
+  .intro-main h2 { font-size:clamp(46px,8vw,82px); }
+  .intro-orbit { width:min(38vw,340px); }
+  .field-content { grid-template-columns:1fr; }
+  .field-coordinate { min-height:0; }
+  .field-sequence { grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:18px; }
+  .maths-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .measure-ledger { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .lab-toolbar { align-items:stretch; }
   .lab-toolbar select { width:100%; }
   .lab-toolbar label { min-width:calc(50% - 10px); }
   .scenario-control-grid, .performance-control-grid, .design-spec, .design-schedule { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .studio-reference-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .sky-field-grid { grid-template-columns:1fr; }
+  .water-field-grid { grid-template-columns:1fr; }
+  .county-pulse-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .evidence-grid { grid-template-columns:1fr; }
   .lab-grid { grid-template-columns:1fr; }
   .lab-copy { border-top:1px solid #ddd1bc; border-left:0; }
   .selection-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .selection-evidence-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .selection-context-grid { grid-template-columns:1fr; }
+  .comparison-relation-grid { grid-template-columns:1fr; }
+  .comparison-grid { grid-template-columns:1fr; }
 }
 @media (max-width:720px) {
   #mapHud { top:70px; left:12px; width:min(300px,calc(100vw - 24px)); }
+  #mapLabel { display:none; }
+  #mapStamp { left:12px; bottom:calc(72vh + 12px); width:calc(100vw - 24px); }
   #panel { top:auto; right:0; bottom:0; left:0; width:100%; max-height:72vh; border-radius:14px 14px 0 0; }
   .atlas-nav { padding:6px 12px; }
   .atlas-nav-status { display:none; }
+  .site-intro { place-items:end center; padding:17px; }
+  .site-intro::before { inset:12px; border-radius:22px; }
+  .intro-shell { display:block; width:100%; padding:22px 18px 64px; }
+  .intro-topline { margin-bottom:48px; }
+  .intro-main h2 { font-size:clamp(48px,15vw,78px); }
+  .intro-main p { font-size:13px; }
+  .intro-aside { position:absolute; top:19%; right:5%; min-height:0; opacity:.3; pointer-events:none; }
+  .intro-orbit { width:235px; }
+  .intro-foot { right:18px; bottom:14px; left:18px; }
+  .hero-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:12px; }
+  .field-section { padding:22px 18px 21px; }
+  .field-sequence { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:18px; }
+  .field-signals { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .field-signal-detail { grid-template-columns:1fr; }
+  .maths-section { padding:18px; }
+  .maths-head { display:block; }
+  .maths-notation { display:none; }
+  .maths-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .maths-readout { grid-template-columns:1fr; }
+  .measure-ledger { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .kpis { grid-template-columns:repeat(3,1fr); }
   .kpi b { font-size:15px; }
   .filters { grid-template-columns:1fr 1fr; }
   .filters input[type=text] { grid-column:1 / -1; }
   .route-grid { grid-template-columns:1fr 1fr; }
+  .route-compare-grid { grid-template-columns:1fr; }
+  .route-matrix-grid { grid-template-columns:1fr; }
   .pattern-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .brief-head { flex-direction:column; }
   .brief-actions { justify-content:flex-start; }
   .culture-section { padding:18px; }
+  .studio-reference { margin:0 18px 12px; }
+  .studio-reference-head { display:block; }
+  .studio-reference-clear { margin-top:9px; }
   .culture-head { display:block; }
   .culture-mark { display:none; }
   .culture-grid { grid-template-columns:1fr; }
   .culture-card { min-height:0; }
+  .heritage-type-grid { grid-template-columns:1fr; }
+  .place-braid-head { display:block; }
+  .place-braid-readout { margin-top:10px; }
+  .place-braid-grid { grid-template-columns:1fr; }
+  .place-name-field { padding:13px; }
+  .county-pulse-head { display:block; }
+  .county-pulse-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .makers-head { display:block; }
+  .makers-stat { margin-top:10px; text-align:left; }
+  .makers-binary { grid-template-columns:1fr; }
+  .rhythm-head { display:block; }
+  .rhythm-stat { margin-top:10px; text-align:left; }
+  .rhythm-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rhythm-readout { grid-template-columns:1fr; }
+  .scale-head { display:block; }
+  .scale-stat { margin-top:10px; text-align:left; }
+  .scale-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .scale-readout { grid-template-columns:1fr; }
+  .alignment-head { display:block; }
+  .alignment-stat { margin-top:10px; text-align:left; }
+  .alignment-grid { grid-template-columns:1fr; }
+  .alignment-readout { grid-template-columns:1fr; }
+  .source-head { display:block; }
+  .source-stat { margin-top:10px; text-align:left; }
+  .source-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .source-readout { grid-template-columns:1fr; }
+  .trust-head { display:block; }
+  .trust-stat { margin-top:10px; text-align:left; }
+  .trust-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .trust-readout { grid-template-columns:1fr; }
+  .place-name-head { display:block; }
+  .place-name-stat { margin-top:10px; text-align:left; }
+  .culture-timeline { padding:13px; }
+  .land-field { padding:13px; }
+  .land-group-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .culture-mosaic { grid-template-columns:1fr; }
   .toolbar { align-items:flex-start; flex-direction:column; }
   .toolbar-actions { width:100%; justify-content:flex-start; }
   .selection-card { margin:0 12px 10px; }
+  .selection-evidence-head { display:block; }
+  .selection-evidence-status { display:inline-block; margin-top:8px; }
+  .selection-evidence-grid { grid-template-columns:1fr; }
+  .selection-context-head { display:block; }
+  .selection-context-status { display:inline-block; margin-top:8px; }
+  .selection-context-list { grid-template-columns:1fr; }
+  .selection-fingerprint { grid-template-columns:1fr; }
+  .selection-weave { grid-template-columns:1fr; }
+  .comparison-tray { margin:0 12px 10px; }
+  .comparison-head { display:block; }
+  .comparison-head-actions { justify-content:flex-start; margin-top:9px; }
+  .comparison-share-status { text-align:left; }
+  .comparison-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .comparison-relation-head { display:block; }
+  .comparison-relation-status { display:inline-block; margin-top:8px; }
+  .comparison-relation-metrics { grid-template-columns:1fr; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
 }
 </style>
 </head>
-<body>
+<body class="intro-open">
+<section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
+  <div class="intro-shell">
+    <div class="intro-main">
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V2</span><span>Land · line · memory</span></div>
+      <div class="intro-kicker">An Irish geometry of place</div>
+      <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
+      <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
+      <div class="intro-actions"><button id="enterAtlas" type="button">Enter the field →</button><button id="skipIntro" class="secondary" type="button">Skip opening</button></div>
+    </div>
+    <div class="intro-aside" aria-hidden="true">
+      <div class="intro-orbit"><span class="intro-orbit-line"></span><span class="intro-orbit-line second"></span><span class="intro-orbit-core">φ</span><span class="intro-orbit-label north">north / 55°</span><span class="intro-orbit-label east">shore / edge</span><span class="intro-orbit-label south">south / 51°</span><span class="intro-orbit-label west">field / trace</span></div>
+    </div>
+  </div>
+  <div class="intro-foot"><span>Measured buildings · open sources · contemporary hypotheses</span><span>scroll / click to begin</span></div>
+</section>
 <div id="map" aria-label="Map of analysed Irish buildings"></div>
 <div id="mapLoading" role="status" aria-live="polite"><span class="map-loading-dot" aria-hidden="true"></span><span id="mapLoadingText">Loading live basemap…</span></div>
 <div id="mapLabel" aria-hidden="true"><span class="map-label-kicker">Live satellite / measured Ireland</span><strong>Shape makes place.</strong><small>Explore the map as a field of building footprints, then translate the patterns into civic rooms, thresholds and shared space.</small></div>
+<div id="mapStamp" aria-live="polite"><span class="map-stamp-kicker">Field coordinate</span><strong id="mapCenterText">53.2° N / 7.7° W</strong><small id="mapContextText">Ireland field · awaiting map context</small></div>
 <div id="mapHud" aria-label="Live map controls">
   <div class="map-hud-card">
     <div class="map-hud-topline"><span>Live cartography</span><span id="mapLiveState" class="map-live-state">Connecting…</span></div>
@@ -1644,6 +2497,7 @@ tr:hover td { background:#f1f6f1; }
       <button class="map-layer-button" type="button" data-map-layer="streets" aria-pressed="false">Streets</button>
     </div>
     <div class="map-hud-meta"><span id="mapTileStatus">Waiting for imagery…</span><span id="mapVisibleCount">— targets in view</span></div>
+    <div class="map-constellation" aria-live="polite" aria-label="Signal intensity in the current map field"><div class="map-constellation-head"><span>Signal constellation</span><small id="mapConstellationScope">active field · awaiting rows</small></div><div class="map-signal-grid"><div class="map-signal-cell"><b>φ</b><strong id="mapRatioSignal">—</strong><small>ratio</small></div><div class="map-signal-cell"><b>θ</b><strong id="mapAngleSignal">—</strong><small>angle</small></div><div class="map-signal-cell"><b>↔</b><strong id="mapSymmetrySignal">—</strong><small>mirror</small></div><div class="map-signal-cell"><b>□</b><strong id="mapOrthogonalSignal">—</strong><small>orthogonal</small></div></div></div>
     <div class="map-hud-actions">
       <button id="mapFit" class="map-hud-action" type="button">Fit visible targets</button>
       <button id="mapReset" class="map-hud-action" type="button">Reset view</button>
@@ -1654,22 +2508,53 @@ tr:hover td { background:#f1f6f1; }
 </div>
 <div id="panel">
   <header>
-    <div class="hero-topline"><span>IRELAND / 01—ATLAS</span><span class="hero-tag">Civic design lab</span></div>
-    <h1><em>Cruth</em>: the shape<br/>of public life</h1>
-    <div class="subtitle">A data-backed Irish building survey expanded into a contemporary architecture studio: equations become bays, courtyards, paths, canopies and places to gather.</div>
-    <p class="hero-note">The scan finds geometric signals. The studio tests how those signals might responsibly inform new civic architecture; it does not claim historic intent.</p>
-    <div class="header-actions"><a href="#studio">Enter the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
+    <div class="hero-topline"><span>IRELAND / 02—FIELD ATLAS</span><span class="hero-tag">Mathematics · memory · land</span></div>
+    <h1><em>Cruth</em>: Ireland<br/>in proportion</h1>
+    <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
+    <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
+    <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V2</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
-    <div class="atlas-nav-links"><a href="#studio" data-nav-section="studio" data-nav-label="Design studio" aria-current="page">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
+    <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
     <span id="atlasNavStatus" class="atlas-nav-status" aria-live="polite">Design studio</span>
   </nav>
+  <section id="field" class="field-section atlas-section" aria-labelledby="fieldTitle">
+    <div class="field-content">
+      <div>
+        <div class="field-kicker">The Irish field / a measured island</div>
+        <h2 id="fieldTitle">Start with the land.<br/><em>Then let the building speak.</em></h2>
+        <p>Coordinates give us the first precision: a footprint belongs somewhere, in a county, beside a road, under a particular light. The mathematics here is a lens for noticing—ratios, angles, symmetry, circles—not a story that replaces memory, craft, ecology or lived culture.</p>
+        <div class="field-principles" aria-label="Field principles"><span>ainm / name</span><span>oidhreacht / heritage</span><span>cruth / form</span><span>pobal / shared life</span></div>
+      </div>
+      <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div class="coordinate-plot"><div class="coordinate-axis"><span>51° N</span><span>52°</span><span>53°</span><span>54°</span><span>55° N</span></div></div><p class="coordinate-note">A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.</p></div>
+    </div>
+    <div class="field-sequence" aria-label="Atlas narrative sequence"><div class="field-sequence-step"><span>01</span><strong>Land</strong><small>shore · weather · ground</small></div><div class="field-sequence-step"><span>02</span><strong>Coordinate</strong><small>where the point belongs</small></div><div class="field-sequence-step"><span>03</span><strong>Footprint</strong><small>area · edge · scale</small></div><div class="field-sequence-step"><span>04</span><strong>Maths</strong><small>ratio · angle · symmetry</small></div><div class="field-sequence-step"><span>05</span><strong>Heritage</strong><small>record · name · time</small></div><div class="field-sequence-step"><span>06</span><strong>Culture</strong><small>Áit · Pobal · Oidhreacht</small></div><div class="field-sequence-step"><span>07</span><strong>Civic possibility</strong><small>the shared room ahead</small></div></div>
+    <div class="field-signals" aria-label="Measured mathematical signals"><button class="field-signal" type="button" data-field-signal="golden_ratio" aria-controls="patterns"><div class="field-signal-top"><span>φ / proportion</span><b id="fieldRatioCount">—</b></div><strong>Golden ratio screens</strong><p id="fieldRatioText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldRatioMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="golden_angle" aria-controls="patterns"><div class="field-signal-top"><span>θ / rotation</span><b id="fieldAngleCount">—</b></div><strong>Golden-angle screens</strong><p id="fieldAngleText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldAngleMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="reflective_symmetry" aria-controls="patterns"><div class="field-signal-top"><span>↔ / symmetry</span><b id="fieldSymmetryCount">—</b></div><strong>Reflective symmetry</strong><p id="fieldSymmetryText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldSymmetryMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="orthogonal" aria-controls="patterns"><div class="field-signal-top"><span>□ / order</span><b id="fieldOrthogonalCount">—</b></div><strong>Orthogonal traces</strong><p id="fieldOrthogonalText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldOrthogonalMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button></div>
+    <div class="field-signal-detail" aria-live="polite"><span>Signal lens</span><div><strong id="fieldSignalDetailTitle">Choose a signal to trace it.</strong><p id="fieldSignalDetailText">Select a mathematical signal to filter the building footprints, focus the map, and carry the question into the heritage and culture layers below.</p></div></div>
+    <div class="measure-ledger" aria-label="Shape measurement ledger"><article><span>Area</span><strong>A = footprint</strong><small>m² · surface enclosed</small></article><article><span>Perimeter</span><strong>P = boundary</strong><small>m · edge length</small></article><article><span>Scale</span><strong>l × w</strong><small>length · width in metres</small></article><article><span>Aspect</span><strong>r = l / w</strong><small>elongation ratio</small></article><article><span>Compactness</span><strong>C = 4πA / P²</strong><small>circle-normalised form</small></article><article><span>Radial field</span><strong>σᵣ / μᵣ</strong><small>variation from centre</small></article></div>
+    <p class="field-footnote">Signal counts are descriptive screens in the current data pack. They show where to look next—not evidence that a historical builder consciously used a named mathematical system.</p>
+  </section>
+  <section id="maths" class="maths-section atlas-section" aria-labelledby="mathsTitle">
+    <div class="maths-head">
+      <div>
+        <div class="maths-kicker">Mathematical grammar / measured signals</div>
+        <h2 id="mathsTitle">Measure first.<br/><em>Interpret carefully.</em></h2>
+        <p>This index names the mathematical properties used to read Irish building footprints: proportion, angle, symmetry, compactness and boundary shape. Select a card to trace a screening signal into the catalogue and map, or to read the descriptor inside a selected building’s geometry dossier.</p>
+      </div>
+      <div class="maths-notation" aria-hidden="true">A / P<br/>φ · θ · Fₙ</div>
+    </div>
+    <div id="mathsIndex" class="maths-grid" aria-label="Interactive mathematical property index"></div>
+    <div class="maths-readout" aria-live="polite"><span>Maths lens</span><div><strong id="mathsReadoutTitle">Choose a property to trace it.</strong><p id="mathsReadoutText">Each card connects a named mathematical idea to a measured descriptor or screening flag in this report.</p></div></div>
+    <p class="maths-caveat">The index names measurements and screens used by this atlas. It does not turn a mathematical resemblance into evidence of historic intention or a single Irish architectural tradition.</p>
+  </section>
   <section id="studio" class="studio-section atlas-section">
     <div class="studio-head">
       <div class="studio-kicker">Irish civic geometry / design hypothesis</div>
       <h2>Four equations. <em>Four ways</em> to make a public room.</h2>
       <p>Irish places are interesting when landscape, weather, craft and social ritual meet. This design grammar treats mathematics as a legible tool for making space—not as a shortcut to explain culture. Select an equation, then test it against a civic typology.</p>
       <span class="studio-disclaimer">Contemporary translation inspired by Irish/Celtic visual language · not a historical reconstruction</span>
+      <div class="studio-share"><button id="copyStudioLink" type="button">Copy studio link →</button><span id="studioShareStatus" class="studio-share-status" role="status" aria-live="polite">Share the current equation, field reference and test-fit settings.</span></div>
     </div>
     <div class="equation-grid" role="tablist" aria-label="Civic geometry equations">
       <button class="equation-card is-active" type="button" data-equation="phi" role="tab" aria-selected="true">
@@ -1684,6 +2569,18 @@ tr:hover td { background:#f1f6f1; }
       <button class="equation-card" type="button" data-equation="spiral" role="tab" aria-selected="false">
         <span class="equation-symbol">↻</span><b>Spiral / triskele curve</b><div class="equation">r(θ) = a · e<sup>bθ</sup></div><p>Turn a growing curve into a ramp, canopy edge or gallery that keeps unfolding.</p>
       </button>
+    </div>
+    <div id="studioReference" class="studio-reference" aria-live="polite" hidden>
+      <div class="studio-reference-head"><div><span class="studio-kicker">Field reference / carried place</span><h3 id="studioReferenceTitle">Selected footprint</h3><p id="studioReferenceContext">A measured Irish footprint is now the reference for this contemporary test-fit.</p></div><button id="clearStudioReference" class="studio-reference-clear" type="button">Clear reference</button></div>
+      <div class="studio-reference-grid" aria-label="Selected footprint reference measurements"><div class="studio-reference-fact"><span>Place</span><strong id="studioReferencePlace">—</strong><small id="studioReferenceSource">—</small></div><div class="studio-reference-fact"><span>Footprint</span><strong id="studioReferenceDimensions">—</strong><small id="studioReferenceArea">—</small></div><div class="studio-reference-fact"><span>Proportion</span><strong id="studioReferenceAspect">—</strong><small id="studioReferenceCompactness">—</small></div><div class="studio-reference-fact"><span>Signals</span><strong id="studioReferenceSignals">—</strong><small id="studioReferenceHeritage">—</small></div></div>
+      <div class="studio-reference-actions"><button id="studioUseScale" type="button">Use measured width as module</button><span id="studioReferenceStatus" class="studio-reference-status" role="status" aria-live="polite">Reference only · controls remain editable.</span></div>
+      <p class="studio-reference-note">This is a contemporary translation: the selected building supplies measured scale and context, while the studio proposes a new civic possibility. It does not reconstruct historic intent.</p>
+    </div>
+    <div id="studioPairReference" class="studio-reference studio-pair-reference" aria-live="polite" hidden>
+      <div class="studio-reference-head"><div><span class="studio-kicker">Between reference / carried relationship</span><h3 id="studioPairTitle">Two places in one civic field</h3><p id="studioPairContext">A comparison relationship can become a contemporary spatial starting point.</p></div><button id="clearStudioPairReference" class="studio-reference-clear" type="button">Clear pair</button></div>
+      <div class="studio-reference-grid" aria-label="Paired place relationship reference"><div class="studio-reference-fact"><span>Field A</span><strong id="studioPairPlaceA">—</strong><small id="studioPairSourceA">—</small></div><div class="studio-reference-fact"><span>Field B</span><strong id="studioPairPlaceB">—</strong><small id="studioPairSourceB">—</small></div><div class="studio-reference-fact"><span>Between</span><strong id="studioPairSpan">—</strong><small id="studioPairBearing">—</small></div><div class="studio-reference-fact"><span>Bridge</span><strong id="studioPairBridge">—</strong><small id="studioPairSignals">—</small></div></div>
+      <div class="studio-reference-actions"><button id="studioUsePairBearing" type="button">Use A→B bearing as path rotation</button><span id="studioPairStatus" class="studio-reference-status" role="status" aria-live="polite">Reference only · controls remain editable.</span></div>
+      <p class="studio-reference-note">The pair supplies a measured relationship, not a historic pattern. Using its orientation in the studio is a contemporary design choice; it does not claim that the buildings were designed as a pair.</p>
     </div>
     <div class="lab" aria-label="Interactive civic test-fit">
       <div class="lab-toolbar">
@@ -1710,6 +2607,7 @@ tr:hover td { background:#f1f6f1; }
           <label>Accessible route <output id="accessValue">1.8 m</output><input id="accessWidth" type="range" min="1.2" max="2.4" step="0.1" value="1.8" aria-label="Clear accessible route width in metres"/></label>
           <label>Future phases <output id="phaseValue">2 phases</output><input id="futurePhases" type="range" min="1" max="3" step="1" value="2" aria-label="Number of future building phases"/></label>
         </div>
+        <div class="water-event-control"><label>Rain event<select id="rainEvent" aria-label="Indicative rainfall event"><option value="light">5 mm / light pulse</option><option value="design" selected>10 mm / design pulse</option><option value="heavy">20 mm / heavy pulse</option></select></label><p id="rainEventNote">Choose one transparent rainfall pulse to make the catchment arithmetic visible.</p></div>
       </div>
       <div class="performance-controls programme-controls" aria-label="Programme and building scale controls">
         <div class="performance-heading"><span><b>04 / Programme + scale</b><br/>Balance public rooms, support space and vertical growth.</span><small id="programmeSummary">70% public programme · 2 levels</small></div>
@@ -1724,6 +2622,22 @@ tr:hover td { background:#f1f6f1; }
       </div>
       <div id="designSpec" class="design-spec" aria-live="polite"></div>
       <div id="designSchedule" class="design-schedule" aria-live="polite"></div>
+      <section id="skyField" class="sky-field" aria-labelledby="skyFieldTitle">
+        <div class="sky-field-head"><div><span class="sky-field-kicker">Solas / sky geometry</span><h3 id="skyFieldTitle">Let the place set the light.</h3><p id="skyFieldIntro">A seasonal light reading derived from the field latitude and the selected studio lens.</p></div><span id="skyFieldScope" class="sky-field-scope">Ireland field</span></div>
+        <div class="sky-field-grid">
+          <div id="skyPlot" class="sky-plot" role="img" aria-label="Indicative seasonal solar geometry"><span class="sky-plot-label north">N / horizon</span><span class="sky-plot-label south">S / noon axis</span><span id="skySunLabel" class="sky-sun-label">solar noon</span><i id="skySun" class="sky-sun" aria-hidden="true"></i></div>
+          <div class="sky-facts" aria-label="Derived seasonal light measurements"><div class="sky-fact"><span>Latitude</span><strong id="skyLatitude">53.35° N</strong><small id="skyLatitudeNote">Ireland field centre</small></div><div class="sky-fact"><span>Day length</span><strong id="skyDaylight">—</strong><small id="skyDaylightNote">approximate horizon-to-horizon light</small></div><div class="sky-fact"><span>Solar noon</span><strong id="skyNoonAltitude">—</strong><small>maximum sun altitude</small></div><div class="sky-fact"><span>Sunrise / sunset</span><strong id="skyBearings">—</strong><small>compass bearings from north</small></div></div>
+        </div>
+        <p id="skyFieldNote" class="sky-field-note">Indicative geometry only: latitude and a standard seasonal solar declination are used to make the light question visible; this is not a site-specific daylight, glare or energy model.</p>
+      </section>
+      <section id="waterField" class="water-field" aria-labelledby="waterFieldTitle">
+        <div class="water-field-head"><div><span class="water-field-kicker">Uisce / water geometry</span><h3 id="waterFieldTitle">Make the rain legible.</h3><p id="waterFieldIntro">A one-event catchment reading turns the covered civic field into a visible relationship between roof, rain and public ground.</p></div><span id="waterFieldBadge" class="water-field-badge">10 mm pulse</span></div>
+        <div class="water-field-grid">
+          <div class="water-equation"><span>Catchment arithmetic</span><strong id="waterEquation">—</strong><p id="waterEquationNote">Covered field × rainfall depth = one transparent event volume before losses.</p><div class="water-route"><span>Typology water route</span><b id="waterRoute">—</b></div></div>
+          <div class="water-facts" aria-label="Derived rainwater catchment measurements"><div class="water-fact"><span>Covered field</span><strong id="waterRoofArea">—</strong><small>enclosed module area</small></div><div class="water-fact"><span>Rain pulse</span><strong id="waterRainDepth">—</strong><small>one indicative event</small></div><div class="water-fact"><span>Event volume</span><strong id="waterEventVolume">—</strong><small>before capture losses</small></div><div class="water-fact"><span>Capture setting</span><strong id="waterCapturedVolume">—</strong><small id="waterOverflow">scenario emphasis · verify locally</small></div></div>
+        </div>
+        <p id="waterFieldNote" class="water-field-note">Indicative arithmetic only: 1 m² × 1 mm = 1 litre. This is not a hydrological, drainage, storage, flooding, water-quality or compliance model.</p>
+      </section>
       <div class="brief-panel" aria-label="Exportable design brief">
         <div class="brief-head"><div><span class="studio-kicker">Concept brief</span><h3>Carry the geometry into a review.</h3></div><div class="brief-actions"><button id="copyBrief" type="button">Copy brief</button><button id="downloadBrief" type="button">Download .txt</button></div></div>
         <pre id="designBrief" class="design-brief">Select a typology to generate a concept brief.</pre>
@@ -1792,11 +2706,32 @@ tr:hover td { background:#f1f6f1; }
         <button class="culture-focus" type="button" data-culture-focus="civic" aria-pressed="false">Explore civic ground <span>→</span></button>
       </article>
     </div>
+    <div class="culture-timeline" aria-labelledby="heritageTimelineHeading">
+      <div class="culture-timeline-head"><div><span class="culture-mosaic-label">Oidhreacht / time field</span><h3 id="heritageTimelineHeading">Memory moves through decades.</h3><p>Read the dated NIAH screen as a sequence, not a single story. Each marker compares the golden-angle flag rate in dated worship targets with its era-matched controls.</p></div><div class="heritage-timeline-readout" aria-live="polite"><span id="heritageTimelineStatus">NIAH decade screen</span><strong id="heritageTimelineReadoutTitle">Choose a decade to read the evidence.</strong><p id="heritageTimelineReadoutText">The timeline is a measured comparison surface. Select a decade to carry its century lens into the target table and map.</p></div></div>
+      <div id="heritageTimeline" class="heritage-timeline" role="tablist" aria-label="NIAH construction decade screens"></div>
+      <p class="heritage-timeline-caveat">Era rates describe the dated subset reached by the NIAH inventory. They are screening results with uncertainty, not proof that a period, building type, or Irish tradition intended a named mathematical system.</p>
+    </div>
+    <div class="heritage-type-field" aria-labelledby="heritageTypeHeading">
+      <div class="heritage-type-head"><div><span class="culture-mosaic-label">Cineál / heritage typology</span><h3 id="heritageTypeHeading">Read the pattern against the building type.</h3><p>Use the NIAH’s own type vocabulary to keep the geometry attached to Irish buildings: churches, houses, mills, schools, bridges and more. Select a type to carry it into Explore.</p></div><div class="heritage-type-readout" aria-live="polite"><span id="heritageTypeStatus">NIAH type screen</span><strong id="heritageTypeReadoutTitle">Choose a building type to read the evidence.</strong><p id="heritageTypeReadoutText">The typology field will compare measured φ/θ screens and compactness inside the visible NIAH-linked rows.</p></div></div>
+      <div id="heritageTypeGrid" class="heritage-type-grid" aria-label="NIAH building types and measured geometry screens"></div>
+      <p class="heritage-type-caveat">Cards are ranked by NIAH-linked rows in the current view; φ and θ remain target-level geometry screens within each type. A type label gives the building a source context, not a claim that its makers intended a named mathematical system.</p>
+    </div>
+    <div class="place-braid-field" aria-labelledby="placeBraidHeading">
+      <div class="place-braid-head"><div><span class="culture-mosaic-label">Fite / county–type braid</span><h3 id="placeBraidHeading">County and building type share a field.</h3><p>Follow the NIAH-linked building types into their county contexts. Each braid keeps row count, φ/θ screens, and the most represented types together, so place is read as a relationship rather than a label.</p></div><div class="place-braid-readout" aria-live="polite"><span id="placeBraidStatus">County/type field</span><strong id="placeBraidReadoutTitle">Choose a county to read its braid.</strong><p id="placeBraidReadoutText">The report pack will connect county context, NIAH type, and measured geometry here.</p></div></div>
+      <div id="placeBraidGrid" class="place-braid-grid" aria-label="County and NIAH building-type relationships"></div>
+      <p class="place-braid-note">The braid ranks the current report view’s NIAH-linked rows; φ and θ are within-county geometry screens, not evidence of county-wide architectural identity. County and type controls return to the existing Explore state.</p>
+    </div>
+    <div class="land-field" aria-labelledby="landFieldHeading">
+      <div class="land-field-head"><div><span class="culture-mosaic-label">Talamh / land threshold</span><h3 id="landFieldHeading">Buildings do not float above the island.</h3><p>Nearest mapped drivable-road proximity gives the footprint one measurable relationship to movement and access. Read the sample by building group, then keep the boundary visible: a centroid distance is not a walking route, a topographic model, or a complete account of landscape.</p></div><div id="landFieldReadout" class="land-field-readout" aria-live="polite"><span>Current field / road proximity</span><strong>Loading land context.</strong><p>The report pack will place the building groups beside their nearest mapped-road sample.</p></div></div>
+      <div id="landGroupGrid" class="land-group-grid" aria-label="Nearest mapped road proximity by building group"></div>
+      <div class="land-field-bottom"><div id="landDensityPanel" class="land-density-panel"><span>Mapping density / field texture</span><strong>Loading spatial context.</strong><p>Density bins describe the mapped snapshot, not settlement quality or landscape value.</p></div><div id="landSourcePanel" class="land-source-panel"><span>Evidence boundary</span><p>Routing and spatial source status will appear when the report pack loads.</p></div></div>
+    </div>
     <div class="culture-mosaic">
       <div>
         <span class="culture-mosaic-label">Contae / county mosaic</span>
         <h3><b id="cultureCountyCount">—</b> county contexts in the heritage-linked rows.</h3>
         <p id="cultureTopCounties">County context will appear when the report pack loads.</p>
+        <div class="county-field"><div class="county-field-head"><span>Choose a county lens</span><small id="countyFieldStatus">All counties</small></div><div id="countyChips" class="county-chips" aria-label="County filters"></div><div id="countyFieldNote" class="county-field-note" aria-live="polite"><span>Field note</span><p>Choose a county to open its measured field note.</p></div></div>
       </div>
       <div class="culture-wordbank">
         <span class="culture-mosaic-label">Words to carry into the studio</span>
@@ -1807,6 +2742,52 @@ tr:hover td { background:#f1f6f1; }
           <a href="https://www.teanglann.ie/en/eid/pobal" target="_blank" rel="noopener">Pobal <small>community</small></a>
         </div>
       </div>
+    </div>
+    <div class="county-pulse-field" aria-labelledby="countyPulseHeading">
+      <div class="county-pulse-head"><div><span class="culture-mosaic-label">Contae / geometry pulse</span><h3 id="countyPulseHeading">Every county carries a different field texture.</h3><p id="countyPulseIntro">Read target count, heritage reach, named-place context, and measured φ/θ screens together. Select a county to carry the same lens into Explore.</p></div></div>
+      <div id="countyPulseGrid" class="county-pulse-grid" aria-label="County-level geometry and cultural pulse"></div>
+      <p id="countyPulseNote" class="county-pulse-note">The pulse will appear when the report pack loads. φ and θ are target-level screening rates, not evidence of a county-wide architectural identity.</p>
+    </div>
+    <div class="rhythm-field" aria-labelledby="rhythmHeading">
+      <div class="rhythm-head"><div><span class="culture-mosaic-label">Pátrún / spatial rhythm</span><h3 id="rhythmHeading">Patterns have neighbours.</h3><p>Move from the footprint to its surrounding field. These cards pair an eight-neighbour Moran’s I screen with county-preserving and spatial-block comparisons, so a mathematical signal stays situated in Irish land.</p></div><div class="rhythm-stat"><strong id="rhythmCount">—</strong><small>cohort screens in the spatial audit</small></div></div>
+      <div id="rhythmGrid" class="rhythm-grid" aria-label="Spatial rhythm by building cohort"></div>
+      <div class="rhythm-readout" aria-live="polite"><span>Field note</span><div><strong id="rhythmReadoutTitle">Choose a cohort to read its spatial rhythm.</strong><p id="rhythmReadoutText">The spatial audit will place each cohort beside its neighbourhood statistic and county-preserving comparison.</p></div></div>
+      <p class="rhythm-note">Moran’s I describes local similarity in a sampled neighbour graph; county Δ and block intervals are separate sensitivity screens. These are descriptive diagnostics, not proof of regional style, historic intent, or a single Irish architectural tradition.</p>
+    </div>
+    <div class="scale-field" aria-labelledby="scaleHeading">
+      <div class="scale-head"><div><span class="culture-mosaic-label">Ciorcal / field scale</span><h3 id="scaleHeading">Place changes when the circle grows.</h3><p>Follow the reported L(r) − r statistic from 100 m to 5 km. Each cohort keeps its own scale rail so the surrounding Irish land enters the reading without being collapsed into one building story.</p></div><div class="scale-stat"><strong id="scaleCount">—</strong><small>cohort radius observations shown</small></div></div>
+      <div id="scaleGrid" class="scale-grid" aria-label="Multi-distance spatial scale by building cohort"></div>
+      <div class="scale-readout" aria-live="polite"><span>Scale note</span><div><strong id="scaleReadoutTitle">Choose a cohort to read its field scale.</strong><p id="scaleReadoutText">The six-radius spatial summary will appear when the report pack loads.</p></div></div>
+      <p class="scale-note">The rails show the reported Ripley L(r) − r values with translation correction on a sampled bounding rectangle. They are scale diagnostics, not a significance envelope, route model, settlement-quality score, or proof of historic design intent.</p>
+    </div>
+    <div class="alignment-field" aria-labelledby="alignmentHeading">
+      <div class="alignment-head"><div><span class="culture-mosaic-label">Ailíniú / orientation field</span><h3 id="alignmentHeading">Edges carry a direction before they carry a story.</h3><p>Read bearings, turns and nearest neighbours together. The point-pattern audit keeps worship geometry beside its control field so an angular resemblance stays a question to test, not a cultural shortcut.</p></div><div class="alignment-stat"><strong id="alignmentCount">—</strong><small>point-pattern cohorts shown</small></div></div>
+      <div id="alignmentGrid" class="alignment-grid" aria-label="Directional and nearest-neighbour point-pattern screens"></div>
+      <div class="alignment-readout" aria-live="polite"><span>Orientation note</span><div><strong id="alignmentReadoutTitle">Read the edge field beside its reference.</strong><p id="alignmentReadoutText">The point-pattern summary will appear when the report pack loads.</p></div></div>
+      <p class="alignment-note">Bearing and turn screens describe mapped edge geometry; nearest-neighbour comparisons use the reported Fibonacci, sham, and Poisson references. They are exploratory diagnostics, not proof of conscious angle selection, cultural origin, or historic intent.</p>
+    </div>
+    <div class="source-field" aria-labelledby="sourceHeading">
+      <div class="source-head"><div><span class="culture-mosaic-label">Foinse / source roots</span><h3 id="sourceHeading">Every claim has a lineage.</h3><p>Keep the island’s evidence layers named: community mapping, heritage inventory, bounded attribution text, and the historical material that is still to be supplied.</p></div><div class="source-stat"><strong id="sourceCount">—</strong><small>source families present</small></div></div>
+      <div id="sourceGrid" class="source-grid" aria-label="Source register and evidence lineage"></div>
+      <div class="source-readout" aria-live="polite"><span>Evidence ledger</span><div><strong id="sourceReadoutTitle">Read the source roots beside the measurements.</strong><p id="sourceReadoutText">The report pack will summarize its source register and geometry quality here.</p></div></div>
+      <p class="source-note">Source status describes what this snapshot actually carries. A missing curated-history register is kept visible rather than silently replaced by a mathematical or heritage inference; local knowledge and source review remain part of the work.</p>
+    </div>
+    <div class="trust-field" aria-labelledby="trustHeading">
+      <div class="trust-head"><div><span class="culture-mosaic-label">Fíorú / validation field</span><h3 id="trustHeading">Make the pattern earn its next question.</h3><p>Let the atlas show its working: independent gates, a deterministic holdout, and the human review step that still needs expert labels. Precision is part of the culture of the map.</p></div><div class="trust-stat"><strong id="trustCount">—</strong><small>core gates passing</small></div></div>
+      <div id="trustGrid" class="trust-grid" aria-label="Validation, holdout and review calibration evidence"></div>
+      <div class="trust-readout" aria-live="polite"><span>Trust note</span><div><strong id="trustReadoutTitle">Read the validation field beside the signal.</strong><p id="trustReadoutText">The report pack will place its independent checks beside its mathematical screens.</p></div></div>
+      <p class="trust-note">A passing artifact gate means the report is internally checked, not that a geometric resemblance proves design intent or cultural origin. Holdout p-values are shown unadjusted; expert review labels remain an explicit next step.</p>
+    </div>
+    <div class="makers-field" aria-labelledby="makersHeading">
+      <div class="makers-head"><div><span class="culture-mosaic-label">Makers / named design evidence</span><h3 id="makersHeading">People enter the record carefully.</h3><p>Where the source record carries a design, architect-role, or bounded attribution phrase, the atlas keeps that name visible beside the geometry. Select a maker to search the current field.</p></div><div class="makers-stat"><strong id="makersCount">—</strong><small>attributed names in the report pack</small></div></div>
+      <div id="makersBinary" class="makers-binary" aria-label="Named versus unattributed comparison"></div>
+      <div id="makersGrid" class="makers-grid" aria-label="Named design attributions"></div>
+      <p id="makersNote" class="makers-note">Attribution rows are source-linked evidence and remain exploratory; a name does not prove sole authorship, design intent, or a shared architectural tradition.</p>
+    </div>
+    <div class="place-name-field" aria-labelledby="placeNameHeading">
+      <div class="place-name-head"><div><span class="culture-mosaic-label">Ainm / named-place field</span><h3 id="placeNameHeading">Names anchor the geometry.</h3><p>These are the named settlement contexts carried by the report data. Choose one to bring its label into Explore and read the buildings beside their measured form, heritage joins, and source trail.</p></div><div id="placeNameStat" class="place-name-stat" aria-live="polite"><strong>—</strong><small>named contexts in the current field</small></div></div>
+      <div id="placeNameChips" class="place-name-chips" aria-label="Named settlement contexts"></div>
+      <p id="placeNameNote" class="place-name-note">Place labels are context cues from the report’s settlement field; they are not an etymological dictionary or a substitute for local knowledge.</p>
     </div>
     <p class="culture-caveat">The Irish labels are language cues, not a claim that the dashboard can stand in for lived culture. Follow the evidence from place name to source record, then bring local knowledge into the design conversation.</p>
   </section>
@@ -1831,6 +2812,7 @@ tr:hover td { background:#f1f6f1; }
     <select id="century" aria-label="Filter by century"><option value="">All centuries</option></select>
     <select id="rating" aria-label="Filter by NIAH rating"><option value="">All ratings</option></select>
     <select id="niahType" aria-label="Filter by NIAH class"><option value="">All NIAH classes</option></select>
+    <select id="county" aria-label="Filter by county"><option value="">All counties</option></select>
     <select id="cultureLens" aria-label="Filter by cultural lens"><option value="">All cultural lenses</option><option value="named">Ainm / named places</option><option value="heritage">Oidhreacht / heritage joins</option><option value="pobal">Pobal / shared life</option><option value="civic">Civic / public institutions</option></select>
     <select id="pattern" aria-label="Filter by geometric pattern"><option value="">All geometric patterns</option></select>
     <select id="reviewState" aria-label="Filter by review state"><option value="">All review states</option><option value="not_queued">Not in current queue</option><option value="not_reviewed">Not reviewed</option><option value="supportive">Supportive</option><option value="ambiguous">Ambiguous</option><option value="not_supportive">Not supportive</option></select>
@@ -1842,7 +2824,9 @@ tr:hover td { background:#f1f6f1; }
       <label><input id="onlyMulti" type="checkbox"/> multipart/repaired</label>
     </div>
   </div>
-  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activeCulture" class="active-filter" aria-live="polite"></span><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <div class="toolbar"><div class="toolbar-left"><small id="count">Loading…</small><span id="activeCounty" class="active-filter" aria-live="polite"></span><span id="activeCulture" class="active-filter" aria-live="polite"></span><span id="activePattern" class="active-filter" aria-live="polite"></span><span id="runtimeStatus" class="runtime-status" role="status" aria-live="polite"></span></div><div class="toolbar-actions"><button id="clearFilters" class="clear-button" type="button">Reset filters</button><div class="actions"><button id="downloadCsv" type="button">CSV</button><button id="downloadGeo" type="button">GeoJSON</button></div></div></div>
+  <div id="runtimeReloadNotice" class="runtime-reload" role="alert" hidden><span id="runtimeReloadText">The served data changed while this report was open.</span><button id="runtimeReload" type="button">Reload current report</button></div>
+  <div id="reportLoadError" class="report-error" role="alert" hidden><span id="reportLoadErrorText">The report request failed.</span><button id="reportRetry" type="button">Retry report request</button></div>
   <section id="selectionCard" class="selection-card" aria-labelledby="selectionTitle" aria-live="polite" hidden>
     <div class="selection-head">
       <div><span class="selection-kicker">Selected place / field note</span><h2 id="selectionTitle">Target detail</h2><p id="selectionSubtitle">Select a point or table row to bring its evidence into view.</p></div>
@@ -1854,7 +2838,30 @@ tr:hover td { background:#f1f6f1; }
       <div class="selection-fact"><span>Geometry signals</span><strong id="selectionGeometry">—</strong></div>
       <div class="selection-fact"><span>Review state</span><strong id="selectionReview">—</strong></div>
     </div>
-    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button></div>
+    <div class="selection-math"><span>Measured geometry / snapshot descriptors</span><strong id="selectionMath">—</strong><small>Area, boundary, dimensions, compactness, radial variation, and Fourier terms describe the mapped footprint; they do not establish historical intent.</small></div>
+    <div class="selection-evidence" aria-labelledby="selectionEvidenceHeading">
+      <div class="selection-evidence-head"><div><span>Rian / evidence trail</span><strong id="selectionEvidenceHeading">Follow this building across the source layers.</strong><p id="selectionEvidenceIntro">The selected footprint will place geometry, heritage, historical evidence, review, and mapping history beside one another.</p></div><span id="selectionEvidenceStatus" class="selection-evidence-status">Waiting for selection</span></div>
+      <div id="selectionEvidenceGrid" class="selection-evidence-grid" aria-label="Evidence trail for selected building"></div>
+      <p id="selectionEvidenceNote" class="selection-evidence-note">Source availability will remain explicit; missing historical or mapping material is not replaced by mathematical inference.</p>
+    </div>
+    <div class="selection-context" aria-labelledby="selectionContextHeading">
+      <div class="selection-context-head"><div><span>Timpeall / surrounding field</span><strong id="selectionContextHeading">Place one building inside its nearby field.</strong><p id="selectionContextIntro">The nearest mapped footprints will show how this place sits beside other buildings, without turning distance into a walking route or cultural claim.</p></div><span id="selectionContextStatus" class="selection-context-status">Waiting for selection</span></div>
+      <div class="selection-context-grid"><div class="selection-context-plot-frame"><canvas id="selectionContextPlot" class="selection-context-canvas" width="520" height="210" role="img" aria-label="Nearby mapped building context plot">Nearby mapped context appears here when coordinates are available.</canvas><small id="selectionContextPlotNote" class="selection-context-plot-note">Coordinate field: waiting for selection.</small></div><div id="selectionContextList" class="selection-context-list" aria-label="Nearest mapped buildings"></div></div>
+      <p id="selectionContextNote" class="selection-context-note">Distances are straight-line centroid estimates from the current report view; they are not road routes, walking distances, or evidence of shared historical design.</p>
+    </div>
+    <div class="selection-fingerprint"><div class="selection-fingerprint-head"><span>Boundary fingerprint / mapped shape</span><strong id="selectionFingerprintLabel">Select a footprint to draw its boundary.</strong><p id="selectionFingerprintText">The atlas will normalize the mapped outline to show its measured proportions, axis, and centre without changing the source geometry.</p></div><div><canvas id="selectionFingerprint" class="selection-fingerprint-canvas" width="520" height="200" role="img" aria-label="Selected footprint boundary fingerprint">Mapped footprint fingerprint appears here when geometry is available.</canvas><small id="selectionFingerprintNote" class="selection-fingerprint-note">Geometry source status: waiting for selection.</small></div></div>
+    <div class="selection-weave"><div class="selection-weave-head"><span>Cruth / derived field print</span><strong id="selectionWeaveLabel">Select a footprint to translate its signals.</strong><p id="selectionWeaveText">A contemporary visual study will combine the selected descriptors and screening flags into a repeatable field—not a historic ornament or a claim about cultural origin.</p></div><div><canvas id="selectionWeave" class="selection-weave-canvas" width="520" height="200" role="img" aria-label="Derived geometry field print">Derived field print appears here when geometry is available.</canvas><small id="selectionWeaveNote" class="selection-weave-note">Descriptor-led study: waiting for selection.</small></div></div>
+    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
+  </section>
+  <section id="comparisonTray" class="comparison-tray atlas-section" aria-labelledby="comparisonTitle" aria-live="polite" hidden>
+    <div class="comparison-head"><div><span class="selection-kicker">Field comparison / two places</span><h2 id="comparisonTitle">Read two footprints together.</h2><p id="comparisonIntro">Add a selected target to begin a side-by-side comparison of place context, geometry and screening signals.</p></div><div class="comparison-head-actions"><button id="copyComparisonLink" class="comparison-copy" type="button" disabled>Copy comparison link →</button><button id="clearComparison" class="comparison-clear" type="button">Clear comparison</button><span id="comparisonShareStatus" class="comparison-share-status" role="status" aria-live="polite"></span></div></div>
+    <div id="comparisonContent"></div>
+    <div id="comparisonRelation" class="comparison-relation" aria-labelledby="comparisonRelationHeading" hidden>
+      <div class="comparison-relation-head"><div><span>Idir / between places</span><strong id="comparisonRelationHeading">Read the space between Field A and Field B.</strong><p id="comparisonRelationIntro">The relationship layer will place two selected footprints beside their geographic, cultural, and mathematical context.</p></div><span id="comparisonRelationStatus" class="comparison-relation-status">Awaiting two places</span></div>
+      <div class="comparison-relation-grid"><div class="comparison-relation-plot-frame"><canvas id="comparisonRelationPlot" class="comparison-relation-canvas" width="520" height="185" role="img" aria-label="Relationship plot between two selected buildings">The between-places plot appears when two footprints are selected.</canvas><small id="comparisonRelationPlotNote" class="comparison-relation-plot-note">Centroid field: awaiting two places.</small></div><div id="comparisonRelationMetrics" class="comparison-relation-metrics" aria-label="Relationship measurements between selected buildings"></div></div>
+      <div class="comparison-relation-actions"><button id="carryComparisonToStudio" type="button">Carry relationship to studio →</button><span id="comparisonRelationActionStatus" role="status" aria-live="polite">Turn the measured relationship into a contemporary civic test-fit.</span></div>
+      <p id="comparisonRelationNote" class="comparison-relation-note">Relationships remain descriptive: straight-line centroid distance is not a route, and shared mathematical flags do not establish shared authorship or historical intent.</p>
+    </div>
   </section>
   <div id="patterns" class="section pattern-section atlas-section"><div class="section-heading"><div><h2>Geometric pattern catalogue</h2><p class="section-intro">Every screening flag in this report is listed below. Select a card to filter the table and map.</p></div><button id="clearPattern" class="clear-button" type="button">Show all</button></div><div id="patternSummary" class="pattern-summary"></div><div id="patternCatalog" class="pattern-grid"></div></div>
   <div class="section"><h2>Local route query</h2>
@@ -1874,9 +2881,62 @@ tr:hover td { background:#f1f6f1; }
       <label>Departure (optional)<input id="routeDeparture" placeholder="2026-08-17T08:00:00+00:00"/></label>
       <label>Objective<select id="routeObjective"><option value="distance">Shortest distance</option><option value="duration">Fastest duration</option></select></label>
       <label>Response<select id="routeFormat"><option value="json">JSON</option><option value="geojson">GeoJSON</option></select></label>
-      <div class="route-actions"><button id="routeRun" type="button">Route</button><label class="route-check"><input id="routeIncludePath" type="checkbox" checked/> include path</label><label class="route-check"><input id="routeIncludeFerries" type="checkbox"/> include static ferries</label><label class="route-check"><input id="routeAllowHgvDestination" type="checkbox"/> allow HGV destination access</label></div>
+      <div class="route-actions"><button id="routeRun" type="button">Route</button><label class="route-check"><input id="routeIncludePath" type="checkbox" checked/> include path</label><label class="route-check"><input id="routeIncludeFerries" type="checkbox"/> include static ferries</label><label class="route-check"><input id="routeAllowHgvDestination" type="checkbox"/> allow HGV destination access</label><button id="routeCopyLink" type="button">Copy link</button><button id="routeDownloadJson" type="button" hidden>JSON</button><button id="routeDownloadGeojson" type="button" hidden>GeoJSON</button><span id="routeShareStatus" class="footnote route-share-status" role="status" aria-live="polite"></span></div>
     </div>
     <div id="routeStatus" class="footnote route-status" role="status" aria-live="polite">Serve this dashboard with ireland-geometry-serve to enable routing.</div>
+    <div class="route-compare" aria-labelledby="routeCompareHeading">
+      <div class="route-compare-heading"><strong id="routeCompareHeading">Compare vehicle profiles</strong><small>2–8 lines · first profile is the baseline</small></div>
+      <div class="route-compare-grid">
+        <label>Profiles (one per line; NAME;key=value)<textarea id="routeCompareProfiles" class="route-compare-profiles" rows="3" spellcheck="false">general
+hgv;vehicle_class=hgv;weight_t=7.5</textarea></label>
+        <div class="route-compare-actions"><button id="routeCompareRun" type="button">Compare</button><label class="route-check"><input id="routeCompareIncludePath" type="checkbox" checked/> include profile paths</label><label class="route-check"><input id="routeCompareIncludeFerries" type="checkbox"/> include static ferries</label><button id="routeCompareDownloadJson" type="button" hidden>JSON</button></div>
+      </div>
+      <div id="routeCompareStatus" class="footnote route-compare-status" role="status" aria-live="polite">Compare profiles against the same coordinates and route options.</div>
+      <div id="routeCompareResults" class="route-compare-results" hidden>
+        <div class="route-compare-results-heading"><strong>Profile comparison</strong><small id="routeCompareSummary"></small></div>
+        <div class="route-compare-table-wrap">
+          <table class="route-compare-table"><caption class="sr-only">Vehicle profile route comparison</caption>
+            <thead><tr><th scope="col">Profile</th><th scope="col">Status</th><th scope="col">Distance</th><th scope="col">Δ distance</th><th scope="col">Duration</th><th scope="col">Δ duration</th><th scope="col">Ferry wait</th><th scope="col">Path</th></tr></thead>
+            <tbody id="routeCompareList"></tbody>
+          </table>
+        </div>
+      </div>
+      <pre id="routeCompareResult" class="route-result route-compare-result" aria-live="polite" hidden></pre>
+    </div>
+    <div class="route-matrix" aria-labelledby="routeMatrixHeading">
+      <div class="route-matrix-heading"><strong id="routeMatrixHeading">Route matrix</strong><small>1–25 origin × destination pairs · uses the route form's vehicle options</small></div>
+      <div class="route-matrix-grid">
+        <label>Origins (one lat,lon per line)<textarea id="routeMatrixOrigins" class="route-matrix-points" rows="3" spellcheck="false" placeholder="53.3498,-6.2603
+53.3438,-6.2672"></textarea></label>
+        <label>Destinations (one lat,lon per line)<textarea id="routeMatrixDestinations" class="route-matrix-points" rows="3" spellcheck="false" placeholder="53.3445,-6.2408
+53.3500,-6.2600"></textarea></label>
+        <div class="route-matrix-actions"><button id="routeMatrixRun" type="button">Run matrix</button><label class="route-check"><input id="routeMatrixIncludePath" type="checkbox"/> include pair paths</label><label class="route-check"><input id="routeMatrixIncludeFerries" type="checkbox"/> include static ferries</label><button id="routeMatrixDownloadJson" type="button" hidden>JSON</button></div>
+      </div>
+      <div id="routeMatrixStatus" class="footnote route-matrix-status" role="status" aria-live="polite">Run up to 25 ordered origin–destination pairs against the local graph.</div>
+      <div id="routeMatrixResults" class="route-matrix-results" hidden>
+        <div class="route-matrix-results-heading"><strong>Matrix results</strong><small id="routeMatrixSummary"></small></div>
+        <div class="route-matrix-table-wrap">
+          <table class="route-matrix-table"><caption class="sr-only">Origin and destination route matrix</caption>
+            <thead><tr><th scope="col">Pair</th><th scope="col">Status</th><th scope="col">Distance</th><th scope="col">Duration</th><th scope="col">Ferry wait</th><th scope="col">Arrival</th><th scope="col">Path</th></tr></thead>
+            <tbody id="routeMatrixList"></tbody>
+          </table>
+        </div>
+      </div>
+      <pre id="routeMatrixResult" class="route-result route-matrix-result" aria-live="polite" hidden></pre>
+    </div>
+    <div id="routeManeuvers" class="route-maneuvers" aria-live="polite" hidden>
+      <div class="route-maneuver-heading"><strong>Route guidance</strong><small id="routeManeuverSummary"></small></div>
+      <ol id="routeManeuverList" class="route-maneuver-list"></ol>
+    </div>
+    <div id="routeSegments" class="route-segments" aria-live="polite" hidden>
+      <div class="route-segment-heading"><strong>Path detail</strong><small id="routeSegmentSummary"></small></div>
+      <div class="route-segment-table-wrap">
+        <table class="route-segment-table"><caption class="sr-only">Detailed route segments and applied restriction provenance</caption>
+          <thead><tr><th scope="col">#</th><th scope="col">Mapped road</th><th scope="col">Distance</th><th scope="col">Time</th><th scope="col">Mode</th><th scope="col">Checks</th></tr></thead>
+          <tbody id="routeSegmentList"></tbody>
+        </table>
+      </div>
+    </div>
     <pre id="routeResult" class="route-result" aria-live="polite" hidden></pre>
   </div>
   <div id="evidence" class="section atlas-section"><h2>Data-derived interpretation</h2><div id="interpretation"></div></div>
@@ -1898,22 +2958,47 @@ let DATA = PACK.targets || [];
 const OUTLINES = PACK.outlines || [];
 let SUMMARY = PACK.summary || {};
 const BASE_INTERPRETATION = PACK.interpretation || {};
+const ARCHITECTS = PACK.architects || [];
+const ARCHITECTS_BINARY = PACK.architects_binary || [];
 let INTERPRETATION = {...BASE_INTERPRETATION};
 let REPORT_RUNTIME = PACK.runtime || null;
 const SIG = PACK.significance || [];
 const NEGATIVE = PACK.negative_controls || [];
 const NIAH_SIG = PACK.niah_significance || [];
 const DECADES = PACK.decades || [];
+const ROAD_PROXIMITY = PACK.road_proximity || [];
+const SPATIAL_COVARIATES = PACK.spatial_covariates_summary || [];
 const MATCHED = PACK.matched_significance || [];
 const HIER = PACK.hierarchical_model || [];
 const MORAN = PACK.moran || [];
 const COUNTY_PERM = PACK.county_permutation || [];
 const BOOT = PACK.spatial_bootstrap || [];
+const RIPLEY = PACK.ripley || [];
+const POINT_PATTERN = PACK.point_pattern || [];
+const SOURCE_REGISTER = PACK.historical_source_register || [];
+const HOLDOUT = PACK.holdout || [];
+const REVIEW_CALIBRATION = PACK.review_calibration || [];
+const QUALITY_SUMMARY = PACK.data_quality_summary || {};
 const QUALITY_DUPLICATES = PACK.data_quality_duplicates || [];
 const QUALITY_AUDIT = PACK.data_quality || [];
 const GEOJSON = PACK.geojson || {type:'FeatureCollection',features:[]};
+const GEOJSON_BY_ID = new Map((GEOJSON.features||[]).map(feature=>[String(feature.properties?.osm_id||''),feature]).filter(([id])=>id));
 const PATTERN_CATALOG = PACK.pattern_catalog || [];
 const PATTERN_BY_KEY = new Map(PATTERN_CATALOG.map(item=>[item.key,item]));
+const MATHS_INDEX = [
+  {key:'golden_ratio',symbol:'φ',category:'ratio',title:'Golden ratio',equation:'φ = (1 + √5) / 2 ≈ 1.618',pattern:'golden_ratio',description:'Aspect-ratio screening compares a footprint’s measured length-to-width relationship with φ. It is a geometric screen, not evidence of intent.'},
+  {key:'fib_ratio',symbol:'Fₙ',category:'ratio',title:'Fibonacci ratio',equation:'Fₙ / Fₙ₋₁ → φ',pattern:'fib_ratio',description:'Non-trivial Fibonacci ratios offer a second proportion screen for footprint dimensions.'},
+  {key:'fib_dimension',symbol:'F',category:'dimension',title:'Fibonacci dimensions',equation:'l,w ∈ {1,2,3,5,8,13…}',pattern:'fib_dimension',description:'Length or width near a Fibonacci-number dimension is a prompt to inspect scale and construction context.'},
+  {key:'golden_angle',symbol:'θ',category:'angle',title:'Golden angle',equation:'θ = 360° / φ² ≈ 137.5°',pattern:'golden_angle',description:'Vertex-angle screening tests an exploratory rotation relation; it is not a cultural proof.'},
+  {key:'reflective_symmetry',symbol:'↔',category:'symmetry',title:'Reflective symmetry',equation:'S(x,y) ≈ S(−x,y)',pattern:'reflective_symmetry',description:'Mirror-overlap screening compares a footprint with a reflected copy across a candidate axis.'},
+  {key:'rot180_symmetry',symbol:'R₁₈₀',category:'symmetry',title:'180° rotation',equation:'R₁₈₀(x,y) = S(−x,−y)',pattern:'rot180_symmetry',description:'Rotational overlap tests whether the footprint repeats after a half-turn.'},
+  {key:'orthogonal',symbol:'□',category:'angle',title:'Orthogonal structure',equation:'α ≈ 90°',pattern:'orthogonal',description:'Near-right-angle edges are common construction outcomes; the signal needs place and source review.'},
+  {key:'circular',symbol:'○',category:'shape',title:'Circularity',equation:'C = 4πA / P²',pattern:'circular',description:'Circle-normalised area and perimeter show how compact a footprint is; C = 1 is the ideal circle.'},
+  {key:'rectangularity',symbol:'R',category:'shape',title:'Rectangularity',equation:'R = A / A_bbox',pattern:null,description:'Rectangularity compares enclosed area with the footprint’s axis-aligned bounding rectangle; it is a descriptor, not a history claim.'},
+  {key:'aspect_ratio',symbol:'r',category:'dimension',title:'Aspect ratio',equation:'r = l / w',pattern:null,description:'Aspect ratio records the relationship between measured length and width for every mapped footprint.'},
+  {key:'radial_cv',symbol:'σᵣ',category:'field',title:'Radial variation',equation:'σᵣ / μᵣ',pattern:null,description:'Radial coefficient of variation describes how much distance from the footprint centre changes around the boundary.'},
+  {key:'fourier',symbol:'F₁…₄',category:'field',title:'Fourier descriptors',equation:'ρ(θ) = Σ Fₙ eⁱⁿθ',pattern:null,description:'Radial Fourier terms retain compact harmonic descriptors of boundary shape for comparison.'},
+];
 const PAGE_SIZE = 50;
 let filtered = DATA.slice();
 let page = 1;
@@ -1923,6 +3008,8 @@ let serverRequestId = 0;
 let runtimePollTimer = null;
 let runtimePollInFlight = false;
 let runtimeRefreshError = '';
+let runtimeReloadRequired = false;
+let reportRuntimeIdentity = null;
 const RUNTIME_REFRESH_MS = 30000;
 let filterTimer = null;
 let sortKey = 'score';
@@ -1939,10 +3026,27 @@ let offlineMap = false;
 let offlineSelection = null;
 let routeGeometry = null;
 let routeLine = null;
+let comparisonLine = null;
+let comparisonEndpointLayer = null;
+let routeManeuverData = [];
+let routeManeuverFocus = null;
+let routeManeuverMarker = null;
+const ROUTE_SEGMENT_DISPLAY_LIMIT = 250;
+let routePayloadData = null;
+let routeComparisonPayloadData = null;
+let routeComparisonSelectedIndex = null;
+let routeMatrixPayloadData = null;
+let routeMatrixSelectedIndex = null;
 const markerById = new Map();
 const DEFAULT_MAP_CENTER = [53.35,-8.05];
 const DEFAULT_MAP_ZOOM = 7;
 let selectedMarkerId = null;
+let studioReferenceData = null;
+let studioReferenceId = '';
+let studioPairData = [];
+let studioPairIds = [];
+let heritageEraKey = '';
+let comparisonData = [];
 
 const DESIGN_EQUATIONS = {
   phi: {
@@ -2033,6 +3137,12 @@ const DESIGN_SEASONS = {
   equinox: { label: 'Equinox / changeover', sky: '#c9d8c5', light: 'Balanced light · test both orientations', weather: 'Adjustable threshold · rain-ready edge' },
   midwinter: { label: 'Low-light / midwinter', sky: '#aabec5', light: 'Low sun · south-facing warmth', weather: 'Sheltered route · wind-buffered court' }
 };
+const SKY_DECLINATION = { midsummer: 23.44, equinox: 0, midwinter: -23.44 };
+const RAIN_EVENTS = {
+  light: { label: '5 mm / light pulse', mm: 5, note: 'A small rainfall pulse for testing roof-to-ground visibility.' },
+  design: { label: '10 mm / design pulse', mm: 10, note: 'A transparent one-event pulse for comparing the civic catchment.' },
+  heavy: { label: '20 mm / heavy pulse', mm: 20, note: 'A heavier pulse for stress-testing overflow and public-ground sequencing.' }
+};
 const DESIGN_MATERIALS = {
   stone: { label: 'Stone + lime', tone: '#356c69', note: 'Durable civic base; verify local quarry, repair and carbon data.' },
   timber: { label: 'Timber + cork', tone: '#987044', note: 'Warm interior structure; verify moisture, fire and carbon data.' },
@@ -2061,6 +3171,7 @@ function scenarioValues() {
     density: scenarioNumber('publicDensity',60),
     wind: scenarioNumber('windShelter',64),
     rain: scenarioNumber('rainCapture',72),
+    rainEvent: $('rainEvent')?.value || 'design',
     accessWidth: scenarioNumber('accessWidth',1.8),
     phases: Math.round(scenarioNumber('futurePhases',2)),
     publicMix: scenarioNumber('publicMix',70),
@@ -2069,6 +3180,69 @@ function scenarioValues() {
     material: $('material')?.value || 'stone',
     grammar: $('grammar')?.value || 'radial'
   };
+}
+function skyClamp(value,min,max) { return Math.max(min,Math.min(max,value)); }
+function skyLatitudeText(value) { return `${fmt(Math.abs(value),2)}° ${value>=0?'N':'S'}`; }
+function skyLongitudeText(value) { return `${fmt(Math.abs(value),2)}° ${value>=0?'E':'W'}`; }
+function skyFieldMetrics() {
+  const values=scenarioValues(), reference=studioReferenceData;
+  const rawLat=Number(reference?.lat), rawLon=Number(reference?.lon);
+  const lat=Number.isFinite(rawLat)?skyClamp(rawLat,-66,66):DEFAULT_MAP_CENTER[0];
+  const lon=Number.isFinite(rawLon)?rawLon:DEFAULT_MAP_CENTER[1];
+  const declination=Number(SKY_DECLINATION[values.season] ?? 0);
+  const latitudeRadians=lat*Math.PI/180, declinationRadians=declination*Math.PI/180;
+  const hourAngle=Math.acos(skyClamp(-Math.tan(latitudeRadians)*Math.tan(declinationRadians),-1,1));
+  const daylightHours=24*hourAngle/Math.PI;
+  const noonAltitude=skyClamp(90-Math.abs(lat-declination),0,90);
+  const sunrise=Math.acos(skyClamp(Math.sin(declinationRadians)/Math.cos(latitudeRadians),-1,1))*180/Math.PI;
+  return {values,reference,lat,lon,declination,daylightHours,noonAltitude,sunrise,sunset:360-sunrise};
+}
+function renderSkyField() {
+  const root=$('skyField');
+  if(!root) return;
+  const metrics=skyFieldMetrics(), season=DESIGN_SEASONS[metrics.values.season] || DESIGN_SEASONS.midsummer;
+  const reference=metrics.reference, place=reference ? selectionPlaceText(reference) : 'Ireland field centre';
+  const scope=reference ? 'selected place' : 'island field';
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const sunY=skyClamp(31+(metrics.noonAltitude/90)*48,35,82);
+  root.style.setProperty('--sky-sun-y',`${sunY}%`);
+  set('skyFieldScope',scope);
+  set('skyFieldIntro',reference ? `For ${place}, the seasonal light field becomes another design constraint: orient the civic room to welcome, shade or shelter the people who use it.` : `At Ireland's field centre, the seasonal light field becomes another design constraint: orient the civic room to welcome, shade or shelter the people who use it.`);
+  set('skyLatitude',skyLatitudeText(metrics.lat));
+  set('skyLatitudeNote',reference ? place : 'Ireland field centre');
+  set('skyDaylight',`${fmt(metrics.daylightHours,1)} h`);
+  set('skyDaylightNote',`${season.label.split('/')[0].trim()} horizon estimate`);
+  set('skyNoonAltitude',`${fmt(metrics.noonAltitude,1)}°`);
+  set('skyBearings',`${fmt(metrics.sunrise,0)}° / ${fmt(metrics.sunset,0)}°`);
+  set('skySunLabel',`${fmt(metrics.noonAltitude,1)}° solar noon`);
+  set('skyFieldNote',`Indicative geometry only: ${skyLatitudeText(metrics.lat)} at ${skyLongitudeText(metrics.lon)} with a ${season.label.toLowerCase()} declination of ${metrics.declination>=0?'+':''}${fmt(metrics.declination,2)}° produces this horizon estimate; it is not a site-specific daylight, glare or energy model.`);
+  const plot=$('skyPlot');
+  if(plot) plot.setAttribute('aria-label',`Indicative ${season.label.toLowerCase()} solar geometry for ${place}: ${fmt(metrics.daylightHours,1)} hours of daylight and ${fmt(metrics.noonAltitude,1)} degrees solar-noon altitude.`);
+}
+function waterFieldMetrics(values=scenarioValues()) {
+  const event=RAIN_EVENTS[values.rainEvent] || RAIN_EVENTS.design;
+  const metrics=designMetrics(values), coveredArea=metrics.enclosedFootprint;
+  const eventLitres=coveredArea*event.mm, capturedLitres=eventLitres*(values.rain/100), overflowLitres=Math.max(0,eventLitres-capturedLitres);
+  return {event,metrics,coveredArea,eventLitres,capturedLitres,overflowLitres};
+}
+function litresText(value) { return `${Math.round(value).toLocaleString()} L`; }
+function renderWaterField() {
+  const root=$('waterField');
+  if(!root) return;
+  const values=scenarioValues(), water=waterFieldMetrics(values), typology=DESIGN_TYPOLOGIES[$('typology')?.value || 'parliament'] || DESIGN_TYPOLOGIES.parliament;
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  set('rainEventNote',water.event.note);
+  set('waterFieldBadge',water.event.label);
+  set('waterFieldIntro',`For the ${typology.label.toLowerCase()}, a ${water.event.label.toLowerCase()} turns the covered civic field into a visible relationship between roof, rain and public ground.`);
+  set('waterEquation',`${metricM2(water.coveredArea)} × ${fmt(water.event.mm,0)} mm = ${litresText(water.eventLitres)}`);
+  set('waterEquationNote',`1 m² × 1 mm = 1 litre · ${fmt(values.rain,0)}% capture setting retains ${litresText(water.capturedLitres)} before storage, conveyance and surface losses.`);
+  set('waterRoute',typology.water);
+  set('waterRoofArea',metricM2(water.coveredArea));
+  set('waterRainDepth',`${fmt(water.event.mm,0)} mm`);
+  set('waterEventVolume',litresText(water.eventLitres));
+  set('waterCapturedVolume',litresText(water.capturedLitres));
+  set('waterOverflow',`${litresText(water.overflowLitres)} outside capture setting · verify locally`);
+  set('waterFieldNote',`Indicative arithmetic only: the covered area is the studio’s enclosed module field after the courtyard void, multiplied by one rainfall pulse. Capture is a scenario emphasis, not a certified efficiency; test drainage, storage, flooding, water quality, maintenance and compliance separately.`);
 }
 function scenarioSummaryText(values) {
   return `${fmt(values.courtyard,0)}% court · ${fmt(values.bays,0)} bays · ${fmt(values.angle,1)}° path · ${fmt(values.density,0)}% public density`;
@@ -2268,6 +3442,10 @@ function buildDesignBrief() {
   const season=DESIGN_SEASONS[values.season] || DESIGN_SEASONS.midsummer;
   const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
   const metrics=designMetrics(values);
+  const sky=skyFieldMetrics();
+  const water=waterFieldMetrics(values);
+  const reference=studioReferenceData;
+  const pairRows=studioPairData.filter(row=>row&&row.osm_id).slice(0,2), pairDistance=pairRows.length===2?contextDistanceMeters(pairRows[0],pairRows[1]):NaN, pairBearing=pairRows.length===2?comparisonBearingDegrees(pairRows[0],pairRows[1]):NaN, pairShared=pairRows.length===2?[...(new Set((pairRows[0].flags||[]).map(patternLabel)))].filter(flag=>new Set((pairRows[1].flags||[]).map(patternLabel)) .has(flag)):[], pairLines=pairRows.length===2?[`Paired places: ${contextTitle(pairRows[0])} ↔ ${contextTitle(pairRows[1])}`,`Between: ${contextDistanceLabel(pairDistance)} straight-line centroid span · bearing ${Number.isFinite(pairBearing)?fmt(pairBearing,1):'not reported'}° A → B`, `Context bridge: ${selectionPlaceText(pairRows[0])} ↔ ${selectionPlaceText(pairRows[1])}`, `Shared measured screens: ${pairShared.length?pairShared.join(' · '):'none'}`]:['No paired relationship carried from the comparison field.'];
   const worship=SIG.find(row=>row.signal==='golden_angle'&&row.group==='worship') || {};
   const caveat=(Array.isArray(INTERPRETATION.caveats)&&INTERPRETATION.caveats[0]) || 'Geometry flags are screening evidence, not evidence of design intent.';
   const validation=String(SUMMARY.validation?.status || (SUMMARY.analysis_ready?'pass':'incomplete'));
@@ -2275,6 +3453,13 @@ function buildDesignBrief() {
     'CRUTH / IRISH CIVIC GEOMETRY ATLAS',
     'CONCEPT DESIGN BRIEF',
     'Generated from the current interactive test-fit · contemporary design hypothesis · not a historical reconstruction',
+    '',
+    '0 / FIELD REFERENCE',
+    reference ? `Selected footprint: ${reference.name||'Unnamed'} · ${reference.osm_id||'OSM target'}` : 'No selected footprint carried from the field.',
+    reference ? `Place context: ${selectionPlaceText(reference)}` : 'Use “Carry geometry to studio” on a selected map target to add a measured field reference.',
+    reference ? `Measured geometry: ${fmt(reference.length_m,1)} × ${fmt(reference.width_m,1)} m · ${fmt(reference.area_m2,0)} m² · aspect ${fmt(reference.aspect_ratio,3)}` : 'The studio remains a standalone contemporary test-fit until a field reference is chosen.',
+    reference ? `Source trail: ${reference.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(reference.osm_id||'')}`}` : '',
+    ...pairLines,
     '',
     '1 / POSITION',
     `Typology: ${typology.label}`,
@@ -2300,17 +3485,28 @@ function buildDesignBrief() {
     `Seasonal lens: ${season.label} — ${season.light}`,
     `Wind setting: ${fmt(values.wind,0)}% shelter emphasis — ${typology.wind}`,
     `Rain setting: ${fmt(values.rain,0)}% capture emphasis — ${typology.water}`,
+    `Rain pulse: ${water.event.label}`,
+    `Catchment arithmetic: ${metricM2(water.coveredArea)} × ${fmt(water.event.mm,0)} mm = ${litresText(water.eventLitres)} event volume`,
+    `Indicative retained volume: ${litresText(water.capturedLitres)} before storage, conveyance and surface losses`,
     `Accessible route setting: ${fmt(values.accessWidth,1)} m clear route — ${typology.access}`,
     `Future delivery: ${fmt(values.phases,0)} ${values.phases===1?'phase':'phases'} with ${fmt(values.bays,0)} bays available for adaptation`,
     `Material note: ${material.note}`,
     '',
-    '5 / EVIDENCE POSITION',
+    '5 / SKY + PLACE',
+    `Field reference coordinate: ${skyLatitudeText(sky.lat)} · ${skyLongitudeText(sky.lon)}${reference?` · ${selectionPlaceText(reference)}`:' · Ireland field centre'}`,
+    `Seasonal light lens: ${season.label} · declination ${sky.declination>=0?'+':''}${fmt(sky.declination,2)}°`,
+    `Approximate day length: ${fmt(sky.daylightHours,1)} hours`,
+    `Solar-noon altitude: ${fmt(sky.noonAltitude,1)}°`,
+    `Sunrise / sunset bearings: ${fmt(sky.sunrise,0)}° / ${fmt(sky.sunset,0)}° from north`,
+    'Use this as an orientation conversation; it is not a site-specific daylight, glare or energy model.',
+    '',
+    '6 / EVIDENCE POSITION',
     `Validation status: ${validation}`,
     `Measured signal: ${fmt(worship.observed_rate,2)}% worship targets vs ${fmt(worship.control_rate,2)}% controls for the golden-angle flag.`,
     'Use the measured pack, NIAH records and OSM geometry to form questions about place; do not infer historic intent from a geometric match.',
     `Caveat: ${caveat}`,
     '',
-    '6 / SOURCE TRAIL',
+    '7 / SOURCE TRAIL',
     'OpenStreetMap contributors: https://www.openstreetmap.org/',
     'Buildings of Ireland / NIAH data: https://www.buildingsofireland.ie/niah-data-download/',
     'Report evidence catalogue: use the measured pattern catalogue in this dashboard.',
@@ -2343,6 +3539,98 @@ function downloadDesignBrief() {
   setTimeout(()=>URL.revokeObjectURL(url),1000);
   if($('briefStatus')) $('briefStatus').textContent='Brief downloaded · indicative design arithmetic only.';
 }
+function renderStudioReference() {
+  const panel=$('studioReference');
+  if(!panel) return;
+  const row=studioReferenceData;
+  if(!row) { panel.hidden=true; return; }
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const length=Number(row.length_m), width=Number(row.width_m), area=Number(row.area_m2), aspect=Number(row.aspect_ratio), circularity=Number(row.circularity);
+  const dimensions=Number.isFinite(length)&&Number.isFinite(width) ? `${fmt(length,1)} × ${fmt(width,1)} m` : 'Dimensions not reported';
+  const source=row.osm_id||'OSM target';
+  const heritage=row.niah?.reg_no ? [row.niah.name||'NIAH-linked record',row.niah.reg_no].filter(Boolean).join(' · ') : 'No NIAH join in this snapshot';
+  const signals=(row.flags||[]).slice(0,3).map(patternLabel).join(' · ') || 'No screening flags';
+  set('studioReferenceTitle',row.name||'Unnamed footprint');
+  set('studioReferenceContext',`${row.osm_id||'Target'} · ${row.group||'other'} · carried from the measured field`);
+  set('studioReferencePlace',selectionPlaceText(row));
+  set('studioReferenceSource',source);
+  set('studioReferenceDimensions',dimensions);
+  set('studioReferenceArea',Number.isFinite(area)?`${fmt(area,0)} m² enclosed area`:'Area not reported');
+  set('studioReferenceAspect',Number.isFinite(aspect)?`r = ${fmt(aspect,3)}`:'r = not reported');
+  set('studioReferenceCompactness',Number.isFinite(circularity)?`C = ${fmt(circularity,3)}`:'C = not reported');
+  set('studioReferenceSignals',signals);
+  set('studioReferenceHeritage',heritage);
+  const use=$('studioUseScale');
+  if(use) use.disabled=!Number.isFinite(width)||width<=0;
+  panel.hidden=false;
+}
+function renderStudioPairReference() {
+  const panel=$('studioPairReference');
+  if(!panel) return;
+  const rows=studioPairData.filter(row=>row&&row.osm_id).slice(0,2);
+  if(rows.length<2) { panel.hidden=true; return; }
+  const [a,b]=rows, set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; }, distance=contextDistanceMeters(a,b), bearing=comparisonBearingDegrees(a,b), axis=Number.isFinite(bearing)?((bearing%180)+180)%180:NaN, countyA=String(a.spatial?.county||a.niah?.county||'').trim(), countyB=String(b.spatial?.county||b.niah?.county||'').trim(), sameCounty=Boolean(countyA&&countyB&&countyA===countyB), shared=[...(new Set((a.flags||[]).map(patternLabel)))].filter(flag=>new Set((b.flags||[]).map(patternLabel)).has(flag));
+  set('studioPairTitle',`${contextTitle(a)} ↔ ${contextTitle(b)}`);
+  set('studioPairContext',`${a.osm_id||'Field A'} and ${b.osm_id||'Field B'} · carried from the measured relationship`);
+  set('studioPairPlaceA',selectionPlaceText(a)); set('studioPairSourceA',`${a.group||'other'} · ${a.niah?.reg_no?'NIAH joined':'NIAH not joined'}`);
+  set('studioPairPlaceB',selectionPlaceText(b)); set('studioPairSourceB',`${b.group||'other'} · ${b.niah?.reg_no?'NIAH joined':'NIAH not joined'}`);
+  set('studioPairSpan',contextDistanceLabel(distance)); set('studioPairBearing',Number.isFinite(bearing)?`bearing ${fmt(bearing,1)}° · axis ${fmt(axis,1)}°`:'bearing not reported');
+  set('studioPairBridge',sameCounty?countyA:'cross-county'); set('studioPairSignals',shared.length?`${shared.length} shared · ${shared.join(' · ')}`:'no shared core screens');
+  const use=$('studioUsePairBearing'); if(use) use.disabled=!Number.isFinite(axis);
+  panel.hidden=false;
+}
+function carrySelectionToStudio(id) {
+  const row=DATA.find(item=>item.osm_id===id)||filtered.find(item=>item.osm_id===id);
+  if(!row) return;
+  studioReferenceData=row;
+  studioReferenceId=String(row.osm_id||'');
+  syncStudioState();
+  renderStudioReference();
+  setAtlasNavActive('studio');
+  window.setTimeout(()=>{
+    $('studio')?.scrollIntoView({behavior:'smooth',block:'start'});
+    $('studioReference')?.scrollIntoView({behavior:'smooth',block:'start'});
+  },120);
+}
+function carryComparisonToStudio() {
+  const rows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2), status=$('comparisonRelationActionStatus');
+  if(rows.length<2) { if(status) status.textContent='Add two places before carrying a relationship to the studio.'; return; }
+  studioPairData=rows.slice(); studioPairIds=rows.map(row=>String(row.osm_id));
+  syncStudioState(true); renderStudioPairReference(); renderStudio(); setAtlasNavActive('studio');
+  if(status) status.textContent='Relationship carried to the studio · controls remain editable.';
+  window.setTimeout(()=>{
+    $('studio')?.scrollIntoView({behavior:'smooth',block:'start'});
+    $('studioPairReference')?.scrollIntoView({behavior:'smooth',block:'start'});
+  },120);
+}
+function clearStudioReference() {
+  studioReferenceData=null;
+  studioReferenceId='';
+  syncStudioState();
+  renderStudioReference();
+  renderStudio();
+}
+function clearStudioPairReference() {
+  studioPairData=[]; studioPairIds=[];
+  syncStudioState(); renderStudioPairReference(); renderStudio();
+}
+function useStudioReferenceScale() {
+  const width=Number(studioReferenceData?.width_m);
+  if(!Number.isFinite(width)||width<=0) return;
+  const module=Math.max(5,Math.min(34,Math.round(width)));
+  const input=$('moduleScale');
+  if(input) input.value=String(module);
+  renderStudio();
+  if($('studioReferenceStatus')) $('studioReferenceStatus').textContent=`Module set to ${module} m from the measured width · reference remains editable.`;
+}
+function useStudioPairBearing() {
+  const [a,b]=studioPairData.filter(row=>row&&row.osm_id).slice(0,2), bearing=comparisonBearingDegrees(a,b), axis=Number.isFinite(bearing)?((bearing%180)+180)%180:NaN;
+  if(!Number.isFinite(axis)) return;
+  const input=$('pathAngle'), value=Math.max(0,Math.min(180,Math.round(axis*2)/2));
+  if(input) input.value=String(value);
+  renderStudio();
+  if($('studioPairStatus')) $('studioPairStatus').textContent=`Path rotation set to ${fmt(value,1)}° from the A→B bearing · pair remains editable.`;
+}
 function renderEvidenceBridge() {
   const validation=String(SUMMARY.validation?.status || (SUMMARY.analysis_ready?'pass':'incomplete')).toLowerCase();
   const badge=$('studioValidation');
@@ -2373,6 +3661,8 @@ function renderStudio() {
   const season=DESIGN_SEASONS[values.season] || DESIGN_SEASONS.midsummer;
   const material=DESIGN_MATERIALS[values.material] || DESIGN_MATERIALS.stone;
   const grammar=DESIGN_GRAMMARS[values.grammar] || DESIGN_GRAMMARS.radial;
+  renderStudioReference();
+  renderStudioPairReference();
   renderScenarioReadout(values);
   const tags=[...(typology.tags||[]),grammar.label,season.label.split('/')[0].trim(),material.label,`${fmt(values.levels,0)} ${values.levels===1?'level':'levels'}`];
   if($('labCopy')) $('labCopy').innerHTML=`<span class="lab-index">${esc(equation.index)} · ${esc(typology.label)}</span><h3>${esc(equation.title)}</h3><div class="lab-equation">${esc(equation.equation)}</div><p>${esc(equation.description)}</p><div class="lab-move"><b>Spatial translation</b><br/>${esc(equation.move)}<br/><b>Geometry grammar</b><br/>${esc(grammar.description)}<br/><b>Public edge</b><br/>${esc(typology.public)}</div><div class="lab-tags">${tags.map(tag=>`<span>${esc(tag)}</span>`).join('')}</div>`;
@@ -2384,19 +3674,42 @@ function renderStudio() {
   if($('studioTargetCount')) $('studioTargetCount').textContent=Number(SUMMARY.targets||33416).toLocaleString();
   renderDesignSpec(typology,season,material,values);
   renderDesignSchedule(typology,values);
+  renderSkyField();
+  renderWaterField();
   renderDesignBrief();
   renderEvidenceBridge();
   renderDesignDiagram();
+  syncStudioState();
+}
+async function copyStudioLink() {
+  const status=$('studioShareStatus');
+  syncStudioState(true);
+  const url=location.href;
+  try {
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(url);
+    if(status) status.textContent='Studio link copied · equation, place reference, pair relationship and test-fit settings are encoded.';
+  } catch(error) {
+    if(status) status.textContent='Studio state saved in the address bar · copy the URL manually.';
+  }
 }
 function initStudio() {
+  restoreStudioState();
   document.querySelectorAll('.equation-card').forEach(card=>card.addEventListener('click',()=>{ selectedEquation=card.dataset.equation || 'phi'; renderStudio(); }));
   $('typology')?.addEventListener('change',renderStudio);
   $('season')?.addEventListener('change',renderStudio);
   $('material')?.addEventListener('change',renderStudio);
   $('grammar')?.addEventListener('change',renderStudio);
+  $('rainEvent')?.addEventListener('change',renderStudio);
   ['moduleScale','courtyardScale','bayCount','pathAngle','publicDensity','windShelter','rainCapture','accessWidth','futurePhases','publicMix','buildingLevels'].forEach(id=>$(id)?.addEventListener('input',renderStudio));
   $('copyBrief')?.addEventListener('click',copyDesignBrief);
   $('downloadBrief')?.addEventListener('click',downloadDesignBrief);
+  $('copyStudioLink')?.addEventListener('click',copyStudioLink);
+  $('clearStudioReference')?.addEventListener('click',clearStudioReference);
+  $('studioUseScale')?.addEventListener('click',useStudioReferenceScale);
+  $('clearStudioPairReference')?.addEventListener('click',clearStudioPairReference);
+  $('studioUsePairBearing')?.addEventListener('click',useStudioPairBearing);
+  $('carryComparisonToStudio')?.addEventListener('click',carryComparisonToStudio);
   renderStudio();
 }
 
@@ -2409,7 +3722,148 @@ const hasFlag = (row, flag) => row.flags.includes(flag);
 const patternLabel = key => PATTERN_BY_KEY.get(key)?.label || String(key||'').replaceAll('_',' ');
 const patternNamesText = row => row.flags.map(patternLabel).join(', ');
 const CULTURE_LENS_LABELS = {named:'Ainm / named places',heritage:'Oidhreacht / heritage joins',pobal:'Pobal / shared life',civic:'Civic / public institutions'};
-const ATLAS_NAV_LABELS = {studio:'Design studio',culture:'Cultural lens',filters:'Explore targets',evidence:'Evidence and findings'};
+const ATLAS_NAV_LABELS = {field:'The Irish field',maths:'Mathematical grammar',studio:'Design studio',culture:'Cultural lens',filters:'Explore targets',evidence:'Evidence and findings'};
+const FIELD_SIGNAL_META = {
+  golden_ratio: {
+    title: 'Golden ratio / φ',
+    detail: 'Aspect-ratio screening compares a footprint’s measured length-to-width relationship with φ ≈ 1.618. It is a geometric screen, not evidence of a builder’s intent.'
+  },
+  golden_angle: {
+    title: 'Golden angle / θ',
+    detail: 'Golden-angle screening uses θ = 360° / φ² ≈ 137.5° as an exploratory angular relation. It is a prompt for inspection, not a cultural proof.'
+  },
+  reflective_symmetry: {
+    title: 'Reflective symmetry / mirror axis',
+    detail: 'Reflective symmetry compares balance across a candidate axis. The measured footprint still needs source review and a place-based reading.'
+  },
+  orthogonal: {
+    title: 'Orthogonal structure / right angles',
+    detail: 'Orthogonal screening looks for near-right-angle edge relationships. Construction constraints can produce this signal without a named mathematical system.'
+  }
+};
+function rowHasSignal(row,key) {
+  if(key==='golden_ratio') return Boolean(row.has_golden_ratio||hasFlag(row,key));
+  if(key==='golden_angle') return Boolean(row.has_golden_angle||hasFlag(row,key));
+  return hasFlag(row,key);
+}
+function fieldSignalCount(key) {
+  const catalogue=PATTERN_BY_KEY.get(key);
+  if(catalogue && Number.isFinite(Number(catalogue.count))) return Number(catalogue.count);
+  return DATA.filter(row=>rowHasSignal(row,key)).length;
+}
+function renderFieldAtlas() {
+  const total=Math.max(1,Number(SUMMARY.targets||DATA.length||0));
+  const activePattern=$('pattern')?.value||'';
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const setSignal=(key,countId,textId,meterId,label)=>{
+    const count=fieldSignalCount(key), rate=count/total*100;
+    set(countId,count.toLocaleString());
+    set(textId,`${fmt(rate,2)}% of target rows carry this ${label} screening flag.`);
+    const meter=$(meterId);
+    if(meter) meter.style.width=`${Math.max(2,Math.min(100,rate))}%`;
+  };
+  set('heroTargetCount',Number(SUMMARY.targets||DATA.length||0).toLocaleString());
+  set('heroNiahCount',Number(SUMMARY.niah_matches||0).toLocaleString());
+  set('heroSignalCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
+  setSignal('golden_ratio','fieldRatioCount','fieldRatioText','fieldRatioMeter','proportion');
+  setSignal('golden_angle','fieldAngleCount','fieldAngleText','fieldAngleMeter','rotation');
+  setSignal('reflective_symmetry','fieldSymmetryCount','fieldSymmetryText','fieldSymmetryMeter','symmetry');
+  setSignal('orthogonal','fieldOrthogonalCount','fieldOrthogonalText','fieldOrthogonalMeter','order');
+  document.querySelectorAll('[data-field-signal]').forEach(button=>{
+    const active=button.dataset.fieldSignal===activePattern;
+    button.classList.toggle('is-active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
+  const meta=FIELD_SIGNAL_META[activePattern];
+  set('fieldSignalDetailTitle',meta?.title||'Choose a signal to trace it.');
+  set('fieldSignalDetailText',meta?.detail||'Select a mathematical signal to filter the building footprints, focus the map, and carry the question into the heritage and culture layers below.');
+}
+function renderMathsIndex() {
+  const index=$('mathsIndex');
+  if(!index) return;
+  const activePattern=$('pattern')?.value||'';
+  const total=Math.max(1,Number(SUMMARY.targets||DATA.length||0));
+  index.innerHTML=MATHS_INDEX.map((item,indexNumber)=>{
+    const catalogue=item.pattern?PATTERN_BY_KEY.get(item.pattern):null;
+    const count=catalogue && Number.isFinite(Number(catalogue.count)) ? Number(catalogue.count) : null;
+    const meta=count===null ? 'Measured descriptor · all footprint rows' : `${count.toLocaleString()} screens · ${fmt(count/total*100,1)}% of targets`;
+    const active=Boolean(item.pattern)&&item.pattern===activePattern;
+    const action=item.pattern?'Trace this signal →':'Read this descriptor →';
+    return `<button class="maths-card" type="button" data-math-key="${esc(item.key)}" aria-pressed="${active}"><span class="maths-card-top"><span>${String(indexNumber+1).padStart(2,'0')} / ${esc(item.category)}</span><small>${item.pattern?'screen':'descriptor'}</small></span><span class="maths-card-symbol" aria-hidden="true">${esc(item.symbol)}</span><h3>${esc(item.title)}</h3><div class="maths-card-equation">${esc(item.equation)}</div><p>${esc(item.description)}</p><span class="maths-card-meta">${meta}</span><span class="maths-card-action">${action}</span></button>`;
+  }).join('');
+  const active=MATHS_INDEX.find(item=>item.pattern===activePattern);
+  const readoutTitle=active?.title||'Choose a property to trace it.';
+  const readoutText=active ? `${active.description} ${active.pattern?`The current atlas filter is ${active.pattern}; follow the trace into the pattern catalogue and map.`:'The descriptor is available in each selected building’s geometry dossier and measured target row.'}` : 'Each card connects a named mathematical idea to a measured descriptor or screening flag in this report.';
+  const title=$('mathsReadoutTitle'), text=$('mathsReadoutText');
+  if(title) title.textContent=readoutTitle;
+  if(text) text.textContent=readoutText;
+}
+function selectMathCard(key) {
+  const item=MATHS_INDEX.find(candidate=>candidate.key===key);
+  if(!item) return;
+  if(item.pattern && $('pattern')) {
+    $('pattern').value=item.pattern;
+    if($('cultureLens')) $('cultureLens').value='';
+    setAtlasNavActive('filters');
+    applyFilters();
+    renderMathsIndex();
+    window.setTimeout(()=>{
+      $('patterns')?.scrollIntoView({behavior:'smooth',block:'start'});
+      fitMapToResults();
+    },120);
+    return;
+  }
+  setAtlasNavActive('filters');
+  renderMathsIndex();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function selectFieldSignal(key) {
+  const pattern=$('pattern');
+  if(!pattern || ![...pattern.options].some(option=>option.value===key)) return;
+  pattern.value=key;
+  if($('cultureLens')) $('cultureLens').value='';
+  setAtlasNavActive('filters');
+  applyFilters();
+  renderFieldAtlas();
+  window.setTimeout(()=>{
+    $('patterns')?.scrollIntoView({behavior:'smooth',block:'start'});
+    fitMapToResults();
+  },120);
+}
+function initFieldAtlas() {
+  document.querySelectorAll('[data-field-signal]').forEach(button=>button.addEventListener('click',()=>selectFieldSignal(button.dataset.fieldSignal)));
+  renderFieldAtlas();
+  renderMathsIndex();
+}
+function dismissSiteIntro(remember=true,focusField=false) {
+  const intro=$('siteIntro');
+  if(!intro) return;
+  intro.classList.add('is-dismissed');
+  document.body.classList.remove('intro-open');
+  if(remember) { try { sessionStorage.setItem('cruth-intro-seen','1'); } catch(error) {} }
+  window.setTimeout(()=>{ intro.hidden=true; },760);
+  if(focusField) window.setTimeout(()=>$('field')?.scrollIntoView({behavior:'smooth',block:'start'}),180);
+}
+function showSiteIntro() {
+  const intro=$('siteIntro');
+  if(!intro) return;
+  intro.hidden=false;
+  intro.classList.remove('is-dismissed');
+  document.body.classList.add('intro-open');
+}
+function initSiteIntro() {
+  const intro=$('siteIntro');
+  if(!intro) return;
+  let seen=false;
+  try { seen=sessionStorage.getItem('cruth-intro-seen')==='1'; } catch(error) {}
+  if(seen) { intro.hidden=true; document.body.classList.remove('intro-open'); }
+  $('enterAtlas')?.addEventListener('click',()=>dismissSiteIntro(true,true));
+  $('skipIntro')?.addEventListener('click',()=>dismissSiteIntro(true,false));
+  $('replayIntro')?.addEventListener('click',()=>showSiteIntro());
+  intro.addEventListener('click',event=>{ if(event.target===intro) dismissSiteIntro(true,false); });
+  intro.addEventListener('keydown',event=>{ if(event.key==='Escape') dismissSiteIntro(true,false); });
+  intro.addEventListener('pointermove',event=>{ const rect=intro.getBoundingClientRect(); const x=(event.clientX-rect.left)/rect.width-.5; const y=(event.clientY-rect.top)/rect.height-.5; intro.style.setProperty('--intro-x',x.toFixed(3)); intro.style.setProperty('--intro-y',y.toFixed(3)); });
+}
 function culturalLensMatches(row,lens) {
   if(lens==='named') return row.spatial?.settlement_class==='named_place';
   if(lens==='heritage') return Boolean(row.niah?.reg_no);
@@ -2426,20 +3880,143 @@ fillSelect('group', FILTER_OPTIONS.group || unique(row=>row.group));
 fillSelect('century', FILTER_OPTIONS.century || unique(row=>row.niah.century));
 fillSelect('rating', FILTER_OPTIONS.rating || unique(row=>row.niah.rating));
 fillSelect('niahType', FILTER_OPTIONS.type || unique(row=>row.niah.type));
+fillSelect('county', FILTER_OPTIONS.county || unique(row=>row.spatial?.county||row.niah?.county));
 fillPatternSelect();
 
-const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['pattern','pattern'],['reviewState','review'],['cultureLens','culture']];
+const VIEW_SELECTS = [['group','group'],['century','century'],['rating','rating'],['niahType','type'],['county','county'],['pattern','pattern'],['reviewState','review'],['cultureLens','culture']];
 const VIEW_CHECKS = [['onlyAngle','angle'],['onlyRatio','ratio'],['onlyCircular','circular'],['onlyMulti','multi']];
+const ROUTE_STATE_TEXT = [['route_start_lat','routeStartLat'],['route_start_lon','routeStartLon'],['route_goal_lat','routeGoalLat'],['route_goal_lon','routeGoalLon'],['route_speed','routeSpeed'],['route_weight','routeWeight'],['route_rating','routeRating'],['route_height','routeHeight'],['route_width','routeWidth'],['route_length','routeLength'],['route_axleload','routeAxleload'],['route_departure','routeDeparture']];
+const ROUTE_STATE_SELECTS = [['route_vehicle_class','routeVehicleClass'],['route_objective','routeObjective'],['route_response','routeFormat']];
+const ROUTE_STATE_CHECKS = [['route_path','routeIncludePath'],['route_ferries','routeIncludeFerries'],['route_hgv_destination','routeAllowHgvDestination']];
+const ROUTE_STATE_KEYS = ['route',...ROUTE_STATE_TEXT.map(([key])=>key),...ROUTE_STATE_SELECTS.map(([key])=>key),...ROUTE_STATE_CHECKS.map(([key])=>key)];
+const ROUTE_COMPARE_STATE_KEYS = ['compare','compare_start_lat','compare_start_lon','compare_goal_lat','compare_goal_lon','compare_speed','compare_departure','compare_objective','compare_profiles','compare_path','compare_ferries'];
+const ROUTE_MATRIX_STATE_KEYS = ['matrix','matrix_origins','matrix_destinations','matrix_speed','matrix_departure','matrix_objective','matrix_weight','matrix_rating','matrix_height','matrix_width','matrix_length','matrix_axleload','matrix_vehicle_class','matrix_hgv_destination','matrix_path','matrix_ferries'];
+const STUDIO_STATE_KEYS = ['studio','studio_ref','studio_pair_a','studio_pair_b','studio_equation','studio_typology','studio_season','studio_material','studio_grammar','studio_module','studio_courtyard','studio_bays','studio_angle','studio_density','studio_wind','studio_rain','studio_rain_event','studio_access','studio_phases','studio_public_mix','studio_levels'];
 const SORT_KEYS = new Set(['name','group','area_m2','score','flags']);
 function restoreViewState() {
   const params=new URLSearchParams(location.search);
   if(params.has('q')) $('query').value=params.get('q');
+  const focus=params.get('focus');
+  if(focus && SERVER_MODE && !params.has('q')) $('query').value=focus;
   for(const [id,key] of VIEW_SELECTS) { const value=params.get(key); if(value!==null && [...$(id).options].some(option=>option.value===value)) $(id).value=value; }
   if(params.has('score')) { const value=Number(params.get('score')); if(Number.isFinite(value)) $('score').value=String(Math.max(0,Math.min(100,Math.round(value)))); }
   for(const [id,key] of VIEW_CHECKS) $(id).checked=params.get(key)==='1';
   const requestedSort=params.get('sort'); if(requestedSort && SORT_KEYS.has(requestedSort)) sortKey=requestedSort;
   sortDesc=params.get('desc') !== '0';
   $('scoreValue').textContent=$('score').value;
+  restoreComparisonState();
+}
+function restoreComparisonState() {
+  const params=new URLSearchParams(location.search);
+  const requested=[...new Set([params.get('compare_a'),params.get('compare_b')].filter(Boolean))];
+  const restored=[];
+  requested.forEach(id=>{
+    const row=DATA.find(item=>String(item.osm_id)===String(id));
+    if(row && !restored.some(item=>String(item.osm_id)===String(row.osm_id))) restored.push(row);
+  });
+  comparisonData=restored.slice(0,2);
+  renderComparisonTray();
+  const missing=requested.filter(id=>!restored.some(item=>String(item.osm_id)===String(id)));
+  const status=$('comparisonShareStatus');
+  if(status) status.textContent=missing.length
+    ? `Comparison link found ${restored.length}/${requested.length} place${requested.length===1?'':'s'} in the current view · select the missing place${missing.length===1?'':'s'} again to complete it.`
+    : '';
+}
+function restoreStudioState() {
+  const params=new URLSearchParams(location.search), hasState=params.get('studio')==='1'||STUDIO_STATE_KEYS.some(key=>key!=='studio'&&params.has(key));
+  if(!hasState) return;
+  const equation=params.get('studio_equation');
+  if(equation && Object.prototype.hasOwnProperty.call(DESIGN_EQUATIONS,equation)) selectedEquation=equation;
+  const setSelect=(key,id,values)=>{ const value=params.get(key); if(value&&$(id)&&values.includes(value)) $(id).value=value; };
+  setSelect('studio_typology','typology',Object.keys(DESIGN_TYPOLOGIES));
+  setSelect('studio_season','season',Object.keys(DESIGN_SEASONS));
+  setSelect('studio_material','material',Object.keys(DESIGN_MATERIALS));
+  setSelect('studio_grammar','grammar',Object.keys(DESIGN_GRAMMARS));
+  setSelect('studio_rain_event','rainEvent',Object.keys(RAIN_EVENTS));
+  const setRange=(key,id)=>{ const input=$(id), value=Number(params.get(key)); if(!input||!Number.isFinite(value)) return; const min=Number(input.min), max=Number(input.max); input.value=String(Math.max(Number.isFinite(min)?min:value,Math.min(Number.isFinite(max)?max:value,value))); };
+  [['studio_module','moduleScale'],['studio_courtyard','courtyardScale'],['studio_bays','bayCount'],['studio_angle','pathAngle'],['studio_density','publicDensity'],['studio_wind','windShelter'],['studio_rain','rainCapture'],['studio_access','accessWidth'],['studio_phases','futurePhases'],['studio_public_mix','publicMix'],['studio_levels','buildingLevels']].forEach(([key,id])=>setRange(key,id));
+  studioReferenceId=params.get('studio_ref')||'';
+  if(studioReferenceId) {
+    const row=DATA.find(item=>String(item.osm_id)===String(studioReferenceId));
+    if(row) studioReferenceData=row;
+    else if($('studioShareStatus')) $('studioShareStatus').textContent='Studio settings restored · the field reference is not in the current data view.';
+  }
+  studioPairIds=[params.get('studio_pair_a'),params.get('studio_pair_b')].filter(Boolean).slice(0,2);
+  const pairRows=studioPairIds.map(id=>DATA.find(item=>String(item.osm_id)===String(id))).filter(Boolean);
+  if(pairRows.length===2) studioPairData=pairRows;
+  else if(studioPairIds.length===2 && $('studioShareStatus')) $('studioShareStatus').textContent='Studio settings restored · the paired relationship is not fully in the current data view.';
+}
+function restoreRouteState() {
+  const params=new URLSearchParams(location.search);
+  for(const [key,id] of ROUTE_STATE_TEXT) if(params.has(key)) $(id).value=params.get(key);
+  for(const [key,id] of ROUTE_STATE_SELECTS) {
+    const value=params.get(key);
+    if(value!==null && [...$(id).options].some(option=>option.value===value)) $(id).value=value;
+  }
+  for(const [key,id] of ROUTE_STATE_CHECKS) if(params.has(key)) $(id).checked=params.get(key)==='1';
+  return params.get('route')==='1' && Boolean($('routeStartLat').value.trim()&&$('routeStartLon').value.trim()&&$('routeGoalLat').value.trim()&&$('routeGoalLon').value.trim());
+}
+function syncRouteState(fields) {
+  const params=new URLSearchParams(location.search);
+  ROUTE_STATE_KEYS.forEach(key=>params.delete(key));
+  const set=(key,value,defaultValue='')=>{ if(value!==undefined&&value!==null&&String(value)!==''&&String(value)!==defaultValue) params.set(key,String(value)); };
+  set('route_start_lat',fields.start_lat); set('route_start_lon',fields.start_lon); set('route_goal_lat',fields.goal_lat); set('route_goal_lon',fields.goal_lon);
+  set('route_speed',fields.speed_kmh,'50'); set('route_weight',fields.weight_t); set('route_rating',fields.rating_t); set('route_height',fields.height_m); set('route_width',fields.width_m); set('route_length',fields.length_m); set('route_axleload',fields.axleload_t); set('route_departure',fields.departure);
+  set('route_vehicle_class',fields.vehicle_class,'general'); set('route_objective',fields.objective,'distance'); set('route_response',fields.format,'json');
+  if(fields.include_path==='1') params.set('route_path','1'); else params.set('route_path','0');
+  if(fields.include_ferries==='1') params.set('route_ferries','1');
+  if(fields.allow_hgv_destination==='1') params.set('route_hgv_destination','1');
+  params.set('route','1');
+  const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
+}
+function restoreRouteComparisonState() {
+  const params=new URLSearchParams(location.search), profiles=params.get('compare_profiles');
+  [['compare_start_lat','routeStartLat'],['compare_start_lon','routeStartLon'],['compare_goal_lat','routeGoalLat'],['compare_goal_lon','routeGoalLon'],['compare_speed','routeSpeed'],['compare_departure','routeDeparture']].forEach(([key,id])=>{ if(params.has(key)) $(id).value=params.get(key); });
+  if(params.has('compare_objective') && [...$('routeObjective').options].some(option=>option.value===params.get('compare_objective'))) $('routeObjective').value=params.get('compare_objective');
+  if(profiles!==null) $('routeCompareProfiles').value=profiles;
+  if(params.has('compare_path')) $('routeCompareIncludePath').checked=params.get('compare_path')==='1';
+  if(params.has('compare_ferries')) $('routeCompareIncludeFerries').checked=params.get('compare_ferries')==='1';
+  const lines=$('routeCompareProfiles').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  return params.get('compare')==='1' && lines.length>=2 && lines.length<=8 && Boolean($('routeStartLat').value.trim()&&$('routeStartLon').value.trim()&&$('routeGoalLat').value.trim()&&$('routeGoalLon').value.trim());
+}
+function syncRouteComparisonState(fields) {
+  const params=new URLSearchParams(location.search);
+  ROUTE_COMPARE_STATE_KEYS.forEach(key=>params.delete(key));
+  params.set('compare','1');
+  params.set('compare_start_lat',fields.start_lat); params.set('compare_start_lon',fields.start_lon); params.set('compare_goal_lat',fields.goal_lat); params.set('compare_goal_lon',fields.goal_lon);
+  if(fields.speed_kmh) params.set('compare_speed',fields.speed_kmh);
+  if(fields.departure) params.set('compare_departure',fields.departure);
+  if(fields.objective) params.set('compare_objective',fields.objective);
+  params.set('compare_profiles',fields.profiles.join('\n'));
+  params.set('compare_path',fields.include_path==='1'?'1':'0');
+  if(fields.include_ferries==='1') params.set('compare_ferries','1');
+  const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
+}
+function restoreRouteMatrixState() {
+  const params=new URLSearchParams(location.search), origins=params.get('matrix_origins'), destinations=params.get('matrix_destinations');
+  if(origins!==null) $('routeMatrixOrigins').value=origins;
+  if(destinations!==null) $('routeMatrixDestinations').value=destinations;
+  const textFields=[['matrix_speed','routeSpeed'],['matrix_departure','routeDeparture'],['matrix_weight','routeWeight'],['matrix_rating','routeRating'],['matrix_height','routeHeight'],['matrix_width','routeWidth'],['matrix_length','routeLength'],['matrix_axleload','routeAxleload']];
+  textFields.forEach(([key,id])=>{ if(params.has(key)) $(id).value=params.get(key); });
+  if(params.has('matrix_objective') && [...$('routeObjective').options].some(option=>option.value===params.get('matrix_objective'))) $('routeObjective').value=params.get('matrix_objective');
+  if(params.has('matrix_vehicle_class') && [...$('routeVehicleClass').options].some(option=>option.value===params.get('matrix_vehicle_class'))) $('routeVehicleClass').value=params.get('matrix_vehicle_class');
+  if(params.has('matrix_hgv_destination')) $('routeAllowHgvDestination').checked=params.get('matrix_hgv_destination')==='1';
+  if(params.has('matrix_path')) $('routeMatrixIncludePath').checked=params.get('matrix_path')==='1';
+  if(params.has('matrix_ferries')) $('routeMatrixIncludeFerries').checked=params.get('matrix_ferries')==='1';
+  const originLines=$('routeMatrixOrigins').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean), destinationLines=$('routeMatrixDestinations').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  const firstOrigin=originLines[0]?.split(',').map(value=>value.trim()), firstDestination=destinationLines[0]?.split(',').map(value=>value.trim());
+  if(firstOrigin?.length===2) { $('routeStartLat').value=firstOrigin[0]; $('routeStartLon').value=firstOrigin[1]; }
+  if(firstDestination?.length===2) { $('routeGoalLat').value=firstDestination[0]; $('routeGoalLon').value=firstDestination[1]; }
+  return params.get('matrix')==='1' && originLines.length>=1 && destinationLines.length>=1 && originLines.length*destinationLines.length<=25;
+}
+function syncRouteMatrixState(fields) {
+  const params=new URLSearchParams(location.search);
+  ROUTE_MATRIX_STATE_KEYS.forEach(key=>params.delete(key));
+  const set=(key,value)=>{ if(value!==undefined&&value!==null&&String(value)!=='') params.set(key,String(value)); };
+  params.set('matrix','1'); set('matrix_origins',fields.origins.join('\n')); set('matrix_destinations',fields.destinations.join('\n'));
+  set('matrix_speed',fields.speed_kmh); set('matrix_departure',fields.departure); set('matrix_objective',fields.objective); set('matrix_weight',fields.weight_t); set('matrix_rating',fields.rating_t); set('matrix_height',fields.height_m); set('matrix_width',fields.width_m); set('matrix_length',fields.length_m); set('matrix_axleload',fields.axleload_t); set('matrix_vehicle_class',fields.vehicle_class); set('matrix_hgv_destination',fields.allow_hgv_destination==='1'?'1':'0'); set('matrix_path',fields.include_path==='1'?'1':'0');
+  if(fields.include_ferries==='1') params.set('matrix_ferries','1');
+  const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
 }
 function syncViewState() {
   const params=new URLSearchParams(location.search);
@@ -2450,6 +4027,29 @@ function syncViewState() {
   for(const [id,key] of VIEW_CHECKS) { if($(id).checked) params.set(key,'1'); else params.delete(key); }
   if(sortKey!=='score') params.set('sort',sortKey); else params.delete('sort');
   if(!sortDesc) params.set('desc','0'); else params.delete('desc');
+  params.delete('compare_a'); params.delete('compare_b');
+  const compareRows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2);
+  if(compareRows[0]) params.set('compare_a',String(compareRows[0].osm_id));
+  if(compareRows[1]) params.set('compare_b',String(compareRows[1].osm_id));
+  const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
+}
+function syncStudioState(force=false) {
+  const params=new URLSearchParams(location.search), hadStudio=params.get('studio')==='1';
+  STUDIO_STATE_KEYS.forEach(key=>params.delete(key));
+  const values=scenarioValues(), typology=$('typology')?.value||'parliament', season=$('season')?.value||'midsummer', material=$('material')?.value||'stone', grammar=$('grammar')?.value||'radial', rainEvent=values.rainEvent||'design', referenceId=String(studioReferenceData?.osm_id||studioReferenceId||''), pairRows=studioPairData.filter(row=>row&&row.osm_id).slice(0,2), pairA=String(pairRows[0]?.osm_id||studioPairIds[0]||''), pairB=String(pairRows[1]?.osm_id||studioPairIds[1]||'');
+  const active=force||hadStudio||Boolean(referenceId)||Boolean(pairA&&pairB)||selectedEquation!=='phi'||typology!=='parliament'||season!=='midsummer'||material!=='stone'||grammar!=='radial'||rainEvent!=='design'||values.module!==13||values.courtyard!==38||values.bays!==8||values.angle!==137.5||values.density!==60||values.wind!==64||values.rain!==72||values.accessWidth!==1.8||values.phases!==2||values.publicMix!==70||values.levels!==2;
+  if(active) {
+    params.set('studio','1');
+    if(referenceId) params.set('studio_ref',referenceId);
+    if(pairA&&pairB) { params.set('studio_pair_a',pairA); params.set('studio_pair_b',pairB); }
+    params.set('studio_equation',selectedEquation); params.set('studio_typology',typology); params.set('studio_season',season); params.set('studio_material',material); params.set('studio_grammar',grammar); params.set('studio_rain_event',rainEvent);
+    params.set('studio_module',String(values.module)); params.set('studio_courtyard',String(values.courtyard)); params.set('studio_bays',String(values.bays)); params.set('studio_angle',String(values.angle)); params.set('studio_density',String(values.density)); params.set('studio_wind',String(values.wind)); params.set('studio_rain',String(values.rain)); params.set('studio_access',String(values.accessWidth)); params.set('studio_phases',String(values.phases)); params.set('studio_public_mix',String(values.publicMix)); params.set('studio_levels',String(values.levels));
+  }
+  const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
+}
+function syncFocusState(id) {
+  const params=new URLSearchParams(location.search);
+  if(id) params.set('focus',String(id)); else params.delete('focus');
   const query=params.toString(); history.replaceState(null,'',`${location.pathname}${query?`?${query}`:''}${location.hash}`);
 }
 
@@ -2459,7 +4059,7 @@ function matches(row) {
   const hay=[row.name,row.osm_id,row.group,row.subtype,row.address_city,flagsText(row),patternNamesText(row),row.niah.name,row.niah.county,row.niah.type,row.history.status,row.history.architect].join(' ').toLowerCase();
   return (!q || hay.includes(q)) && (!$('group').value || row.group===$('group').value) &&
     (!$('century').value || row.niah.century===$('century').value) && (!$('rating').value || row.niah.rating===$('rating').value) &&
-    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('pattern').value || hasFlag(row,$('pattern').value)) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) &&
+    (!$('niahType').value || row.niah.type===$('niahType').value) && (!$('county').value || (row.spatial?.county||row.niah?.county)===$('county').value) && (!$('pattern').value || hasFlag(row,$('pattern').value)) && (!$('reviewState').value || reviewFilterState(row)===$('reviewState').value) &&
     culturalLensMatches(row,$('cultureLens').value) && row.score >= Number($('score').value) &&
     (!$('onlyAngle').checked || row.has_golden_angle) && (!$('onlyRatio').checked || row.has_golden_ratio) &&
     (!$('onlyCircular').checked || hasFlag(row,'circular')) && (!$('onlyMulti').checked || row.multipart || row.repaired);
@@ -2472,7 +4072,7 @@ function currentFilterParameters() {
   const params=new URLSearchParams();
   const add=(key,value)=>{ if(value!==undefined && value!==null && String(value)!=='') params.set(key,String(value)); };
   add('q',$('query').value.trim()); add('group',$('group').value); add('century',$('century').value);
-  add('rating',$('rating').value); add('type',$('niahType').value); add('review',$('reviewState').value); add('culture',$('cultureLens').value);
+  add('rating',$('rating').value); add('type',$('niahType').value); add('county',$('county').value); add('review',$('reviewState').value); add('culture',$('cultureLens').value);
   if(Number($('score').value)>0) add('score',Number($('score').value));
   for(const [id,key] of VIEW_CHECKS) if($(id).checked) params.set(key,'1');
   add('sort',sortKey==='score'?'':sortKey); if(!sortDesc) params.set('desc','0');
@@ -2480,8 +4080,22 @@ function currentFilterParameters() {
 }
 function hasActiveViewState() { const params=currentFilterParameters(); return !sortDesc || [...params.keys()].some(key=>key!=='desc'); }
 function sortBy(key) { sortDesc=sortKey===key?!sortDesc:key==='score'; sortKey=key; applyFilters(); }
+function runtimeDataIdentity(runtime) {
+  const snapshot=runtime?.snapshot;
+  if(!snapshot || snapshot.available!==true) return '';
+  const manifest=String(snapshot.manifest_sha256||'').trim();
+  if(manifest) return `manifest:${manifest}`;
+  const generated=String(snapshot.generated_at||'').trim();
+  const revision=String(snapshot.git_revision||'').trim();
+  return generated||revision ? `build:${revision}:${generated}` : '';
+}
 function applyRuntime(runtime) {
   if(!runtime || typeof runtime!=='object') return false;
+  const previousRuntime=REPORT_RUNTIME;
+  const previousIdentity=reportRuntimeIdentity || runtimeDataIdentity(previousRuntime);
+  const nextIdentity=runtimeDataIdentity(runtime);
+  if(SERVER_MODE && ((previousIdentity && nextIdentity && previousIdentity!==nextIdentity) || (previousRuntime?.analysis_ready===true && runtime.analysis_ready!==true) || (previousRuntime?.manifest_alignment?.status==='pass' && runtime.manifest_alignment?.status && runtime.manifest_alignment.status!=='pass'))) runtimeReloadRequired=true;
+  reportRuntimeIdentity=nextIdentity || previousIdentity;
   REPORT_RUNTIME=runtime;
   const validation=runtime.validation && typeof runtime.validation==='object' ? runtime.validation : {};
   const alignment=runtime.manifest_alignment && typeof runtime.manifest_alignment==='object' ? runtime.manifest_alignment : {};
@@ -2538,7 +4152,17 @@ function runtimeIdentityText() {
   const dirty=snapshot.git_dirty===true?' · dirty':'';
   return ` · build ${revision.slice(0,12)}${dirty}`;
 }
+function renderRuntimeReloadNotice() {
+  const notice=$('runtimeReloadNotice');
+  if(!notice) return;
+  notice.hidden=!SERVER_MODE || !runtimeReloadRequired;
+  if(!notice.hidden) {
+    const text=$('runtimeReloadText');
+    if(text) text.textContent='The served data changed or became provisional while this report was open. Reload to fetch the current build.';
+  }
+}
 function renderRuntimeStatus() {
+  renderRuntimeReloadNotice();
   const element=$('runtimeStatus');
   if(!element) return;
   if(!SERVER_MODE || !REPORT_RUNTIME) { element.hidden=true; element.textContent=''; element.className='runtime-status'; return; }
@@ -2560,6 +4184,26 @@ function renderRuntimeStatus() {
     ? 'Validated runtime · current output'+identity
     : 'Provisional runtime · '+status+'; validation '+validation+'; manifest '+alignment+'; sources '+source+identity;
 }
+function showReportError(error, prefix='Report request unavailable') {
+  const notice=$('reportLoadError'), text=$('reportLoadErrorText');
+  if(!notice||!text) return;
+  revealReportError();
+  const message=error?.message || String(error || 'unknown error');
+  text.textContent=`${prefix}: ${message}`;
+  notice.hidden=false;
+}
+function revealReportError() {
+  const intro=$('siteIntro');
+  if(intro) { intro.hidden=true; intro.classList.add('is-dismissed'); }
+  document.body.classList.remove('intro-open');
+}
+function hideReportError() {
+  const notice=$('reportLoadError');
+  if(notice) notice.hidden=true;
+}
+function retryReportRequest() {
+  location.reload();
+}
 async function refreshRuntime() {
   if(!SERVER_MODE || runtimePollInFlight) return;
   runtimePollInFlight=true;
@@ -2580,22 +4224,34 @@ function startRuntimeRefresh() {
   if(!SERVER_MODE || runtimePollTimer!==null) return;
   runtimePollTimer=setInterval(refreshRuntime,RUNTIME_REFRESH_MS);
 }
+function reportRequestBody(params, extra={}) {
+  const body={...extra};
+  params.forEach((value,key)=>{
+    if(key==='score'||key==='limit'||key==='offset') body[key]=Number(value);
+    else if(['angle','ratio','circular','multi','desc','initial'].includes(key)) body[key]=value==='1';
+    else body[key]=value;
+  });
+  return body;
+}
 async function fetchServerPage() {
   const requestId=++serverRequestId;
   const params=currentFilterParameters(); params.set('limit',String(PAGE_SIZE)); params.set('offset',String((page-1)*PAGE_SIZE));
   try {
     const endpoint=PACK.endpoints?.page || '/api/report/page';
-    const response=await fetch(`${endpoint}?${params}`);
+    const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(reportRequestBody(params,{initial:false}))});
     const payload=await response.json();
     if(!response.ok) throw new Error(payload.error || `Report page request failed (${response.status})`);
     if(requestId!==serverRequestId) return;
+    hideReportError();
     const runtimeChanged=applyRuntime(payload.runtime);
     DATA=payload.targets || []; filtered=DATA.slice(); pageStats=payload.page || {total:0}; renderAll();
     if(runtimeChanged) { renderInterpretation(); renderStudio(); }
+    restoreFocusedTarget();
   } catch(error) {
     if(requestId!==serverRequestId) return;
+    showReportError(error);
     $('count').textContent=`Report API unavailable: ${error.message}`;
-    $('tbody').innerHTML=''; $('empty').hidden=false;
+    $('tbody').innerHTML=''; $('empty').textContent='No rows are available until the report request succeeds.'; $('empty').hidden=false;
   }
 }
 function applyFilters() {
@@ -2614,8 +4270,492 @@ function renderMethod() {
   if(paragraphs.length<3) return;
   paragraphs[2].innerHTML=`Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.`;
 }
-function renderAll() { renderCultureAtlas(); renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
+function renderAll() { renderFieldAtlas(); renderMathsIndex(); renderCultureAtlas(); renderComparisonTray(); renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
 
+function rowCounty(row) { return String(row.spatial?.county||row.niah?.county||'').trim(); }
+function renderCountyFieldNote() {
+  const note=$('countyFieldNote'), county=$('county')?.value||'';
+  if(!note) return;
+  if(!county) {
+    note.innerHTML='<span>Field note</span><p>Choose a county to open its measured field note. The selector contains every reported county; the chips show the most represented heritage-linked contexts.</p>';
+    return;
+  }
+  const rows=DATA.filter(row=>rowCounty(row)===county);
+  const total=SERVER_MODE?Number(pageStats.total||0):rows.length;
+  const niah=SERVER_MODE?Number(pageStats.matching_niah||0):rows.filter(row=>Boolean(row.niah?.reg_no)).length;
+  const named=rows.filter(row=>row.spatial?.settlement_class==='named_place').length;
+  const ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length;
+  const angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length;
+  const scope=SERVER_MODE?`The lazy view has returned ${rows.length.toLocaleString()} records on this page; the filtered total is ${total.toLocaleString()}.`:`The embedded snapshot contains ${total.toLocaleString()} target footprints in this county.`;
+  const metrics=SERVER_MODE
+    ? `<b>${total.toLocaleString()}</b> targets · <b>${niah.toLocaleString()}</b> NIAH joins`
+    : `<b>${total.toLocaleString()}</b> targets · <b>${niah.toLocaleString()}</b> NIAH · <b>${named.toLocaleString()}</b> named-place contexts · φ ${fmt(ratio/Math.max(1,total)*100,1)}% · θ ${fmt(angle/Math.max(1,total)*100,1)}%`;
+  note.innerHTML=`<span>Field note / ${esc(county)}</span><p>${scope} Use this as a place-specific reading of the snapshot, not a claim that a county has one architectural identity.</p><div class="county-field-metrics">${metrics}</div>`;
+}
+function renderCountyPulse() {
+  const grid=$('countyPulseGrid'), note=$('countyPulseNote');
+  if(!grid) return;
+  const groups=new Map();
+  DATA.forEach(row=>{
+    const county=rowCounty(row);
+    if(!county) return;
+    const item=groups.get(county)||{county,target:0,niah:0,named:0,ratio:0,angle:0};
+    item.target++;
+    if(row.niah?.reg_no) item.niah++;
+    if(row.spatial?.settlement_class==='named_place') item.named++;
+    if(rowHasSignal(row,'golden_ratio')) item.ratio++;
+    if(rowHasSignal(row,'golden_angle')) item.angle++;
+    groups.set(county,item);
+  });
+  const rows=[...groups.values()].sort((a,b)=>b.target-a.target||a.county.localeCompare(b.county));
+  const scope=SERVER_MODE?'current lazy page':'full embedded snapshot', selected=$('county')?.value||'';
+  if(!rows.length) {
+    grid.innerHTML='<span class="footnote">No county context is available in this report view.</span>';
+    if(note) note.textContent=`No county pulse can be drawn from the ${scope}. Clear filters or widen the report view to restore the field.`;
+    return;
+  }
+  const max=Math.max(1,...rows.map(row=>row.target));
+  grid.innerHTML=rows.map(row=>{
+    const ratio=row.ratio/Math.max(1,row.target)*100, angle=row.angle/Math.max(1,row.target)*100, active=row.county===selected, width=Math.max(3,Math.min(100,row.target/max*100)), label=`${row.county}: ${row.target.toLocaleString()} targets; φ ${fmt(ratio,1)}%; θ ${fmt(angle,1)}%; ${row.niah.toLocaleString()} NIAH joins; ${row.named.toLocaleString()} named-place contexts`;
+    return `<button class="county-pulse" type="button" data-county-focus="${esc(row.county)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="county-pulse-top"><span>${esc(row.county)}</span><small>${active?'selected':'field'}</small></span><strong>${row.target.toLocaleString()}</strong><small>φ ${fmt(ratio,1)}% · θ ${fmt(angle,1)}%</small><span class="county-pulse-track" aria-hidden="true"><i style="width:${width}%"></i></span><em>${row.niah.toLocaleString()} NIAH · ${row.named.toLocaleString()} Ainm</em></button>`;
+  }).join('');
+  if(note) note.textContent=`Showing ${rows.length.toLocaleString()} county contexts from the ${scope}; card bars scale to the largest visible target field. φ and θ are target-level screening rates, not evidence of a county-wide architectural identity.`;
+}
+function spatialGroupLabel(value) {
+  const labels={historic:'Historic fabric',worship:'Worship',government:'Government',civic:'Civic'};
+  return labels[String(value||'').toLowerCase()] || String(value||'Other');
+}
+function renderSpatialRhythm() {
+  const grid=$('rhythmGrid'), stat=$('rhythmCount'), title=$('rhythmReadoutTitle'), text=$('rhythmReadoutText');
+  if(!grid) return;
+  const rows=MORAN.filter(row=>String(row.group||'').trim()&&String(row.group)!=='controls'), countyByGroup=new Map(COUNTY_PERM.filter(row=>String(row.signal)==='golden_angle').map(row=>[String(row.group),row])), bootByGroup=new Map(BOOT.filter(row=>String(row.signal)==='golden_angle').map(row=>[String(row.target_group),row])), active=String($('group')?.value||'');
+  if(stat) stat.textContent=rows.length.toLocaleString();
+  if(!rows.length) {
+    grid.innerHTML='<span class="footnote">No spatial rhythm screens are available in this report pack.</span>';
+    if(title) title.textContent='Spatial rhythm is not reported.';
+    if(text) text.textContent='The report pack does not contain a usable neighbour or county-preserving screen.';
+    return;
+  }
+  grid.innerHTML=rows.map(row=>{
+    const group=String(row.group), label=spatialGroupLabel(group), moran=Number(row.moran_i), p=Number(row.p_adjusted||row.p_value), county=countyByGroup.get(group)||{}, boot=bootByGroup.get(group)||{}, delta=Number(county.observed_difference_pp), bootDelta=Number(boot.observed_difference_pp), low=Number(boot.ci_low_pp), high=Number(boot.ci_high_pp), verdict=heritageVerdictLabel(row.verdict), direction=moran>0.005?'neighbour echoes':moran<-.005?'neighbour contrast':'near null', width=Number.isFinite(moran)?Math.max(4,Math.min(100,50+moran*280)):50, countyText=Number.isFinite(delta)?`county Δ ${delta>=0?'+':''}${fmt(delta,2)} pp`:'county Δ n/a', blockText=Number.isFinite(bootDelta)&&Number.isFinite(low)&&Number.isFinite(high)?`block Δ ${bootDelta>=0?'+':''}${fmt(bootDelta,2)} pp [${fmt(low,2)}, ${fmt(high,2)}]`:'block interval n/a', sample=Number(row.n);
+    const aria=`${label}: Moran's I ${fmt(moran,3)}; ${direction}; ${countyText}; ${verdict} screen`;
+    return `<button class="rhythm-card" type="button" data-rhythm-group="${esc(group)}" aria-pressed="${group===active}" aria-label="${esc(aria)}"><span class="rhythm-card-top"><span>${esc(label)}</span><small>${esc(verdict)}</small></span><strong>I ${fmt(moran,3)}</strong><small>${esc(direction)} · adjusted p ${fmt(p,3)}</small><span class="rhythm-track" aria-hidden="true"><i style="width:${width}%"></i></span><em>${esc(countyText)} · ${esc(blockText)}</em><small class="rhythm-card-meta">k=${esc(row.k_neighbours||'—')} · ${Number.isFinite(sample)?sample.toLocaleString():'—'} sampled footprints</small></button>`;
+  }).join('');
+  const focus=rows.find(row=>String(row.group)===active);
+  if(!focus) {
+    if(title) title.textContent=`${rows.length.toLocaleString()} cohorts sit inside the spatial audit.`;
+    if(text) text.textContent='Choose a card to carry its building-group filter into Explore. The cards compare neighbourhood similarity with county-preserving and spatial-block sensitivity screens.';
+    return;
+  }
+  const group=String(focus.group), county=countyByGroup.get(group)||{}, boot=bootByGroup.get(group)||{}, moran=Number(focus.moran_i), p=Number(focus.p_adjusted||focus.p_value), delta=Number(county.observed_difference_pp), bootDelta=Number(boot.observed_difference_pp), low=Number(boot.ci_low_pp), high=Number(boot.ci_high_pp), countyText=Number.isFinite(delta)?`County-preserving golden-angle difference ${delta>=0?'+':''}${fmt(delta,2)} percentage points.`:'County-preserving comparison is not reported.';
+  if(title) title.textContent=`${spatialGroupLabel(group)} / neighbouring field`;
+  if(text) text.textContent=`Moran's I is ${fmt(moran,3)} across the sampled 8-neighbour graph (adjusted p ${fmt(p,3)}). ${countyText} ${Number.isFinite(bootDelta)&&Number.isFinite(low)&&Number.isFinite(high)?`The spatial-block screen is ${bootDelta>=0?'+':''}${fmt(bootDelta,2)} pp with interval ${fmt(low,2)} to ${fmt(high,2)} pp.`:'The spatial-block sensitivity interval is not reported.'} Read this as a situated diagnostic, not as proof of regional style or historical intent.`;
+}
+function scaleRadiusLabel(value) {
+  const meters=Number(value);
+  if(!Number.isFinite(meters)) return '—';
+  return meters>=1000?`${fmt(meters/1000,meters%1000?1:0)} km`:`${fmt(meters,0)} m`;
+}
+function renderScaleField() {
+  const grid=$('scaleGrid'), stat=$('scaleCount'), title=$('scaleReadoutTitle'), text=$('scaleReadoutText');
+  if(!grid) return;
+  const groups=new Map();
+  RIPLEY.forEach(row=>{
+    const group=String(row.group||'').trim();
+    if(!group||group==='controls') return;
+    const rows=groups.get(group)||[];
+    rows.push(row);
+    groups.set(group,rows);
+  });
+  const entries=[...groups.entries()].map(([group,rows])=>[group,rows.slice().sort((a,b)=>Number(a.radius_m)-Number(b.radius_m))]).sort((a,b)=>a[0].localeCompare(b[0])), active=String($('group')?.value||'');
+  if(stat) stat.textContent=entries.reduce((sum,[,rows])=>sum+rows.length,0).toLocaleString();
+  if(!entries.length) {
+    grid.innerHTML='<span class="footnote">No multi-distance spatial scale is available in this report pack.</span>';
+    if(title) title.textContent='Field scale is not reported.';
+    if(text) text.textContent='The report pack does not contain a usable Ripley radius summary.';
+    return;
+  }
+  grid.innerHTML=entries.map(([group,rows])=>{
+    const label=spatialGroupLabel(group), values=rows.map(row=>Number(row.l_minus_r_m)).filter(Number.isFinite), max=Math.max(1,...values), first=rows[0], last=rows[rows.length-1], peak=rows.slice().sort((a,b)=>Number(b.l_minus_r_m)-Number(a.l_minus_r_m))[0], sample=Number(first.n), start=Number(first.l_minus_r_m), end=Number(last.l_minus_r_m), aria=`${label}: ${scaleRadiusLabel(first.radius_m)} ${fmt(start,1)} metres; ${scaleRadiusLabel(last.radius_m)} ${fmt(end,1)} metres; peak at ${scaleRadiusLabel(peak.radius_m)}`;
+    const steps=rows.map(row=>{
+      const radius=Number(row.radius_m), value=Number(row.l_minus_r_m), height=Number.isFinite(value)?Math.max(6,Math.min(100,value/max*100)):6;
+      return `<span class="scale-step"><i style="height:${height}%"></i><small>${esc(scaleRadiusLabel(radius))}</small><b>${Number.isFinite(value)?`${fmt(value/1000,2)} km`:'—'}</b></span>`;
+    }).join('');
+    return `<button class="scale-card" type="button" data-scale-group="${esc(group)}" aria-pressed="${group===active}" aria-label="${esc(aria)}"><span class="scale-card-top"><span>${esc(label)}</span><small>${rows.length} radii</small></span><strong>${Number.isFinite(start)?fmt(start/1000,2):'—'} → ${Number.isFinite(end)?fmt(end/1000,2):'—'} km</strong><span class="scale-steps" role="img" aria-label="${esc(aria)}">${steps}</span><small class="scale-card-meta">peak ${esc(scaleRadiusLabel(peak.radius_m))} · ${Number.isFinite(sample)?sample.toLocaleString():'—'} sampled points</small></button>`;
+  }).join('');
+  const focus=entries.find(([group])=>group===active);
+  if(!focus) {
+    if(title) title.textContent=`${entries.reduce((sum,[,rows])=>sum+rows.length,0).toLocaleString()} radius observations across ${entries.length.toLocaleString()} cohorts.`;
+    if(text) text.textContent='Choose a cohort card to carry its group filter into Explore. Each rail uses its cohort’s own maximum for visual shape; the printed values remain the raw L(r) − r result in metres.';
+    return;
+  }
+  const [group,rows]=focus, first=rows[0], last=rows[rows.length-1], peak=rows.slice().sort((a,b)=>Number(b.l_minus_r_m)-Number(a.l_minus_r_m))[0], firstValue=Number(first.l_minus_r_m), lastValue=Number(last.l_minus_r_m), peakValue=Number(peak.l_minus_r_m), sample=Number(first.n), method=String(first.edge_method||'translation-corrected sampled bounding rectangle');
+  if(title) title.textContent=`${spatialGroupLabel(group)} / six-radius field`;
+  if(text) text.textContent=`At ${scaleRadiusLabel(first.radius_m)}, the reported L(r) − r value is ${fmt(firstValue,1)} m; at ${scaleRadiusLabel(last.radius_m)} it is ${fmt(lastValue,1)} m. The largest reported value is ${fmt(peakValue,1)} m at ${scaleRadiusLabel(peak.radius_m)} across ${Number.isFinite(sample)?sample.toLocaleString():'—'} sampled points. ${method}; the rail is a scale diagnostic, not a significance envelope.`;
+}
+function alignmentPercent(value) {
+  const number=Number(value);
+  return Number.isFinite(number)?`${fmt(number*100,2)}%`:'—';
+}
+function renderAlignmentField() {
+  const grid=$('alignmentGrid'), stat=$('alignmentCount'), title=$('alignmentReadoutTitle'), text=$('alignmentReadoutText');
+  if(!grid) return;
+  const rows=POINT_PATTERN.filter(row=>String(row.group||'').trim()).slice().sort((a,b)=>String(a.group)==='controls'?1:String(b.group)==='controls'?-1:String(a.group).localeCompare(String(b.group))), active=String($('group')?.value||''), groupSelect=$('group');
+  if(stat) stat.textContent=rows.length.toLocaleString();
+  if(!rows.length) {
+    grid.innerHTML='<span class="footnote">No point-pattern orientation screen is available in this report pack.</span>';
+    if(title) title.textContent='Orientation field is not reported.';
+    if(text) text.textContent='The report pack does not contain a usable edge-bearing or nearest-neighbour summary.';
+    return;
+  }
+  grid.innerHTML=rows.map(row=>{
+    const group=String(row.group), label=spatialGroupLabel(group), bearing=Number(row.bearing_golden_frac), bearingNull=Number(row.bearing_golden_null_mean), bearingP=Number(row.bearing_golden_p), turn=Number(row.turn_golden_frac), turnNull=Number(row.turn_golden_null_mean), nn=Number(row.nn_fib_frac), sham=Number(row.nn_sham_frac), nnDelta=Number(row.nn_fib_vs_sham)*100, peak=Number(row.bearing_peak_angle), peakP=Number(row.bearing_peak_p), edges=Number(row.n_edges), turns=Number(row.n_turns), needle=Number.isFinite(peak)?Math.max(-360,Math.min(360,peak)):0, clickable=group!=='controls'&&groupSelect&&[...groupSelect.options].some(option=>option.value===group), action=clickable?`<button class="alignment-action" type="button" data-alignment-group="${esc(group)}" aria-pressed="${group===active}">${group===active?'Selected cohort':'Explore cohort'} <span>→</span></button>`:'<span class="alignment-reference">Reference field · not a target filter</span>';
+    return `<article class="alignment-card"><div><div class="alignment-compass" style="--needle-angle:${needle}deg" aria-hidden="true"></div><span class="alignment-compass-label">peak ${Number.isFinite(peak)?fmt(peak,0):'—'}°</span></div><div class="alignment-card-body"><div class="alignment-card-top"><span>${esc(label)}</span><small>${Number.isFinite(Number(row.n))?Number(row.n).toLocaleString():'—'} rows</small></div><h4>Edges + neighbours</h4><div class="alignment-metrics"><div class="alignment-metric"><span>Golden bearing band</span><strong>${alignmentPercent(bearing)}</strong><small>null ${alignmentPercent(bearingNull)} · p ${fmt(bearingP,3)}</small></div><div class="alignment-metric"><span>Golden turns</span><strong>${alignmentPercent(turn)}</strong><small>null ${alignmentPercent(turnNull)}</small></div><div class="alignment-metric"><span>Fibonacci neighbours</span><strong>${alignmentPercent(nn)}</strong><small>${Number.isFinite(sham)?`sham ${alignmentPercent(sham)} · Δ ${nnDelta>=0?'+':''}${fmt(nnDelta,2)} pp`:'not reported'}</small></div></div><small class="alignment-meta">${Number.isFinite(edges)?edges.toLocaleString():'—'} edges · ${Number.isFinite(turns)?turns.toLocaleString():'—'} turns · peak p ${fmt(peakP,3)}</small>${action}</div></article>`;
+  }).join('');
+  const target=rows.find(row=>String(row.group)==='worship')||rows.find(row=>String(row.group)!=='controls'), reference=rows.find(row=>String(row.group)==='controls');
+  if(!target) {
+    if(title) title.textContent='The point-pattern field is incomplete.';
+    if(text) text.textContent='A target cohort is needed before the orientation screen can be compared with its reference field.';
+    return;
+  }
+  const targetLabel=spatialGroupLabel(target.group), targetBearing=Number(target.bearing_golden_frac), refBearing=Number(reference?.bearing_golden_frac), targetTurn=Number(target.turn_golden_frac), refTurn=Number(reference?.turn_golden_frac), targetNn=Number(target.nn_fib_frac), targetSham=Number(target.nn_sham_frac), bearingDelta=Number.isFinite(targetBearing)&&Number.isFinite(refBearing)?(targetBearing-refBearing)*100:NaN, turnDelta=Number.isFinite(targetTurn)&&Number.isFinite(refTurn)?(targetTurn-refTurn)*100:NaN, nnDelta=Number.isFinite(targetNn)&&Number.isFinite(targetSham)?(targetNn-targetSham)*100:NaN, focus=rows.find(row=>String(row.group)===active);
+  if(title) title.textContent=focus?`${spatialGroupLabel(focus.group)} / orientation screen`:`${targetLabel} / reference field`;
+  if(text) text.textContent=`${targetLabel} carries ${alignmentPercent(targetBearing)} of the screened edge bearings in the golden-angle band versus ${alignmentPercent(refBearing)} in controls (${bearingDelta>=0?'+':''}${fmt(bearingDelta,2)} pp). Its peak bearing is ${fmt(Number(target.bearing_peak_angle),0)}° with screen p ${fmt(Number(target.bearing_peak_p),3)}; golden turns are ${alignmentPercent(targetTurn)} versus ${alignmentPercent(refTurn)} in the reference. ${Number.isFinite(targetNn)&&Number.isFinite(targetSham)?`Nearest-neighbour Fibonacci share is ${alignmentPercent(targetNn)} versus sham ${alignmentPercent(targetSham)} (${nnDelta>=0?'+':''}${fmt(nnDelta,2)} pp).`:''} These are exploratory point-pattern diagnostics, not evidence of conscious angle selection or cultural origin.`;
+}
+function sourceRootLabel(value) {
+  const source=String(value||'');
+  if(source.includes('combined.json')) return 'Community-mapped geometry snapshot';
+  if(source.includes('niah.json')) return 'National heritage inventory snapshot';
+  if(source.includes('architects_evidence.csv')) return 'Validated attribution evidence table';
+  if(source.includes('historical/references.csv')||source.includes('historical\\references.csv')) return 'Optional curated history register';
+  const parts=source.split(/[\\/]/);
+  return parts[parts.length-1]||'Source not named';
+}
+function sourceStatusKind(value) {
+  const status=String(value||'').toLowerCase();
+  return status==='available'||status==='provided'?'available':status==='fallback'?'fallback':'missing';
+}
+function sourceStatusLabel(value) {
+  const kind=sourceStatusKind(value);
+  return kind==='available'?'available':kind==='fallback'?'fallback':'not provided';
+}
+function renderSourceRoots() {
+  const grid=$('sourceGrid'), stat=$('sourceCount'), title=$('sourceReadoutTitle'), text=$('sourceReadoutText');
+  if(!grid) return;
+  const rows=SOURCE_REGISTER.filter(row=>String(row.source_type||'').trim());
+  if(stat) stat.textContent=`${rows.filter(row=>sourceStatusKind(row.status)!=='missing').length}/${rows.length||0}`;
+  if(!rows.length) {
+    grid.innerHTML='<span class="footnote">No source register is available in this report pack.</span>';
+    if(title) title.textContent='Source lineage is not reported.';
+    if(text) text.textContent='The report pack does not contain a source register to place beside the measurements.';
+    return;
+  }
+  grid.innerHTML=rows.map((row,index)=>{
+    const kind=sourceStatusKind(row.status);
+    return `<article class="source-root-card"><div class="source-root-top"><span>${String(index+1).padStart(2,'0')} / lineage</span><span class="source-status ${kind}">${esc(sourceStatusLabel(row.status))}</span></div><h4>${esc(row.source_type)}</h4><p>${esc(sourceRootLabel(row.source))}<br>${esc(row.coverage||'Coverage not reported')}</p><small>${esc(row.notes||'No source note is reported.')}</small></article>`;
+  }).join('');
+  const present=rows.filter(row=>sourceStatusKind(row.status)!=='missing').length, valid=Number(QUALITY_SUMMARY.valid_geometry_pct), duplicate=Number(QUALITY_SUMMARY.duplicate_centroid_n), review=Number(SUMMARY.review_queue_targets);
+  if(title) title.textContent=`${present} of ${rows.length} source families are present in this snapshot.`;
+  if(text) text.textContent=`The register names the evidence lineage before interpretation: ${present} source families are available or provided, while ${rows.length-present} remain explicitly absent. Geometry validity is ${fmt(valid,1)}%; ${Number.isFinite(duplicate)?duplicate.toLocaleString():'—'} duplicate centroids are flagged for review; ${Number.isFinite(review)?review.toLocaleString():'—'} targets sit in the expert review queue.`;
+}
+function trustStatusKind(value) {
+  const status=String(value||'').toLowerCase();
+  if(status==='pass'||status==='passed') return 'pass';
+  if(status==='available'||status==='provided') return 'available';
+  if(status.includes('not_provided')||status.includes('missing')) return 'missing';
+  return 'check';
+}
+function trustStatusLabel(value) {
+  const kind=trustStatusKind(value);
+  return kind==='pass'?'pass':kind==='available'?'available':kind==='missing'?'not provided':'check';
+}
+function renderTrustField() {
+  const grid=$('trustGrid'), stat=$('trustCount'), title=$('trustReadoutTitle'), text=$('trustReadoutText');
+  if(!grid) return;
+  const validation=SUMMARY.validation||{}, records=validation.records||{}, record=name=>records[name]||{}, schema=record('schema_validation'), reproducibility=record('reproducibility'), verification=record('verification'), holdout=HOLDOUT.find(row=>String(row.target_group)==='worship'&&String(row.signal)==='golden_angle')||HOLDOUT[0]||null, calibration=REVIEW_CALIBRATION[0]||{};
+  const core=[schema,reproducibility,verification], passed=core.filter(row=>row.passed===true||trustStatusKind(row.status)==='pass').length;
+  if(stat) stat.textContent=`${passed}/${core.length||3}`;
+  const holdoutStatus=holdout?.status||'not_provided', holdoutDelta=Number(holdout?.risk_difference_pp), holdoutTarget=Number(holdout?.target_rate), holdoutControl=Number(holdout?.control_rate), holdoutP=holdout?.p_value, holdoutGroup=spatialGroupLabel(holdout?.target_group||'target'), holdoutRows=Number(holdout?.target_n), holdoutControls=Number(holdout?.control_n), reviewN=Number(calibration.labelled_n);
+  const cards=[
+    {label:'01 / deterministic check',status:holdoutStatus,title:`${holdoutGroup} θ screen`,value:holdout?`${holdoutDelta>=0?'+':''}${fmt(holdoutDelta,2)} pp`:'not reported',note:holdout?`${fmt(holdoutTarget,2)}% vs ${fmt(holdoutControl,2)}% control · p ${heritagePText(holdoutP)}`:'No holdout result is carried in this pack.',meta:holdout?`${holdoutRows.toLocaleString()} target · ${holdoutControls.toLocaleString()} control rows`:'holdout unavailable'},
+    {label:'02 / artifact contract',status:schema.status||'not_provided',title:'Schema validation',value:schema.passed===true?'pass':'check',note:schema.passed===true?'Report fields match the declared artifact contract.':'The schema record is incomplete or did not pass.',meta:'independent record'},
+    {label:'03 / repeatable ledger',status:reproducibility.status||'not_provided',title:'Reproducibility',value:reproducibility.passed===true?'pass':'check',note:reproducibility.passed===true?'Generated artifacts and hashes remain reproducible for this snapshot.':'The reproducibility record is incomplete or did not pass.',meta:'hash ledger present'},
+    {label:'04 / human calibration',status:calibration.status||'not_provided',title:'Expert review labels',value:Number.isFinite(reviewN)?`${reviewN.toLocaleString()} labelled`:'not reported',note:Number.isFinite(reviewN)&&reviewN>0?'Calibration rows are available beside the score heuristic.':'Explicit expert labels are not supplied; calibration remains open.',meta:'score/100 heuristic'}
+  ];
+  grid.innerHTML=cards.map(card=>{const kind=trustStatusKind(card.status); return `<article class="trust-card ${kind}"><div class="trust-card-top"><span>${esc(card.label)}</span><span class="trust-status ${kind}">${esc(trustStatusLabel(card.status))}</span></div><h4>${esc(card.title)}</h4><strong>${esc(card.value)}</strong><p>${esc(card.note)}</p><small>${esc(card.meta)}</small></article>`;}).join('');
+  if(title) title.textContent=`${passed}/${core.length||3} core validation gates pass; ${HOLDOUT.length.toLocaleString()} holdout results remain visible.`;
+  if(text) text.textContent=holdout?`The ${holdoutGroup.toLowerCase()} holdout is a pre-registered deterministic hash split: ${fmt(holdoutTarget,2)}% of target rows carry the screened angle band versus ${fmt(holdoutControl,2)}% of controls, a ${holdoutDelta>=0?'+':''}${fmt(holdoutDelta,2)} percentage-point difference with unadjusted p ${heritagePText(holdoutP)}. That makes a precise next question—not a finished cultural explanation. ${Number.isFinite(reviewN)&&reviewN>0?'Expert labels are present for calibration.':'Expert labels are still absent from this snapshot.'}`:'No holdout result is reported in this pack; the core artifact gates are shown, but the signal has no independent holdout readout here.';
+}
+function renderMakersField() {
+  const grid=$('makersGrid'), binary=$('makersBinary'), stat=$('makersCount'), note=$('makersNote');
+  if(!grid) return;
+  const names=ARCHITECTS.filter(row=>String(row.architect||'').trim()).slice(0,10), query=String($('query')?.value||'').trim().toLowerCase();
+  if(stat) stat.textContent=ARCHITECTS.filter(row=>String(row.architect||'').trim()).length.toLocaleString();
+  if(binary) binary.innerHTML=ARCHITECTS_BINARY.length
+    ? ARCHITECTS_BINARY.map(row=>{
+        const named=Number(row.named_rate), anonymous=Number(row.anon_rate), difference=named-anonymous, low=Number(row.named_ci_low), high=Number(row.named_ci_high), interval=Number.isFinite(low)&&Number.isFinite(high)?`95% named interval ${fmt(low,1)}–${fmt(high,1)}%`:'interval not reported';
+        return `<article class="makers-binary-card"><span>${esc(String(row.class||'cohort').replaceAll('_',' '))} · named vs unattributed</span><strong>${fmt(named,2)}% vs ${fmt(anonymous,2)}%</strong><p>${difference>=0?'+':''}${fmt(difference,2)} pp · ${esc(interval)} · ${esc(row.method||'two-proportion comparison')}</p></article>`;
+      }).join('')
+    : '<span class="footnote">No named-versus-unattributed comparison is available in this report pack.</span>';
+  if(!names.length) {
+    grid.innerHTML='<span class="footnote">No source-linked architect attributions are available in this report pack.</span>';
+  } else {
+    grid.innerHTML=names.map(row=>{
+      const name=String(row.architect), n=Number(row.n), rate=Number(row.golden_angle_rate), active=query===name.toLowerCase();
+      return `<button class="maker-chip" type="button" data-maker-name="${esc(name)}" aria-pressed="${active}" aria-label="Search the current field for ${esc(name)}"><strong>${esc(name)}</strong><small>${Number.isFinite(n)?n.toLocaleString():'—'} rows · θ ${fmt(rate,2)}% · ${esc(row.note||'exploratory attribution')}</small></button>`;
+    }).join('');
+  }
+  if(note) note.textContent=`The report pack retains ${ARCHITECTS.length.toLocaleString()} named attribution rows. Names are source-linked evidence; small samples and multiple-name testing make the comparison exploratory, and selecting a maker searches the current field rather than asserting authorship.`;
+}
+function heritageCenturyForDecade(value) {
+  const match=String(value||'').match(/^(\d{4})/), year=match?Number(match[1]):NaN;
+  if(!Number.isFinite(year)) return '';
+  if(year<1700) return 'pre-18th';
+  if(year<1800) return '18th';
+  if(year<1900) return '19th';
+  if(year<2000) return '20th';
+  return '21st';
+}
+function heritageVerdictLabel(value) {
+  const text=String(value||'background').toLowerCase();
+  return text==='signal'?'signal':text==='suggestive'?'suggestive':'background';
+}
+function heritagePText(value) {
+  const number=Number(value);
+  if(!Number.isFinite(number)) return 'n/a';
+  if(number<0.0001) return '<0.0001';
+  if(number<0.001) return '<0.001';
+  return number.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
+}
+function renderHeritageTimeline() {
+  const timeline=$('heritageTimeline');
+  if(!timeline) return;
+  const rows=DECADES.filter(row=>String(row.decade||'').trim()).slice().sort((a,b)=>String(a.decade).localeCompare(String(b.decade),undefined,{numeric:true}));
+  if(!rows.length) {
+    timeline.innerHTML='<span class="footnote">No NIAH decade screens are available in this report pack.</span>';
+    return;
+  }
+  const maxRate=Math.max(1,...rows.map(row=>Number(row.golden_rate)||0));
+  timeline.innerHTML=rows.map(row=>{
+    const decade=String(row.decade), rate=Number(row.golden_rate), control=Number(row.era_control_rate), n=Number(row.n_churches), verdict=heritageVerdictLabel(row.verdict), active=decade===heritageEraKey;
+    const width=rate>0?Math.max(2,Math.min(100,rate/maxRate*100)):0;
+    return `<button class="heritage-era" type="button" role="tab" data-heritage-era="${esc(decade)}" aria-selected="${active}" aria-controls="filters"><span class="heritage-era-top"><span>${esc(decade)}</span><small>${verdict}</small></span><strong>${fmt(rate,2)}%</strong><small>${Number.isFinite(n)?n.toLocaleString():'—'} dated rows · vs ${fmt(control,2)}% controls</small><span class="heritage-era-meter" aria-hidden="true"><i style="width:${width}%"></i></span></button>`;
+  }).join('');
+  const selected=rows.find(row=>String(row.decade)===heritageEraKey);
+  const status=$('heritageTimelineStatus'), title=$('heritageTimelineReadoutTitle'), text=$('heritageTimelineReadoutText');
+  if(!selected) {
+    if(status) status.textContent=`${rows.length} decades · NIAH date-matched screen`;
+    if(title) title.textContent='Choose a decade to read the evidence.';
+    if(text) text.textContent='The timeline is a measured comparison surface. Select a decade to carry its century lens into the target table and map.';
+    return;
+  }
+  const decade=String(selected.decade), century=heritageCenturyForDecade(decade), rate=Number(selected.golden_rate), control=Number(selected.era_control_rate), difference=Number(selected.risk_difference), n=Number(selected.n_churches);
+  if(status) status.textContent=`${decade} · ${century||'dated context'} · ${heritageVerdictLabel(selected.verdict)}`;
+  if(title) title.textContent=`${decade} / ${Number.isFinite(n)?n.toLocaleString():'—'} dated rows`;
+  if(text) text.textContent=`Golden-angle screen ${fmt(rate,2)}% vs ${fmt(control,2)}% era-matched controls; risk difference ${fmt(difference,2)} pp; adjusted p ${heritagePText(selected.p_adjusted)}. Select this era to filter the measured field to ${century||'its available century'} context.`;
+}
+function setHeritageEra(key) {
+  const era=DECADES.find(row=>String(row.decade)===String(key));
+  if(!era) return;
+  heritageEraKey=String(era.decade);
+  const century=heritageCenturyForDecade(heritageEraKey), select=$('century');
+  if(select && century && [...select.options].some(option=>option.value===century)) select.value=century;
+  setAtlasNavActive('filters');
+  applyFilters();
+  renderHeritageTimeline();
+  window.setTimeout(()=>$('filters')?.scrollIntoView({behavior:'smooth',block:'start'}),120);
+}
+function heritageTypeLabel(value) {
+  return String(value||'not classified').replaceAll('_',' ').split('/').map(part=>part.trim().replace(/\b\w/g,letter=>letter.toUpperCase())).join(' / ');
+}
+function renderHeritageTypology() {
+  const grid=$('heritageTypeGrid'), status=$('heritageTypeStatus'), title=$('heritageTypeReadoutTitle'), text=$('heritageTypeReadoutText');
+  if(!grid) return;
+  const groups=new Map();
+  DATA.forEach(row=>{
+    const niah=row.niah||{}, type=String(niah.type||'').trim();
+    if(!type||!String(niah.reg_no||'').trim()) return;
+    const item=groups.get(type)||{type,n:0,angle:0,ratio:0,circularity:0,circularityN:0,groups:new Map(),ratings:new Map()};
+    item.n+=1;
+    if(rowHasSignal(row,'golden_angle')) item.angle+=1;
+    if(rowHasSignal(row,'golden_ratio')) item.ratio+=1;
+    const circularity=Number(row.circularity);
+    if(Number.isFinite(circularity)){ item.circularity+=circularity; item.circularityN+=1; }
+    const group=String(row.group||'unknown'), rating=String(niah.rating||'not rated');
+    item.groups.set(group,(item.groups.get(group)||0)+1);
+    item.ratings.set(rating,(item.ratings.get(rating)||0)+1);
+    groups.set(type,item);
+  });
+  const all=[...groups.values()].sort((a,b)=>b.n-a.n||a.type.localeCompare(b.type)), rows=all.slice(0,8), active=String($('niahType')?.value||''), scope=SERVER_MODE?'current lazy page':'full embedded snapshot';
+  if(status) status.textContent=`${all.length.toLocaleString()} visible types · ${scope}`;
+  if(!rows.length){
+    grid.innerHTML='<span class="footnote">No NIAH-linked building types are available in this report view.</span>';
+    if(title) title.textContent='Heritage typology is not reported.';
+    if(text) text.textContent='The current report view has no NIAH type rows from which to draw a building-type comparison.';
+    return;
+  }
+  const max=Math.max(1,...rows.map(row=>row.n));
+  grid.innerHTML=rows.map((row,index)=>{
+    const angleRate=row.angle/row.n*100, ratioRate=row.ratio/row.n*100, compactness=row.circularityN?row.circularity/row.circularityN:NaN, dominant=[...row.groups.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]||'unknown', rating=[...row.ratings.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]||'not rated', typeLabel=heritageTypeLabel(row.type), selected=row.type===active, width=Math.max(2,Math.min(100,row.n/max*100)), label=`${typeLabel}: ${row.n} NIAH-linked rows; golden angle ${fmt(angleRate,2)} percent; golden ratio ${fmt(ratioRate,2)} percent; mean circularity ${fmt(compactness,3)}`;
+    return `<button class="heritage-type-card" type="button" data-heritage-type="${esc(row.type)}" aria-pressed="${selected}" aria-label="${esc(label)}"><span class="heritage-type-card-top"><span>${String(index+1).padStart(2,'0')} / NIAH type</span><small>${row.n.toLocaleString()} rows</small></span><h4>${esc(typeLabel)}</h4><strong>θ ${fmt(angleRate,2)}%</strong><div class="heritage-type-metrics"><span><small>φ screen</small><b>${fmt(ratioRate,2)}%</b></span><span><small>mean C</small><b>${fmt(compactness,3)}</b></span><span><small>main group</small><b>${esc(heritageTypeLabel(dominant))}</b></span></div><span class="heritage-type-track" aria-hidden="true"><i style="width:${width}%"></i></span><em>${esc(rating)} · select to filter Explore</em></button>`;
+  }).join('');
+  const focus=all.find(row=>row.type===active)||null;
+  if(!focus){
+    if(title) title.textContent=`Top ${rows.length.toLocaleString()} of ${all.length.toLocaleString()} NIAH types.`;
+    if(text) text.textContent=`The cards rank ${scope} by NIAH-linked row count. Each card keeps the source type beside the target-level golden-angle (θ), golden-ratio (φ), circularity (C), and dominant mapped cohort screens.`;
+    return;
+  }
+  const angleRate=focus.angle/focus.n*100, ratioRate=focus.ratio/focus.n*100, compactness=focus.circularityN?focus.circularity/focus.circularityN:NaN, dominant=[...focus.groups.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]||'unknown', rating=[...focus.ratings.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]||'not rated', typeLabel=heritageTypeLabel(focus.type);
+  if(title) title.textContent=`${typeLabel} / ${focus.n.toLocaleString()} joined rows`;
+  if(text) text.textContent=`Within the ${scope}, ${typeLabel.toLowerCase()} rows carry θ ${fmt(angleRate,2)}% and φ ${fmt(ratioRate,2)}% screens, with mean circularity C ${fmt(compactness,3)}. The dominant mapped cohort is ${heritageTypeLabel(dominant)} and the most common NIAH rating is ${rating}. Select the card again to clear the type filter.`;
+}
+function setHeritageType(key) {
+  const select=$('niahType');
+  if(!select||!key||![...select.options].some(option=>option.value===key)) return;
+  select.value=select.value===key?'':key;
+  heritageEraKey='';
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderPlaceBraid() {
+  const grid=$('placeBraidGrid'), status=$('placeBraidStatus'), title=$('placeBraidReadoutTitle'), text=$('placeBraidReadoutText');
+  if(!grid) return;
+  const groups=new Map();
+  DATA.forEach(row=>{
+    const niah=row.niah||{}, county=rowCounty(row), type=String(niah.type||'').trim();
+    if(!county||!type||!String(niah.reg_no||'').trim()) return;
+    const item=groups.get(county)||{county,n:0,angle:0,ratio:0,types:new Map()};
+    item.n+=1;
+    if(rowHasSignal(row,'golden_angle')) item.angle+=1;
+    if(rowHasSignal(row,'golden_ratio')) item.ratio+=1;
+    const typeStats=item.types.get(type)||{n:0,angle:0,ratio:0};
+    typeStats.n+=1;
+    if(rowHasSignal(row,'golden_angle')) typeStats.angle+=1;
+    if(rowHasSignal(row,'golden_ratio')) typeStats.ratio+=1;
+    item.types.set(type,typeStats);
+    groups.set(county,item);
+  });
+  const all=[...groups.values()].sort((a,b)=>b.n-a.n||a.county.localeCompare(b.county)), rows=all.slice(0,6), activeCounty=String($('county')?.value||''), activeType=String($('niahType')?.value||''), scope=SERVER_MODE?'current lazy page':'full embedded snapshot';
+  if(status) status.textContent=`${all.length.toLocaleString()} county fields · ${scope}`;
+  if(!rows.length){
+    grid.innerHTML='<span class="footnote">No county/type braid is available in this report view.</span>';
+    if(title) title.textContent='County/type field is not reported.';
+    if(text) text.textContent='The current view has no NIAH-linked rows with both county and building-type context.';
+    return;
+  }
+  const max=Math.max(1,...rows.map(row=>row.n));
+  grid.innerHTML=rows.map((row,index)=>{
+    const angleRate=row.angle/row.n*100, ratioRate=row.ratio/row.n*100, selected=row.county===activeCounty, width=Math.max(3,Math.min(100,row.n/max*100)), typeRows=[...row.types.entries()].sort((a,b)=>b[1].n-a[1].n||a[0].localeCompare(b[0])).slice(0,3), typeSummary=typeRows.map(([type,value])=>`${heritageTypeLabel(type)} (${value.n})`).join(', '), label=`${row.county}: ${row.n} NIAH-linked typed rows; golden angle ${fmt(angleRate,2)} percent; golden ratio ${fmt(ratioRate,2)} percent; leading types ${typeSummary}`;
+    const typeButtons=typeRows.map(([type,value])=>{ const typeActive=selected&&type===activeType, typeLabel=heritageTypeLabel(type), typeAngle=value.angle/value.n*100; return `<button class="place-braid-type" type="button" data-braid-county="${esc(row.county)}" data-braid-type="${esc(type)}" aria-pressed="${typeActive}" aria-label="${esc(`${row.county} / ${typeLabel}: ${value.n} rows; golden-angle ${fmt(typeAngle,2)} percent`)}"><span>${esc(typeLabel)}</span><small>${value.n.toLocaleString()} · θ ${fmt(typeAngle,1)}%</small></button>`; }).join('');
+    return `<article class="place-braid-card"><button class="place-braid-county" type="button" data-braid-county="${esc(row.county)}" aria-pressed="${selected}" aria-label="${esc(label)}"><span class="place-braid-county-top"><span>${String(index+1).padStart(2,'0')} / county braid</span><small>${selected?'selected':'field'}</small></span><strong>${esc(row.county)}</strong><small>${row.n.toLocaleString()} NIAH-linked typed rows</small></button><div class="place-braid-metrics"><span><small>θ screen</small><b>${fmt(angleRate,2)}%</b></span><span><small>φ screen</small><b>${fmt(ratioRate,2)}%</b></span><span><small>field share</small><b>${fmt(row.n/max*100,1)}%</b></span></div><span class="place-braid-track" aria-hidden="true"><i style="width:${width}%"></i></span><div class="place-braid-types" aria-label="Leading NIAH types in ${esc(row.county)}">${typeButtons||'<span class="footnote">No leading types reported.</span>'}</div></article>`;
+  }).join('');
+  const focus=all.find(row=>row.county===activeCounty)||null;
+  if(!focus){
+    if(title) title.textContent=`Top ${rows.length.toLocaleString()} of ${all.length.toLocaleString()} county fields.`;
+    if(text) text.textContent=`The braid ranks ${scope} by NIAH-linked typed rows. Each county keeps its φ/θ screen rates beside its leading building types; choose a county or a type chip to return to Explore.`;
+    return;
+  }
+  const focusTypes=[...focus.types.entries()].sort((a,b)=>b[1].n-a[1].n||a[0].localeCompare(b[0])).slice(0,3).map(([type,value])=>`${heritageTypeLabel(type)} ${value.n.toLocaleString()}`).join(' · ');
+  if(title) title.textContent=`${focus.county} / ${focus.n.toLocaleString()} typed rows`;
+  if(text) text.textContent=`Within the ${scope}, ${focus.county} contributes ${focus.n.toLocaleString()} NIAH-linked typed rows. Its screens are θ ${fmt(focus.angle/focus.n*100,2)}% and φ ${fmt(focus.ratio/focus.n*100,2)}%; leading types are ${focusTypes}. ${activeType?`The current type lens is ${heritageTypeLabel(activeType)}.`:'Choose a type chip to braid county and building type together.'}`;
+}
+function setPlaceBraidType(county,type) {
+  const countySelect=$('county'), typeSelect=$('niahType');
+  if(!countySelect||!typeSelect||![...countySelect.options].some(option=>option.value===county)||![...typeSelect.options].some(option=>option.value===type)) return;
+  const selected=countySelect.value===county&&typeSelect.value===type;
+  countySelect.value=selected?'':county;
+  typeSelect.value=selected?'':type;
+  heritageEraKey='';
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+const LAND_GROUP_LABELS = {historic:'Historic fabric',worship:'Worship',government:'Government',civic:'Civic',controls:'Controls'};
+function landGroupLabel(value) { return LAND_GROUP_LABELS[String(value||'').toLowerCase()] || String(value||'Other'); }
+function landStatusLabel(value) { return String(value||'not reported').replaceAll('_',' '); }
+function renderLandField() {
+  const grid=$('landGroupGrid'), readout=$('landFieldReadout'), densityPanel=$('landDensityPanel'), sourcePanel=$('landSourcePanel');
+  if(!grid) return;
+  const order=['historic','worship','government','civic','controls'];
+  const rows=ROAD_PROXIMITY.filter(row=>row?.group && Number.isFinite(Number(row.mean_distance_m))).slice().sort((a,b)=>{
+    const ai=order.indexOf(String(a.group)), bi=order.indexOf(String(b.group));
+    return (ai<0?order.length:ai)-(bi<0?order.length:bi);
+  });
+  if(!rows.length) {
+    grid.innerHTML='<span class="footnote">No nearest-road context is available in this report pack.</span>';
+    if(readout) readout.innerHTML='<span>Current field / road proximity</span><strong>Land context not reported.</strong><p>The report pack does not contain a usable road-proximity sample.</p>';
+  } else {
+    const max=Math.max(1,...rows.map(row=>Math.max(Number(row.mean_distance_m)||0,Number(row.p90_distance_m)||0)));
+    const active=$('group')?.value||'';
+    grid.innerHTML=rows.map(row=>{
+      const group=String(row.group), mean=Number(row.mean_distance_m), p90=Number(row.p90_distance_m), within=Number(row.within_25m_pct), sample=Number(row.sample_n), clickable=group!=='controls'&&[...$('group').options].some(option=>option.value===group), width=mean>0?Math.max(2,Math.min(100,mean/max*100)):0;
+      return `<button class="land-group" type="button" data-land-group="${esc(group)}" aria-pressed="${group===active}"${clickable?'':' disabled'}><span class="land-group-top"><span>${esc(landGroupLabel(group))}</span><small>${group==='controls'?'reference':'target'}</small></span><strong>${fmt(mean,1)} m</strong><small>mean nearest road · ${fmt(within,1)}% within 25 m</small><span class="land-group-track" aria-hidden="true"><i style="width:${width}%"></i></span><span class="land-group-meta">${Number.isFinite(sample)?sample.toLocaleString():'—'} sampled centroids · p90 ${fmt(p90,1)} m</span></button>`;
+    }).join('');
+    if(readout) {
+      const targetRows=rows.filter(row=>String(row.group)!=='controls'), candidates=targetRows.length?targetRows:rows;
+      const closest=candidates.slice().sort((a,b)=>Number(a.mean_distance_m)-Number(b.mean_distance_m))[0], sample=candidates.reduce((sum,row)=>sum+(Number(row.sample_n)||0),0), method=rows.find(row=>row.method)?.method||'nearest mapped drivable-road geometry';
+      readout.innerHTML=`<span>Current field / road proximity</span><strong>${esc(landGroupLabel(closest.group))} sits closest in the sampled mean.</strong><p>${Number.isFinite(sample)?sample.toLocaleString():'Several'} target/reference centroids · shortest target mean ${fmt(closest.mean_distance_m,1)} m. ${esc(method)}.</p>`;
+    }
+  }
+  if(densityPanel) {
+    const bins=['high','medium','low','sparse','unknown'], counts=Object.fromEntries(bins.map(bin=>[bin,0]));
+    DATA.forEach(row=>{ const bin=String(row.spatial?.mapping_density_bin||'unknown').toLowerCase(); counts[Object.prototype.hasOwnProperty.call(counts,bin)?bin:'unknown']++; });
+    const maxCount=Math.max(1,...Object.values(counts)), density=SPATIAL_COVARIATES.find(row=>row.covariate==='mapping_density'), scope=SERVER_MODE?'current lazy page':'full embedded snapshot';
+    densityPanel.innerHTML=`<span>Mapping density / field texture</span><strong>${DATA.length.toLocaleString()} visible footprints · ${esc(scope)}</strong><p>${esc(landStatusLabel(density?.status||'not_provided'))} source; bins describe mapped coverage, not settlement quality or landscape value.</p><div class="land-density-bars">${bins.map(bin=>`<div class="land-density-row"><span>${esc(bin)}</span><span class="land-density-track" aria-hidden="true"><i style="width:${counts[bin]?Math.max(2,counts[bin]/maxCount*100):0}%"></i></span><b>${counts[bin].toLocaleString()}</b></div>`).join('')}</div>`;
+  }
+  if(sourcePanel) {
+    const statuses=SUMMARY.source_status||{}, method=rows.find(row=>row.method)?.method||'nearest mapped drivable-road geometry';
+    sourcePanel.innerHTML=`<span>Evidence boundary</span><p>Road sample: <b>${esc(landStatusLabel(statuses.routing||'not_reported'))}</b> · settlement layer: <b>${esc(landStatusLabel(statuses.settlements||'not_reported'))}</b> · boundaries: <b>${esc(landStatusLabel(statuses.administrative_boundaries||'not_reported'))}</b>.</p><p>${esc(method)}; this is centroid proximity, not route distance, topography, ecology, or proof of how a place was designed.</p>`;
+  }
+}
+function setLandGroup(group) {
+  const select=$('group');
+  if(!select||String(group)==='controls'||![...select.options].some(option=>option.value===group)) return;
+  select.value=select.value===group?'':group;
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderPlaceNameField() {
+  const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote');
+  if(!chips) return;
+  const counts=new Map();
+  DATA.forEach(row=>{
+    if(row.spatial?.settlement_class!=='named_place') return;
+    const name=String(row.spatial?.settlement_name||row.address_city||'').trim();
+    if(name) counts.set(name,(counts.get(name)||0)+1);
+  });
+  const entries=[...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+  const scope=SERVER_MODE?'current lazy page':'full embedded snapshot', query=String($('query')?.value||'').trim().toLowerCase();
+  if(stat) stat.innerHTML=`<strong>${entries.length.toLocaleString()}</strong><small>unique named contexts · ${esc(scope)}</small>`;
+  if(!entries.length) {
+    chips.innerHTML='<span class="footnote">No named settlement contexts are available in this report view.</span>';
+    if(note) note.textContent='The current report view has no named-place rows. Clear filters or use the embedded snapshot to widen the field.';
+    return;
+  }
+  chips.innerHTML=entries.slice(0,18).map(([name,count])=>`<button class="place-name-chip" type="button" data-place-name="${esc(name)}" aria-pressed="${query===name.toLowerCase()}"><span>${esc(name)}</span><small>${count.toLocaleString()}</small></button>`).join('');
+  const status=SUMMARY.source_status?.settlements||'not_reported';
+  if(note) note.textContent=`Showing the most represented named contexts in the ${scope}. Settlement source status: ${landStatusLabel(status)}. Selecting a name sets the existing text query; the label is a context cue, not an etymological reading.`;
+}
+function setPlaceName(name) {
+  const input=$('query');
+  if(!input||!name) return;
+  input.value=input.value.trim().toLowerCase()===String(name).toLowerCase()?'':String(name);
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function setMakerQuery(name) {
+  const input=$('query');
+  if(!input||!name) return;
+  input.value=input.value.trim().toLowerCase()===String(name).toLowerCase()?'':String(name);
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function setRhythmGroup(group) {
+  const select=$('group');
+  if(!select||!group||![...select.options].some(option=>option.value===group)) return;
+  select.value=select.value===group?'':group;
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function renderCultureAtlas() {
   const culture=SUMMARY.culture || {};
   const total=Math.max(1,Number(SUMMARY.targets||0));
@@ -2627,8 +4767,28 @@ function renderCultureAtlas() {
   set('cultureSharedLifeCount',count(culture.shared_life));
   set('cultureCivicLifeCount',count(culture.civic_life));
   set('cultureCountyCount',count(culture.county_contexts));
-  const top=Object.entries(culture.top_counties || {}).map(([name,value])=>name+' '+count(value));
+  const topEntries=Object.entries(culture.top_counties || {});
+  const top=topEntries.map(([name,value])=>name+' '+count(value));
   set('cultureTopCounties',top.length ? 'Most represented heritage-linked contexts in this pack: '+top.join(' · ')+'.' : 'County context is not available in this report pack.');
+  const selectedCounty=$('county')?.value||'';
+  set('countyFieldStatus',selectedCounty||'All counties');
+  const countyChips=$('countyChips');
+  if(countyChips) countyChips.innerHTML=topEntries.length
+    ? topEntries.map(([name,value])=>`<button class="county-chip" type="button" data-county-focus="${esc(name)}" aria-pressed="${name===selectedCounty}">${esc(name)} · ${count(value)}</button>`).join('')
+    : '<span class="footnote">No county contexts are available in this report pack.</span>';
+  renderCountyFieldNote();
+  renderCountyPulse();
+  renderSpatialRhythm();
+  renderScaleField();
+  renderAlignmentField();
+  renderSourceRoots();
+  renderTrustField();
+  renderMakersField();
+  renderHeritageTimeline();
+  renderHeritageTypology();
+  renderPlaceBraid();
+  renderLandField();
+  renderPlaceNameField();
   document.querySelectorAll('.culture-focus').forEach(button=>{
     const active=button.dataset.cultureFocus===$('cultureLens')?.value;
     button.setAttribute('aria-pressed',String(active));
@@ -2645,6 +4805,8 @@ function renderSummary() {
   $('kNiah').textContent=niah.toLocaleString();
   $('kPatterns').textContent=PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString();
   $('count').textContent=`${total.toLocaleString()} matching targets · showing up to ${PAGE_SIZE} per page`;
+  const activeCounty=$('county')?.value;
+  $('activeCounty').textContent=activeCounty?`County: ${activeCounty}`:'';
  $('activePattern').textContent=$('pattern').value?`Pattern: ${patternLabel($('pattern').value)}`:'';
   const activeCulture=$('cultureLens')?.value;
   $('activeCulture').textContent=activeCulture?`Culture: ${CULTURE_LENS_LABELS[activeCulture]||activeCulture}`:'';
@@ -2672,8 +4834,13 @@ function setCultureFilter(key) {
   applyFilters();
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
+function setCountyFilter(key) {
+  $('county').value=$('county').value===key?'':key;
+  applyFilters();
+  $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
 function quickViewBaseIsNeutral() {
-  return !$('query').value.trim() && !$('group').value && !$('century').value && !$('rating').value && !$('niahType').value && !$('pattern').value && !$('reviewState').value && !$('onlyRatio').checked && !$('onlyCircular').checked && !$('onlyMulti').checked;
+  return !$('query').value.trim() && !$('group').value && !$('century').value && !$('rating').value && !$('niahType').value && !$('county').value && !$('pattern').value && !$('reviewState').value && !$('onlyRatio').checked && !$('onlyCircular').checked && !$('onlyMulti').checked;
 }
 function currentQuickView() {
   if(!quickViewBaseIsNeutral()) return '';
@@ -2693,6 +4860,7 @@ function renderQuickViews() {
 }
 function applyQuickView(key) {
   if(key==='all') { clearAllFilters(); $('filters')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  heritageEraKey='';
   $('query').value='';
   for(const [id] of VIEW_SELECTS) $(id).value='';
   for(const [id] of VIEW_CHECKS) $(id).checked=false;
@@ -2703,6 +4871,7 @@ function applyQuickView(key) {
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function clearAllFilters() {
+  heritageEraKey='';
   $('query').value='';
   for(const [id] of VIEW_SELECTS) $(id).value='';
   for(const [id] of VIEW_CHECKS) $(id).checked=false;
@@ -2711,17 +4880,55 @@ function clearAllFilters() {
 document.addEventListener('click',event=>{
   const quick=event.target.closest?.('button.quick-view');
   if(quick) { applyQuickView(quick.dataset.quickView); return; }
+  const maths=event.target.closest?.('button.maths-card');
+  if(maths) { selectMathCard(maths.dataset.mathKey); return; }
+  const heritageEra=event.target.closest?.('button[data-heritage-era]');
+  if(heritageEra?.dataset.heritageEra) { setHeritageEra(heritageEra.dataset.heritageEra); return; }
+  const heritageType=event.target.closest?.('button[data-heritage-type]');
+  if(heritageType?.dataset.heritageType) { setHeritageType(heritageType.dataset.heritageType); return; }
+  const braidType=event.target.closest?.('button[data-braid-type]');
+  if(braidType?.dataset.braidCounty&&braidType?.dataset.braidType) { setPlaceBraidType(braidType.dataset.braidCounty,braidType.dataset.braidType); return; }
+  const braidCounty=event.target.closest?.('button[data-braid-county]');
+  if(braidCounty?.dataset.braidCounty) { setCountyFilter(braidCounty.dataset.braidCounty); return; }
   const card=event.target.closest?.('button.pattern-card');
   if(card) { setPatternFilter(card.dataset.pattern); return; }
   const culture=event.target.closest?.('button.culture-focus');
   if(culture) { setCultureFilter(culture.dataset.cultureFocus); return; }
+  const county=event.target.closest?.('button[data-county-focus]');
+  if(county?.dataset.countyFocus) { setCountyFilter(county.dataset.countyFocus); return; }
+  const rhythm=event.target.closest?.('button[data-rhythm-group]');
+  if(rhythm?.dataset.rhythmGroup) { setRhythmGroup(rhythm.dataset.rhythmGroup); return; }
+  const scale=event.target.closest?.('button[data-scale-group]');
+  if(scale?.dataset.scaleGroup) { setRhythmGroup(scale.dataset.scaleGroup); return; }
+  const alignment=event.target.closest?.('button[data-alignment-group]');
+  if(alignment?.dataset.alignmentGroup) { setRhythmGroup(alignment.dataset.alignmentGroup); return; }
+  const land=event.target.closest?.('button[data-land-group]');
+  if(land?.dataset.landGroup && !land.disabled) { setLandGroup(land.dataset.landGroup); return; }
+  const maker=event.target.closest?.('button[data-maker-name]');
+  if(maker?.dataset.makerName) { setMakerQuery(maker.dataset.makerName); return; }
+  const placeName=event.target.closest?.('button[data-place-name]');
+  if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
+  const carry=event.target.closest?.('#carrySelectionToStudio');
+  if(carry?.dataset.carryStudio) { carrySelectionToStudio(carry.dataset.carryStudio); return; }
+  const addCompare=event.target.closest?.('#addSelectionCompare');
+  if(addCompare?.dataset.compareTarget) { addComparisonTarget(addCompare.dataset.compareTarget); return; }
+  const removeCompare=event.target.closest?.('button[data-compare-remove]');
+  if(removeCompare?.dataset.compareRemove) { removeComparisonTarget(removeCompare.dataset.compareRemove); return; }
+  if(event.target.closest?.('#copyComparisonLink')) { copyComparisonLink(); return; }
+  if(event.target.closest?.('#clearComparison')) { clearComparison(); return; }
   const selectionCulture=event.target.closest?.('button[data-selection-culture]');
   if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
+  const contextFocus=event.target.closest?.('button[data-context-focus]');
+  if(contextFocus?.dataset.contextFocus) { focusRow(contextFocus.dataset.contextFocus,{scroll:true,openPopup:false}); return; }
+  if(event.target.closest?.('#copySelectionLink')) { copySelectionLink(); return; }
   if(event.target.closest?.('#clearSelection')) { clearSelection(); return; }
   if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
   if(event.target.closest?.('#clearFilters')) { clearAllFilters(); }
 });
-document.addEventListener('change',event=>{ if(event.target?.id==='pattern'||event.target?.id==='cultureLens') queueFilters(); });
+document.addEventListener('change',event=>{
+  if(event.target?.id==='century') { heritageEraKey=''; renderHeritageTimeline(); }
+  if(event.target?.id==='pattern'||event.target?.id==='cultureLens'||event.target?.id==='county'||event.target?.id==='century') queueFilters();
+});
 document.addEventListener('keydown',event=>{ if(event.key==='Escape'&&!$('selectionCard')?.hidden) clearSelection(); });
 function interpretationStatusClass(value) { return String(value||'not_reported').toLowerCase().replace(/[^a-z0-9_-]/g,'_'); }
 function renderInterpretation() {
@@ -2762,6 +4969,325 @@ function selectionGeometryText(row) {
   const labels=flags.slice(0,3).map(patternLabel);
   return labels.join(' · ')+(flags.length>3?` · +${flags.length-3} more`:'');
 }
+function selectionMathText(row) {
+  const fourier=[row.fourier_1,row.fourier_2,row.fourier_3,row.fourier_4].map(value=>fmt(value,3)).join(' / ');
+  return [`A ${fmt(row.area_m2,1)} m²`,`P ${fmt(row.perimeter_m,1)} m`,`l×w ${fmt(row.length_m,1)} × ${fmt(row.width_m,1)} m`,`r ${fmt(row.aspect_ratio,3)}`,`C ${fmt(row.circularity,3)}`,`R ${fmt(row.rectangularity,3)}`,`σᵣ/μᵣ ${fmt(row.radial_cv,3)}`,`F₁…₄ ${fourier}`].join(' · ');
+}
+function geometryOuterRing(feature) {
+  const geometry=feature?.geometry;
+  if(!geometry) return [];
+  const candidates=geometry.type==='Polygon' ? [geometry.coordinates?.[0]] : geometry.type==='MultiPolygon' ? (geometry.coordinates||[]).map(polygon=>polygon?.[0]) : [];
+  return candidates.filter(ring=>Array.isArray(ring)&&ring.length>=3).sort((a,b)=>b.length-a.length)[0]||[];
+}
+function drawSelectionFingerprint(row) {
+  const canvas=$('selectionFingerprint'), label=$('selectionFingerprintLabel'), text=$('selectionFingerprintText'), note=$('selectionFingerprintNote');
+  if(!canvas) return;
+  const ctx=canvas.getContext?.('2d');
+  if(!ctx) {
+    if(label) label.textContent='Boundary fingerprint unavailable';
+    if(text) text.textContent='This browser cannot render the normalized canvas view; the measured descriptors remain available below.';
+    return;
+  }
+  const width=canvas.width, height=canvas.height, pad=18;
+  ctx.clearRect(0,0,width,height);
+  ctx.fillStyle='#fbf7ee'; ctx.fillRect(0,0,width,height);
+  ctx.strokeStyle='rgba(53,108,105,.12)'; ctx.lineWidth=1;
+  for(let x=pad;x<width-pad;x+=Math.max(34,(width-pad*2)/5)){ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,height-pad);ctx.stroke();}
+  for(let y=pad;y<height-pad;y+=Math.max(28,(height-pad*2)/4)){ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(width-pad,y);ctx.stroke();}
+  ctx.strokeStyle='rgba(191,91,69,.42)'; ctx.setLineDash([5,5]); ctx.beginPath(); ctx.moveTo(width/2,pad); ctx.lineTo(width/2,height-pad); ctx.stroke(); ctx.beginPath(); ctx.moveTo(pad,height/2); ctx.lineTo(width-pad,height/2); ctx.stroke(); ctx.setLineDash([]);
+  const feature=GEOJSON_BY_ID.get(String(row.osm_id)), ring=geometryOuterRing(feature), points=ring.filter(pair=>Array.isArray(pair)&&pair.length>=2&&Number.isFinite(Number(pair[0]))&&Number.isFinite(Number(pair[1]))).map(pair=>[Number(pair[0]),Number(pair[1])]);
+  if(points.length>=3) {
+    const xs=points.map(pair=>pair[0]), ys=points.map(pair=>pair[1]), minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys), rangeX=Math.max(1e-12,maxX-minX), rangeY=Math.max(1e-12,maxY-minY), scale=Math.min((width-pad*2)/rangeX,(height-pad*2)/rangeY), usedW=rangeX*scale, usedH=rangeY*scale, left=(width-usedW)/2, top=(height-usedH)/2, project=pair=>[left+(pair[0]-minX)*scale,top+(maxY-pair[1])*scale], projected=points.map(project);
+    ctx.save(); ctx.setLineDash([5,4]); ctx.strokeStyle='#d0a34c'; ctx.lineWidth=1; ctx.strokeRect(left,top,usedW,usedH); ctx.restore();
+    ctx.beginPath(); projected.forEach((point,index)=>index?ctx.lineTo(point[0],point[1]):ctx.moveTo(point[0],point[1])); ctx.closePath(); ctx.fillStyle='rgba(53,108,105,.22)'; ctx.fill(); ctx.strokeStyle='#315c57'; ctx.lineWidth=2; ctx.stroke();
+    const center=projected.reduce((sum,point)=>[sum[0]+point[0],sum[1]+point[1]],[0,0]).map(value=>value/projected.length);
+    ctx.beginPath(); ctx.arc(center[0],center[1],Math.max(4,Math.min(10,Math.min(usedW,usedH)*.06)),0,Math.PI*2); ctx.fillStyle='#e1bd66'; ctx.fill(); ctx.strokeStyle='#103537'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(center[0],center[1],Math.max(12,Math.min(35,Math.min(usedW,usedH)*.22)),0,Math.PI*2); ctx.strokeStyle='rgba(191,91,69,.62)'; ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]);
+    if(label) label.textContent=`Mapped outline / ${feature.geometry.type}`;
+    if(text) text.textContent=`${Math.max(0,points.length-1).toLocaleString()} boundary vertices · gold frame = measured extent · centre/ring = normalized display guides.`;
+    if(note) note.textContent='GeoJSON source outline · normalized for comparison display only; original coordinates remain in the source map/export.';
+    canvas.setAttribute('aria-label',`Normalized mapped boundary fingerprint for ${row.name||row.osm_id}; ${Math.max(0,points.length-1)} boundary vertices.`);
+    return;
+  }
+  const ratio=Math.max(.25,Math.min(4,Number(row.aspect_ratio)||1)), boxW=ratio>=1?Math.min(150,100+ratio*14):Math.max(58,100*ratio), boxH=ratio>=1?Math.max(48,100/ratio):Math.min(120,100/ratio), left=(width-boxW)/2, top=(height-boxH)/2;
+  ctx.save(); ctx.setLineDash([6,5]); ctx.strokeStyle='#d0a34c'; ctx.lineWidth=1.5; ctx.strokeRect(left,top,boxW,boxH); ctx.beginPath(); ctx.ellipse(width/2,height/2,boxW*.42,boxH*.42,0,0,Math.PI*2); ctx.strokeStyle='rgba(53,108,105,.62)'; ctx.stroke(); ctx.restore();
+  ctx.beginPath(); ctx.arc(width/2,height/2,5,0,Math.PI*2); ctx.fillStyle='#e1bd66'; ctx.fill(); ctx.strokeStyle='#103537'; ctx.stroke();
+  if(label) label.textContent='Descriptor-only guide / outline unavailable';
+  if(text) text.textContent='The current view has measured proportions but no source ring to draw; the guide does not invent a boundary.';
+  if(note) note.textContent='Geometry source unavailable in this view · measured aspect/circularity remain below.';
+  canvas.setAttribute('aria-label',`Descriptor-only geometry guide for ${row.name||row.osm_id}; mapped boundary unavailable in this view.`);
+}
+function drawSelectionWeave(row) {
+  const canvas=$('selectionWeave'), label=$('selectionWeaveLabel'), text=$('selectionWeaveText'), note=$('selectionWeaveNote');
+  if(!canvas) return;
+  const ctx=canvas.getContext?.('2d');
+  if(!ctx) {
+    if(label) label.textContent='Derived print unavailable';
+    if(text) text.textContent='This browser cannot render the contemporary field print; the measured descriptors remain available above.';
+    return;
+  }
+  const width=canvas.width, height=canvas.height, cx=width/2, cy=height/2, flags=row.flags||[];
+  const group=String(row.group||'').toLowerCase();
+  const palette=group==='worship'?['#356c69','#d0a34c','#bf5b45']:group==='government'?['#527b85','#d0a34c','#315c57']:group==='civic'?['#bf5b45','#527b85','#d0a34c']:['#315c57','#8f9f7d','#d0a34c'];
+  const symmetryFlag=['rot90_symmetry','rot180_symmetry','pentagonal','hexagonal','octagonal'].find(key=>flags.includes(key));
+  const symmetrySteps={rot90_symmetry:4,rot180_symmetry:2,pentagonal:5,hexagonal:6,octagonal:8};
+  const golden=Boolean(row.has_golden_angle)||flags.includes('golden_angle'), steps=golden?13:(symmetrySteps[symmetryFlag]||8), step=golden?137.5*Math.PI/180:Math.PI*2/steps;
+  const aspect=Math.max(.34,Math.min(3.2,Number(row.aspect_ratio)||1)), circularity=Math.max(.1,Math.min(1,Number(row.circularity)||.5)), radial=Math.max(0,Math.min(1.5,Number(row.radial_cv)||.2)), fourier=Math.max(0,Math.min(1,Math.abs(Number(row.fourier_1)||0)));
+  ctx.clearRect(0,0,width,height); ctx.fillStyle='#eef2e8'; ctx.fillRect(0,0,width,height);
+  ctx.strokeStyle='rgba(53,108,105,.12)'; ctx.lineWidth=1;
+  for(let x=18;x<width-18;x+=Math.max(34,(width-36)/5)){ctx.beginPath();ctx.moveTo(x,14);ctx.lineTo(x,height-14);ctx.stroke();}
+  for(let y=14;y<height-14;y+=Math.max(28,(height-28)/4)){ctx.beginPath();ctx.moveTo(14,y);ctx.lineTo(width-14,y);ctx.stroke();}
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.strokeStyle='rgba(49,92,87,.25)'; ctx.setLineDash([4,5]); ctx.beginPath(); ctx.moveTo(-width*.42,0); ctx.lineTo(width*.42,0); ctx.moveTo(0,-height*.42); ctx.lineTo(0,height*.42); ctx.stroke(); ctx.setLineDash([]);
+  for(let ring=1;ring<=4;ring++) { ctx.beginPath(); ctx.arc(0,0,18+ring*19,0,Math.PI*2); ctx.strokeStyle=`rgba(82,123,133,${(.11+ring*.025).toFixed(2)})`; ctx.lineWidth=1; ctx.stroke(); }
+  const petalScale=Math.max(.65,Math.min(1.35,.88+fourier*.48)), baseRadius=golden?18:30;
+  for(let i=0;i<steps;i++) {
+    const angle=step*i-Math.PI/2, radius=baseRadius+(golden?i*4.3:0), wobble=1+Math.sin(i*1.7)*radial*.12;
+    ctx.save(); ctx.rotate(angle); ctx.translate(0,-radius); ctx.scale(petalScale,Math.max(.62,Math.min(1.4,1/aspect))*wobble);
+    ctx.beginPath(); ctx.ellipse(0,0,10+circularity*8,24,0,0,Math.PI*2); ctx.fillStyle=`${palette[i%palette.length]}${golden?'30':'24'}`; ctx.fill(); ctx.strokeStyle=palette[i%palette.length]; ctx.lineWidth=1.3; ctx.stroke(); ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(0,0,Math.max(8,13+circularity*9),0,Math.PI*2); ctx.fillStyle=palette[0]; ctx.fill(); ctx.strokeStyle=palette[1]; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,0,Math.max(3,5+fourier*5),0,Math.PI*2); ctx.fillStyle=palette[2]; ctx.fill();
+  ctx.restore();
+  const mode=golden?'golden-angle / 13-step field':symmetryFlag?`${patternLabel(symmetryFlag)} / ${steps}-fold guide`:'radial / descriptor-led field';
+  if(label) label.textContent=mode;
+  if(text) text.textContent=`A repeatable visual translation of aspect ${fmt(aspect,3)}, circularity ${fmt(circularity,3)}, radial variation ${fmt(radial,3)}, and the selected screening flags.`;
+  if(note) note.textContent=`${steps} visual steps · ${flags.length?flags.slice(0,2).map(patternLabel).join(' · '):'no screening flags'} · contemporary study only`;
+  canvas.setAttribute('aria-label',`Contemporary derived geometry field print for ${row.name||row.osm_id}; ${mode}; not a historic ornament.`);
+}
+function comparisonBearingDegrees(a,b) {
+  const lat1=Number(a?.lat), lon1=Number(a?.lon), lat2=Number(b?.lat), lon2=Number(b?.lon);
+  if(![lat1,lon1,lat2,lon2].every(Number.isFinite)) return NaN;
+  const radians=Math.PI/180, dLon=(lon2-lon1)*radians, y=Math.sin(dLon)*Math.cos(lat2*radians), x=Math.cos(lat1*radians)*Math.sin(lat2*radians)-Math.sin(lat1*radians)*Math.cos(lat2*radians)*Math.cos(dLon);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function comparisonRelationMetric(label,value,note) {
+  return `<article class="comparison-relation-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`;
+}
+function drawComparisonRelationPlot(a,b) {
+  const canvas=$('comparisonRelationPlot'), note=$('comparisonRelationPlotNote');
+  if(!canvas) return;
+  const ctx=canvas.getContext?.('2d');
+  if(!ctx) { if(note) note.textContent='Relationship plot unavailable in this browser; the relationship ledger remains available.'; return; }
+  const width=canvas.width, height=canvas.height, pad=24, centerX=width/2, centerY=height/2;
+  ctx.clearRect(0,0,width,height); ctx.fillStyle='#f2f0e8'; ctx.fillRect(0,0,width,height);
+  ctx.strokeStyle='rgba(82,123,133,.14)'; ctx.lineWidth=1;
+  for(let x=pad;x<width-pad;x+=Math.max(38,(width-pad*2)/6)){ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,height-pad);ctx.stroke();}
+  for(let y=pad;y<height-pad;y+=Math.max(30,(height-pad*2)/4)){ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(width-pad,y);ctx.stroke();}
+  const lat1=Number(a?.lat), lon1=Number(a?.lon), lat2=Number(b?.lat), lon2=Number(b?.lon);
+  if(![lat1,lon1,lat2,lon2].every(Number.isFinite)) { if(note) note.textContent='One or both selected places lack usable coordinates.'; canvas.setAttribute('aria-label','Relationship plot unavailable because coordinates are missing'); return; }
+  const radians=Math.PI/180, midLat=(lat1+lat2)/2*radians, dx=(lon2-lon1)*Math.cos(midLat), dy=lat2-lat1, span=Math.max(Math.abs(dx),Math.abs(dy),.00001), scale=Math.min((width-pad*2)/(2*span),(height-pad*2)/(2*span))*.72, x1=centerX-dx*scale/2, x2=centerX+dx*scale/2, y1=centerY+dy*scale/2, y2=centerY-dy*scale/2;
+  ctx.strokeStyle='rgba(49,92,103,.45)'; ctx.lineWidth=2; ctx.setLineDash([6,4]); ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#bf5b45'; ctx.beginPath();ctx.arc(x1,y1,7,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#527b85'; ctx.beginPath();ctx.arc(x2,y2,7,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#fffaf0'; ctx.lineWidth=2; ctx.beginPath();ctx.arc(x1,y1,7,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(x2,y2,7,0,Math.PI*2);ctx.stroke();
+  ctx.fillStyle='#173f40'; ctx.font='700 10px ui-monospace,SFMono-Regular,Menlo,monospace'; ctx.fillText('A',x1+10,y1+3); ctx.fillText('B',x2+10,y2+3);
+  ctx.fillStyle='#68776f'; ctx.font='8px ui-monospace,SFMono-Regular,Menlo,monospace'; ctx.fillText('straight-line centroid chord',centerX-59,height-9);
+  const distance=contextDistanceMeters(a,b), bearing=comparisonBearingDegrees(a,b);
+  if(note) note.textContent=`${contextDistanceLabel(distance)} span · bearing ${Number.isFinite(bearing)?fmt(bearing,0):'—'}° A → B`;
+  canvas.setAttribute('aria-label',`Straight-line centroid relationship between ${contextTitle(a)} and ${contextTitle(b)}; ${contextDistanceLabel(distance)} apart`);
+}
+function renderComparisonRelation(a,b) {
+  const panel=$('comparisonRelation'), metrics=$('comparisonRelationMetrics'), status=$('comparisonRelationStatus'), intro=$('comparisonRelationIntro'), heading=$('comparisonRelationHeading'), note=$('comparisonRelationNote');
+  if(!panel||!metrics) return;
+  if(!a||!b) { panel.hidden=true; return; }
+  panel.hidden=false;
+  const distance=contextDistanceMeters(a,b), bearing=comparisonBearingDegrees(a,b), countyA=String(a.spatial?.county||a.niah?.county||'').trim(), countyB=String(b.spatial?.county||b.niah?.county||'').trim(), settlementA=String(a.spatial?.settlement_name||'').trim(), settlementB=String(b.spatial?.settlement_name||'').trim(), typeA=String(a.niah?.type||'').trim(), typeB=String(b.niah?.type||'').trim(), sameSettlement=Boolean(settlementA&&settlementB&&settlementA===settlementB), sameCounty=Boolean(countyA&&countyB&&countyA===countyB), shared=[...(new Set((a.flags||[]).map(patternLabel)))].filter(flag=>new Set((b.flags||[]).map(patternLabel)).has(flag)), deltaAspect=Number(b.aspect_ratio)-Number(a.aspect_ratio), deltaCircularity=Number(b.circularity)-Number(a.circularity), contextValue=sameSettlement?settlementA:sameCounty?countyA:`${countyA||'A context'} ↔ ${countyB||'B context'}`, contextNote=sameSettlement?'same named settlement context':sameCounty?'same county context':'cross-context comparison', heritageValue=typeA&&typeB&&typeA===typeB?heritageTypeLabel(typeA):`${heritageTypeLabel(typeA||'not joined')} ↔ ${heritageTypeLabel(typeB||'not joined')}`, heritageNote=a.niah?.reg_no&&b.niah?.reg_no?'both carry NIAH joins':a.niah?.reg_no||b.niah?.reg_no?'one place carries an NIAH join':'neither place carries an NIAH join', shapeValue=`Δr ${Number.isFinite(deltaAspect)?fmt(deltaAspect,3):'—'} · ΔC ${Number.isFinite(deltaCircularity)?fmt(deltaCircularity,3):'—'}`;
+  if(status) status.textContent=`${contextDistanceLabel(distance)} · ${sameCounty?'same county':'place bridge'}`;
+  if(heading) heading.textContent=`${contextTitle(a)} ↔ ${contextTitle(b)}`;
+  if(intro) intro.textContent=`The line between Field A and Field B carries geographic separation, source context, and measured shape into one readable relationship. A bearing is included as orientation, not as a route.`;
+  metrics.innerHTML=[
+    comparisonRelationMetric('Centroid span',contextDistanceLabel(distance),`bearing ${Number.isFinite(bearing)?fmt(bearing,0):'—'}° from A to B`),
+    comparisonRelationMetric('Place bridge',contextValue,contextNote),
+    comparisonRelationMetric('Heritage bridge',heritageValue,heritageNote),
+    comparisonRelationMetric('Maths bridge',`${shared.length} shared screen${shared.length===1?'':'s'}`,shared.length?shared.join(' · '):'no shared φ/θ/symmetry screen'),
+    comparisonRelationMetric('Shape delta',shapeValue,'B − A from the mapped snapshot'),
+    comparisonRelationMetric('Group bridge',a.group===b.group?spatialGroupLabel(a.group):`${spatialGroupLabel(a.group)} ↔ ${spatialGroupLabel(b.group)}`,a.group===b.group?'same mapped cohort':'different mapped cohorts')
+  ].join('');
+  if(note) note.textContent=`This relationship reads the current ${SERVER_MODE?'lazy page':'embedded snapshot'} only. Straight-line centroid distance is not a road route or walking distance; shared type, place, or mathematical flags do not establish shared authorship, period identity, or historic intent.`;
+  drawComparisonRelationPlot(a,b);
+}
+function comparisonTargetHtml(row,label) {
+  const flags=(row.flags||[]).map(patternLabel);
+  const heritage=row.niah?.reg_no ? [row.niah.name||'NIAH-linked record',row.niah.reg_no].filter(Boolean).join(' · ') : 'No NIAH join';
+  return `<article class="comparison-target"><div class="comparison-target-head"><span>${esc(label)}</span><button type="button" data-compare-remove="${esc(row.osm_id)}">Remove</button></div><h3>${esc(row.name||'Unnamed footprint')}</h3><p>${esc(row.osm_id||'OSM target')} · ${esc(selectionPlaceText(row))} · ${esc(row.group||'other')}</p><div class="comparison-metrics"><div class="comparison-metric"><span>Area</span><strong>${fmt(row.area_m2,0)} m²</strong></div><div class="comparison-metric"><span>Aspect</span><strong>${fmt(row.aspect_ratio,3)}</strong></div><div class="comparison-metric"><span>Circle C</span><strong>${fmt(row.circularity,3)}</strong></div><div class="comparison-metric"><span>Radial CV</span><strong>${fmt(row.radial_cv,3)}</strong></div></div><div class="comparison-signals"><b>Evidence:</b> ${esc(flags.length?flags.join(' · '):'No screening flags')}<br><b>Heritage:</b> ${esc(heritage)}</div></article>`;
+}
+function renderComparisonTray() {
+  const panel=$('comparisonTray'), content=$('comparisonContent'), intro=$('comparisonIntro');
+  if(!panel||!content) return;
+  const rows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2);
+  const copy=$('copyComparisonLink');
+  if(copy) copy.disabled=rows.length<2;
+  if(!rows.length) { panel.hidden=true; content.innerHTML=''; renderComparisonRelation(null,null); return; }
+  panel.hidden=false;
+  if(rows.length===1) {
+    renderComparisonRelation(null,null);
+    if(intro) intro.textContent=`${rows[0].name||'One footprint'} is held as Field A. Select another map point or table row, then add it to complete the comparison.`;
+    content.innerHTML=`<div class="comparison-grid">${comparisonTargetHtml(rows[0],'A / first place')}</div><div class="comparison-awaiting">Waiting for Field B · the comparison will show differences in proportion, compactness and screening signals when a second target is added.</div>`;
+    return;
+  }
+  const [a,b]=rows;
+  const delta=(key,digits)=>{ const av=Number(a[key]), bv=Number(b[key]); return Number.isFinite(av)&&Number.isFinite(bv)?fmt(bv-av,digits):'—'; };
+  const flagsA=new Set((a.flags||[]).map(patternLabel)), flagsB=new Set((b.flags||[]).map(patternLabel));
+  const shared=[...flagsA].filter(flag=>flagsB.has(flag));
+  const onlyA=[...flagsA].filter(flag=>!flagsB.has(flag));
+  const onlyB=[...flagsB].filter(flag=>!flagsA.has(flag));
+  renderComparisonRelation(a,b);
+  if(intro) intro.textContent=`Field A and Field B are being read together. Differences are calculated as B − A from the current mapped snapshot.`;
+  content.innerHTML=`<div class="comparison-grid">${comparisonTargetHtml(a,'A / first place')}${comparisonTargetHtml(b,'B / second place')}</div><div class="comparison-delta"><span>Difference ledger / B − A</span><strong>Aspect ${delta('aspect_ratio',3)} · Circularity ${delta('circularity',3)} · Area ${delta('area_m2',0)} m² · Radial CV ${delta('radial_cv',3)}</strong><p><b>Shared screens:</b> ${esc(shared.length?shared.join(' · '):'none')}<br><b>Only A:</b> ${esc(onlyA.length?onlyA.join(' · '):'none')}<br><b>Only B:</b> ${esc(onlyB.length?onlyB.join(' · '):'none')}<br>These are measured differences and screening overlaps, not evidence of shared authorship, period identity or historic intent.</p></div>`;
+}
+function addComparisonTarget(id) {
+  const row=DATA.find(item=>item.osm_id===id)||filtered.find(item=>item.osm_id===id);
+  if(!row) return;
+  if(comparisonData.some(item=>item.osm_id===row.osm_id)) return;
+  if(comparisonData.length>=2) {
+    const status=$('selectionShareStatus');
+    if(status) status.textContent='Comparison is full · remove a place before adding another.';
+    return;
+  }
+  comparisonData.push(row);
+  syncViewState();
+  renderComparisonTray();
+  renderMap();
+  renderSelectionCard(row.osm_id);
+}
+function removeComparisonTarget(id) {
+  comparisonData=comparisonData.filter(row=>row.osm_id!==id);
+  syncViewState();
+  renderComparisonTray();
+  renderMap();
+  const selected=selectedMarkerId||offlineSelection;
+  if(selected) renderSelectionCard(selected);
+}
+function clearComparison() {
+  comparisonData=[];
+  syncViewState();
+  renderComparisonTray();
+  renderMap();
+  const selected=selectedMarkerId||offlineSelection;
+  if(selected) renderSelectionCard(selected);
+}
+async function copyComparisonLink() {
+  const rows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2), status=$('comparisonShareStatus');
+  if(rows.length<2) {
+    if(status) status.textContent='Add two places before copying a comparison link.';
+    return;
+  }
+  syncViewState();
+  const url=location.href;
+  try {
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(url);
+    if(status) status.textContent='Comparison link copied · filters and both fields are encoded.';
+  } catch(error) {
+    if(status) status.textContent='Comparison state saved in the address bar · copy the URL manually.';
+  }
+}
+function selectionEvidenceStatusKind(value) {
+  const status=String(value||'').toLowerCase();
+  if(status==='available'||status==='provided'||status==='valid'||status==='present') return 'available';
+  if(status==='not_provided'||status==='missing'||status==='absent') return 'missing';
+  return 'check';
+}
+function selectionEvidenceStatusLabel(kind) {
+  return kind==='available'?'present':kind==='missing'?'not provided':'check';
+}
+function renderSelectionEvidence(row) {
+  const grid=$('selectionEvidenceGrid'), status=$('selectionEvidenceStatus'), intro=$('selectionEvidenceIntro'), note=$('selectionEvidenceNote');
+  if(!grid) return;
+  const niah=row.niah||{}, history=row.history||{}, mapping=row.mapping_history||{}, review=row.review||{}, geometryAvailable=Number(row.valid)===1, niahAvailable=Boolean(String(niah.reg_no||'').trim()), referenceCount=Number(history.reference_count), historyHasEvidence=Boolean(String(history.architect||'').trim())||Number.isFinite(referenceCount)&&referenceCount>0, historyKind=historyHasEvidence?'available':String(history.status||'').trim()?'check':'missing', mappingAvailable=String(mapping.status||'').toLowerCase()==='provided', reviewKnown=Boolean(review.in_queue)||String(review.label||'').trim()&&String(review.label)!=='not_reviewed', reviewKind=mappingAvailable?'available':reviewKnown?'check':'missing';
+  const geometryDetail=[Number.isFinite(Number(row.n_vertices))?`${Number(row.n_vertices).toLocaleString()} vertices`: 'vertex count not reported',row.multipart?'multipart geometry':'single geometry',row.repaired?'repaired geometry':'not repaired',String(row.geometry_warning||'').trim()||'no geometry warning'].join(' · ');
+  const niahDetail=niahAvailable?[niah.type,niah.rating,niah.century,niah.match_mode,Number.isFinite(Number(niah.dist_m))?`${fmt(niah.dist_m,1)} m join distance`: 'join distance not reported'].filter(Boolean).join(' · '):'No NIAH identifier, type, rating, or date is joined to this footprint.';
+  const historyDetail=[history.priority?`priority ${history.priority}`:'priority not reported',Number.isFinite(referenceCount)?`${referenceCount.toLocaleString()} references`:'reference count not reported',history.warnings||'no review warning reported'].join(' · ');
+  const reviewDetail=[review.in_queue?'inside current review queue':'outside current review queue',review.reviewer?`reviewer ${review.reviewer}`:'reviewer not assigned',mappingAvailable?`${Number(mapping.version_count||0).toLocaleString()} mapping versions`:'mapping history not provided'].join(' · ');
+  const cards=[
+    {label:'01 / source geometry',kind:geometryAvailable?'available':'check',title:'OpenStreetMap footprint',value:row.osm_id||'OSM id not reported',detail:geometryDetail,links:row.osm_url||row.osm_id?[{href:row.osm_url||osmHref(row.osm_id),label:'Open source geometry'}]:[]},
+    {label:'02 / heritage inventory',kind:niahAvailable?'available':'missing',title:'NIAH record',value:niahAvailable?[niah.name||'NIAH-linked record',niah.reg_no].filter(Boolean).join(' · '):'No NIAH join in this snapshot',detail:niahDetail,links:niahAvailable?[{href:'https://www.buildingsofireland.ie/niah-data-download/',label:'NIAH data source'}]:[]},
+    {label:'03 / historical evidence',kind:historyKind,title:'History and attribution',value:history.architect||history.status||'Historical evidence not provided',detail:historyDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open review record'}]:[]},
+    {label:'04 / review + edits',kind:reviewKind,title:'Review and map history',value:review.in_queue?`${review.label||'not reviewed'} · queue`:`${review.label||'not queued'} · review scope`,detail:reviewDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open expert queue'}]:[]}
+  ];
+  grid.innerHTML=cards.map(card=>{const links=card.links.map(link=>`<a href="${esc(link.href)}" target="_blank" rel="noopener">${esc(link.label)} →</a>`).join(''); return `<article class="selection-evidence-step ${card.kind}"><div class="selection-evidence-top"><span>${esc(card.label)}</span><b>${esc(selectionEvidenceStatusLabel(card.kind))}</b></div><h4>${esc(card.title)}</h4><strong>${esc(card.value)}</strong><p>${esc(card.detail)}</p><div class="selection-evidence-links">${links||'<small>No direct link in this pack</small>'}</div></article>`;}).join('');
+  const present=cards.filter(card=>card.kind==='available').length, gaps=cards.filter(card=>card.kind==='missing').length;
+  if(status) status.textContent=`${present}/${cards.length} source lanes present · ${gaps} explicit gaps`;
+  if(intro) intro.textContent=`${row.osm_id||'Selected footprint'} · the chain separates mapped geometry, heritage join, historical evidence, and review scope.`;
+  if(note) note.textContent=`Geometry status: ${geometryAvailable?'valid source geometry':'geometry needs checking'} · NIAH: ${niahAvailable?'joined':'not joined'} · history: ${history.status||'not provided'} · mapping history: ${mapping.status||'not provided'}. Missing layers remain visible rather than being inferred from mathematical resemblance.`;
+}
+function contextDistanceMeters(a,b) {
+  const lat1=Number(a?.lat), lon1=Number(a?.lon), lat2=Number(b?.lat), lon2=Number(b?.lon);
+  if(![lat1,lon1,lat2,lon2].every(Number.isFinite)) return NaN;
+  const radians=Math.PI/180, dLat=(lat2-lat1)*radians, dLon=(lon2-lon1)*radians, sinLat=Math.sin(dLat/2), sinLon=Math.sin(dLon/2), h=sinLat*sinLat+Math.cos(lat1*radians)*Math.cos(lat2*radians)*sinLon*sinLon;
+  return 6371008.8*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+}
+function contextDistanceLabel(value) {
+  const distance=Number(value);
+  if(!Number.isFinite(distance)) return 'distance n/a';
+  return distance<1000?`${fmt(distance,0)} m`:`${fmt(distance/1000,2)} km`;
+}
+function contextPlaceText(row) {
+  const spatial=row.spatial||{}, niah=row.niah||{};
+  return [spatial.settlement_name,spatial.county||niah.county].map(value=>String(value||'').trim()).filter(Boolean).join(' · ') || String(row.address_city||'').trim() || spatialGroupLabel(row.group);
+}
+function contextTitle(row) {
+  return String(row.name||row.niah?.name||row.osm_id||'Unnamed footprint').trim() || 'Unnamed footprint';
+}
+function contextSignalText(row) {
+  const symbols={golden_ratio:'φ',golden_angle:'θ',reflective_symmetry:'↔',orthogonal:'□'};
+  return Object.entries(symbols).filter(([key])=>rowHasSignal(row,key)).map(([,symbol])=>symbol).join(' · ') || 'no core signal';
+}
+function drawSelectionContextPlot(row,neighbors) {
+  const canvas=$('selectionContextPlot'), note=$('selectionContextPlotNote');
+  if(!canvas) return;
+  const ctx=canvas.getContext?.('2d');
+  if(!ctx) { if(note) note.textContent='Context plot unavailable in this browser; the nearest-place list remains available.'; return; }
+  const width=canvas.width, height=canvas.height, pad=24, centerX=width/2, centerY=height/2;
+  ctx.clearRect(0,0,width,height); ctx.fillStyle='#f2f0e8'; ctx.fillRect(0,0,width,height);
+  ctx.strokeStyle='rgba(82,123,133,.14)'; ctx.lineWidth=1;
+  for(let x=pad;x<width-pad;x+=Math.max(38,(width-pad*2)/6)){ctx.beginPath();ctx.moveTo(x,pad);ctx.lineTo(x,height-pad);ctx.stroke();}
+  for(let y=pad;y<height-pad;y+=Math.max(30,(height-pad*2)/4)){ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(width-pad,y);ctx.stroke();}
+  ctx.strokeStyle='rgba(82,123,133,.24)'; ctx.setLineDash([4,4]); ctx.beginPath();ctx.moveTo(centerX,pad);ctx.lineTo(centerX,height-pad);ctx.stroke();ctx.beginPath();ctx.moveTo(pad,centerY);ctx.lineTo(width-pad,centerY);ctx.stroke();ctx.setLineDash([]);
+  const maxDistance=Math.max(40,...neighbors.map(item=>Number(item.contextDistance)||0)), scale=Math.min((width/2-pad)/maxDistance,(height/2-pad)/maxDistance)*.88, radians=Math.PI/180, latitude=Number(row.lat), longitudeScale=111320*Math.cos(latitude*radians), latitudeScale=110540, positions=[];
+  [0.25,0.5,0.75,1].forEach(fraction=>{ctx.strokeStyle='rgba(82,123,133,.14)';ctx.beginPath();ctx.arc(centerX,centerY,maxDistance*scale*fraction,0,Math.PI*2);ctx.stroke();});
+  neighbors.forEach((item,index)=>{
+    const dx=(Number(item.lon)-Number(row.lon))*longitudeScale, dy=(Number(item.lat)-Number(row.lat))*latitudeScale, x=Math.max(pad,Math.min(width-pad,centerX+dx*scale)), y=Math.max(pad,Math.min(height-pad,centerY-dy*scale));
+    positions.push({x,y,index});
+    ctx.strokeStyle='rgba(49,92,103,.28)'; ctx.lineWidth=1; ctx.beginPath();ctx.moveTo(centerX,centerY);ctx.lineTo(x,y);ctx.stroke();
+    ctx.fillStyle='#527b85'; ctx.beginPath();ctx.arc(x,y,4.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#315c67'; ctx.font='700 9px ui-monospace,SFMono-Regular,Menlo,monospace'; ctx.fillText(`N${String(index+1).padStart(2,'0')}`,x+7,y-6);
+  });
+  ctx.fillStyle='#bf5b45'; ctx.beginPath();ctx.arc(centerX,centerY,7,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#fffaf0'; ctx.lineWidth=2; ctx.stroke();
+  ctx.fillStyle='#173f40'; ctx.font='700 9px ui-monospace,SFMono-Regular,Menlo,monospace'; ctx.fillText('SELECTED',centerX+10,centerY+3);
+  if(note) note.textContent=`${neighbors.length} nearest coordinates · outer ring ${contextDistanceLabel(maxDistance)}`;
+  canvas.setAttribute('aria-label',`${neighbors.length} nearest mapped buildings around ${contextTitle(row)}; straight-line centroid context plot`);
+}
+function renderSelectionContext(row) {
+  const list=$('selectionContextList'), status=$('selectionContextStatus'), intro=$('selectionContextIntro'), note=$('selectionContextNote');
+  if(!list) return;
+  const scope=SERVER_MODE?'current lazy page':'full embedded snapshot', hasCoordinates=[row?.lat,row?.lon].every(value=>Number.isFinite(Number(value)));
+  if(!hasCoordinates) {
+    list.innerHTML='<span class="footnote">No coordinate pair is available for this selected footprint.</span>';
+    if(status) status.textContent='Coordinates missing';
+    if(intro) intro.textContent='The surrounding field cannot be drawn until the selected footprint carries a usable latitude and longitude.';
+    if(note) note.textContent='No spatial context is inferred when the source coordinate is absent.';
+    drawSelectionContextPlot(row,[]);
+    return;
+  }
+  const neighbors=DATA.filter(item=>String(item.osm_id)!==String(row.osm_id)).map(item=>({...item,contextDistance:contextDistanceMeters(row,item)})).filter(item=>Number.isFinite(item.contextDistance)).sort((a,b)=>a.contextDistance-b.contextDistance||String(a.osm_id).localeCompare(String(b.osm_id))).slice(0,5);
+  if(status) status.textContent=`${neighbors.length} nearest · ${scope}`;
+  if(intro) intro.textContent=`${contextTitle(row)} is shown beside the nearest mapped footprints in the ${scope}; the distances keep place measurable without pretending to be routes.`;
+  if(!neighbors.length) {
+    list.innerHTML='<span class="footnote">No neighbouring coordinates are available in this report view.</span>';
+    if(note) note.textContent=`The ${scope} contains no second coordinate pair to place beside the selected footprint.`;
+    drawSelectionContextPlot(row,[]);
+    return;
+  }
+  list.innerHTML=neighbors.map((item,index)=>{
+    const title=contextTitle(item), place=contextPlaceText(item), signals=contextSignalText(item), aria=`Focus nearby building ${title}, ${contextDistanceLabel(item.contextDistance)} away, ${place}`;
+    return `<button class="selection-context-card" type="button" data-context-focus="${esc(item.osm_id)}" aria-label="${esc(aria)}"><span class="selection-context-card-top"><span>N${String(index+1).padStart(2,'0')} / nearby</span><b>${esc(contextDistanceLabel(item.contextDistance))}</b></span><h4>${esc(title)}</h4><p>${esc(`${spatialGroupLabel(item.group)} · ${place}`)}</p><small>A ${fmt(item.area_m2,0)} m² · r ${fmt(item.aspect_ratio,2)} · ${esc(signals)} · focus →</small></button>`;
+  }).join('');
+  if(note) note.textContent=`Showing ${neighbors.length} nearest mapped footprints from the ${scope}. Distances are straight-line centroid estimates; shared φ/θ/symmetry symbols describe the rows, not a shared historic cause.`;
+  drawSelectionContextPlot(row,neighbors);
+}
 function renderSelectionCard(id) {
   const card=$('selectionCard'), row=DATA.find(item=>item.osm_id===id)||filtered.find(item=>item.osm_id===id);
   if(!card||!row) return;
@@ -2771,9 +5297,23 @@ function renderSelectionCard(id) {
   set($('selectionPlace'),selectionPlaceText(row));
   set($('selectionHeritage'),selectionHeritageText(row));
   set($('selectionGeometry'),selectionGeometryText(row));
+  set($('selectionMath'),selectionMathText(row));
+  renderSelectionEvidence(row);
+  renderSelectionContext(row);
+  drawSelectionFingerprint(row);
+  drawSelectionWeave(row);
   set($('selectionReview'),reviewState(row));
   const source=$('selectionOsm');
   if(source) source.href=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id)}`;
+  const studioButton=$('carrySelectionToStudio');
+  if(studioButton) studioButton.dataset.carryStudio=row.osm_id||'';
+  const compareButton=$('addSelectionCompare');
+  if(compareButton) {
+    const included=comparisonData.some(item=>item.osm_id===row.osm_id), full=comparisonData.length>=2&&!included;
+    compareButton.dataset.compareTarget=row.osm_id||'';
+    compareButton.disabled=included||full;
+    compareButton.textContent=included?'In comparison ✓':full?'Comparison full · clear one':'Add to comparison →';
+  }
   const lens=culturalLensForRow(row), lensButton=$('selectionCulture');
   if(lensButton) {
     lensButton.hidden=!lens;
@@ -2786,9 +5326,22 @@ function hideSelectionCard() { const card=$('selectionCard'); if(card) card.hidd
 function clearSelection() {
   if(selectedMarkerId) setMarkerSelected(markerById.get(selectedMarkerId),false);
   selectedMarkerId=null; offlineSelection=null;
+  syncFocusState('');
   if(map?.closePopup) map.closePopup();
   hideSelectionCard(); renderTable();
   if(offlineMap) renderOfflineMap();
+}
+async function copySelectionLink() {
+  const id=selectedMarkerId||offlineSelection, status=$('selectionShareStatus');
+  if(!id) { if(status) status.textContent='Select a place first.'; return; }
+  syncFocusState(id);
+  const link=location.href;
+  try {
+    await navigator.clipboard.writeText(link);
+    if(status) status.textContent='Place link copied.';
+  } catch(error) {
+    if(status) status.textContent='Place link ready in the address bar.';
+  }
 }
 function qualityValues(value) { return String(value??'').split('|').map(item=>item.trim()).filter(Boolean); }
 function osmHref(id) { return `https://www.openstreetmap.org/${encodeURIComponent(id)}`; }
@@ -2802,6 +5355,7 @@ function renderQualityAudit() { if(!QUALITY_AUDIT.length) { $('qualityAudit').in
 function renderTable() {
   const visible=SERVER_MODE ? filtered : filtered.slice((page-1)*PAGE_SIZE,(page-1)*PAGE_SIZE+PAGE_SIZE);
   $('tbody').innerHTML=visible.map(row=>`<tr data-id="${esc(row.osm_id)}" class="${selectedMarkerId===row.osm_id?'selected':''}" tabindex="0" aria-selected="${selectedMarkerId===row.osm_id}" aria-label="Focus ${esc(row.name||'Unnamed')} ${esc(row.osm_id)}"><td><b>${esc(row.name||'Unnamed')}</b><br><span class="footnote">${esc(row.osm_id)}${row.niah.name?' · '+esc(row.niah.name):''}</span></td><td>${esc(row.group)}${row.niah.century?`<br><span class="footnote">${esc(row.niah.century)}</span>`:''}</td><td>${fmt(row.area_m2,0)} m²</td><td class="score">${fmt(row.score)}</td><td>${flagHtml(row)}</td><td class="review-state ${esc(reviewFilterState(row))}">${reviewCell(row)}</td></tr>`).join('');
+  $('empty').textContent='No buildings match these filters.';
   $('empty').hidden=visible.length>0;
   const total=SERVER_MODE ? Number(pageStats.total||0) : filtered.length;
   const pages=Math.max(1,Math.ceil(total/PAGE_SIZE)); $('page').textContent=`${Math.min(page,pages)} / ${pages}`; $('prev').disabled=page<=1; $('next').disabled=page>=pages;
@@ -2809,9 +5363,34 @@ function renderTable() {
   document.querySelectorAll('#tbody a.review-link').forEach(link=>link.addEventListener('click',event=>event.stopPropagation()));
 }
 function popup(row) { const reviewLabel=row.review?.in_queue?'Review queue':'Not in review queue'; return `<b>${esc(row.name||'Unnamed')}</b><br>${esc(row.group)} · ${fmt(row.area_m2,0)} m²<br>Score <b>${fmt(row.score)}</b> · aspect ${fmt(row.aspect_ratio,3)}<br>Shape: rectangularity ${fmt(row.rectangularity,3)} · radial CV ${fmt(row.radial_cv,3)}<br>Convexity ${fmt(row.convexity,3)} · ${row.n_vertices} vertices${row.multipart?' · multipart':''}${row.repaired?' · repaired':''}<br>${flagHtml(row)}${row.parts.count?`<br>Mapped parts: ${row.parts.count} · coverage ${fmt(row.parts.coverage_pct,1)}%`:''}${row.height_m?`<br>OSM height: ${fmt(row.height_m,1)} m`:''}${row.niah.name?`<br><span>${esc(row.niah.name)} · ${esc(row.niah.rating)} · ${esc(row.niah.century)}</span>`:''}${row.history.status?`<br>Historical status: ${esc(row.history.status)}${row.history.architect?' · '+esc(row.history.architect):''}`:''}<br><a href="${row.osm_url}" target="_blank" rel="noopener">OpenStreetMap</a> · ${reviewLink(row,reviewLabel)}<br><button class="popup-focus" type="button" data-focus-id="${esc(row.osm_id)}">Focus in list</button>`; }
+function comparisonMapRows() {
+  const rows=comparisonData.filter(row=>row&&row.osm_id).slice(0,2);
+  return rows.length===2&&rows.every(row=>Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon))) ? rows : [];
+}
+function clearComparisonMapLayer() {
+  if(comparisonLine) { comparisonLine.remove(); comparisonLine=null; }
+  if(comparisonEndpointLayer) { comparisonEndpointLayer.remove(); comparisonEndpointLayer=null; }
+}
+function renderComparisonMapLayer() {
+  clearComparisonMapLayer();
+  if(offlineMap||!map) return;
+  const rows=comparisonMapRows();
+  if(rows.length<2) return;
+  const [a,b]=rows;
+  const coordinates=[[Number(a.lat),Number(a.lon)],[Number(b.lat),Number(b.lon)]];
+  const distance=contextDistanceMeters(a,b), bearing=comparisonBearingDegrees(a,b);
+  const relation=`${contextDistanceLabel(distance)} straight-line centroid span · bearing ${Number.isFinite(bearing)?fmt(bearing,0):'—'}° A → B`;
+  comparisonLine=L.polyline(coordinates,{color:'#bf5b45',weight:3,opacity:.92,dashArray:'10 7',lineCap:'round'}).addTo(map);
+  comparisonLine.bindTooltip(esc(relation),{sticky:true,opacity:.96});
+  const endpoint=(row,label,fillColor)=>L.circleMarker([Number(row.lat),Number(row.lon)],{radius:7,color:'#fffaf0',weight:2,fillColor,fillOpacity:1}).bindTooltip(esc(`${label} / ${contextTitle(row)} · ${selectionPlaceText(row)}`),{direction:'top',opacity:.96});
+  const endpointA=endpoint(a,'A','#bf5b45'), endpointB=endpoint(b,'B','#527b85');
+  comparisonEndpointLayer=L.layerGroup([endpointA,endpointB]).addTo(map);
+  comparisonLine.bringToFront(); endpointA.bringToFront(); endpointB.bringToFront();
+}
 function offlineBounds() {
   let minLat=Infinity,maxLat=-Infinity,minLon=Infinity,maxLon=-Infinity;
-  const points=routeGeometry&&routeGeometry.length>1?routeGeometry.map(([lon,lat])=>({lat,lon})):DATA;
+  const comparisonRows=comparisonMapRows();
+  const points=(routeGeometry&&routeGeometry.length>1?routeGeometry.map(([lon,lat])=>({lat,lon})):DATA).concat(comparisonRows);
   points.forEach(row=>{ const lat=Number(row.lat), lon=Number(row.lon); if(Number.isFinite(lat)&&Number.isFinite(lon)){ minLat=Math.min(minLat,lat); maxLat=Math.max(maxLat,lat); minLon=Math.min(minLon,lon); maxLon=Math.max(maxLon,lon); } });
   if(!Number.isFinite(minLat)) return null;
   const routeFocused=Boolean(routeGeometry&&routeGeometry.length>1);
@@ -2840,6 +5419,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   if(!id) return;
   if(selectedMarkerId && selectedMarkerId!==id) setMarkerSelected(markerById.get(selectedMarkerId),false);
   selectedMarkerId=id;
+  syncFocusState(id);
   setMarkerSelected(markerById.get(id),true);
   renderSelectionCard(id);
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
@@ -2848,6 +5428,7 @@ function selectMapTarget(id,{scroll=false}={}) {
     row.setAttribute('aria-selected',String(active));
     if(active && scroll) row.scrollIntoView({block:'nearest'});
   });
+  updateMapHud();
 }
 function fitMapToResults() {
   if(offlineMap) { renderOfflineMap(); return; }
@@ -2855,6 +5436,7 @@ function fitMapToResults() {
   const bounds=typeof markerLayer.getBounds==='function'?markerLayer.getBounds():null;
   if(bounds && bounds.isValid && bounds.isValid()) {
     if(routeLine) bounds.extend(routeLine.getBounds());
+    if(comparisonLine) bounds.extend(comparisonLine.getBounds());
     map.fitBounds(bounds,{padding:[36,36],maxZoom:17});
   } else {
     resetMapView();
@@ -2871,17 +5453,36 @@ function renderOfflineMap() {
   const grid=Array.from({length:6},(_,i)=>{ const x=50+i*180, y=50+i*120; return `<line class="offline-grid" x1="${x}" y1="50" x2="${x}" y2="650"/><line class="offline-grid" x1="50" y1="${y}" x2="950" y2="${y}"/>`; }).join('');
   const outlines=OUTLINES.slice(0,200).map(item=>item.rings.map(ring=>`<polyline class="offline-outline" points="${ring.map(([lat,lon])=>{const p=offlinePoint({lat,lon},bounds);return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;}).join(' ')}"/>`).join('')).join('');
   const route=routeGeometry&&routeGeometry.length>1?`<polyline class="offline-route" points="${routeGeometry.map(([lon,lat])=>{const p=offlinePoint({lat,lon},bounds);return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;}).join(' ')}"/>`:'';
+  const comparisonRows=comparisonMapRows();
+  const comparisonChord=comparisonRows.length===2?(()=>{ const [a,b]=comparisonRows, pa=offlinePoint(a,bounds), pb=offlinePoint(b,bounds), distance=contextDistanceMeters(a,b), bearing=comparisonBearingDegrees(a,b), relation=`${contextDistanceLabel(distance)} straight-line centroid span · bearing ${Number.isFinite(bearing)?fmt(bearing,0):'—'}° A → B`; return `<g class="offline-comparison-chord"><title>${esc(relation)}</title><line x1="${pa.x.toFixed(2)}" y1="${pa.y.toFixed(2)}" x2="${pb.x.toFixed(2)}" y2="${pb.y.toFixed(2)}"/><circle class="offline-comparison-end offline-comparison-end-a" cx="${pa.x.toFixed(2)}" cy="${pa.y.toFixed(2)}" r="7"/><circle class="offline-comparison-end offline-comparison-end-b" cx="${pb.x.toFixed(2)}" cy="${pb.y.toFixed(2)}" r="7"/><text class="offline-comparison-label" x="${(pa.x+10).toFixed(2)}" y="${(pa.y+4).toFixed(2)}">A</text><text class="offline-comparison-label" x="${(pb.x+10).toFixed(2)}" y="${(pb.y+4).toFixed(2)}">B</text></g>`; })():'';
+  const focusedManeuver=routeManeuverFocus===null?null:routeManeuverData[routeManeuverFocus];
+  const focusedCoordinate=focusedManeuver?.coordinate;
+  const focusPoint=Array.isArray(focusedCoordinate)&&focusedCoordinate.length>=2
+    ? offlinePoint({lat:Number(focusedCoordinate[1]),lon:Number(focusedCoordinate[0])},bounds)
+    : null;
+  const routeFocus=focusPoint?`<circle class="offline-route-focus" cx="${focusPoint.x.toFixed(2)}" cy="${focusPoint.y.toFixed(2)}" r="8"><title>${esc(routeManeuverLabel(focusedManeuver))}</title></circle>`:'';
   const points=filtered.slice(0,__MARKER_LIMIT__).map(row=>{ const p=offlinePoint(row,bounds), selected=offlineSelection===row.osm_id; return `<circle class="offline-point${selected?' selected':''}" data-id="${esc(row.osm_id)}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${selected?6:4}" fill="${color(row.score)}"><title>${esc(row.name||row.osm_id)} · ${esc(row.group)} · score ${fmt(row.score)}</title></circle>`; }).join('');
   const selected=offlineSelection&&DATA.find(row=>row.osm_id===offlineSelection);
   const selection=selected?`<div class="offline-selection"><b>${esc(selected.name||'Unnamed')}</b> · ${esc(selected.group)} · score ${fmt(selected.score)}<br><span class="footnote">${esc(selected.osm_id)} · click a point to inspect another target</span></div>`:'';
   const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
-  el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
+  el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${comparisonChord}${routeFocus}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
   el.querySelectorAll('.offline-point').forEach(point=>point.addEventListener('click',()=>focusRow(point.dataset.id,{scroll:false,openPopup:false})));
   updateMapHud();
 }
+function renderRouteManeuverMarker() {
+  if(routeManeuverMarker) { routeManeuverMarker.remove(); routeManeuverMarker=null; }
+  if(offlineMap||!map||routeManeuverFocus===null) return;
+  const maneuver=routeManeuverData[routeManeuverFocus], coordinate=maneuver?.coordinate;
+  if(!Array.isArray(coordinate)||coordinate.length<2) return;
+  const lon=Number(coordinate[0]), lat=Number(coordinate[1]);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)) return;
+  routeManeuverMarker=L.circleMarker([lat,lon],{radius:8,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).addTo(map);
+  routeManeuverMarker.bindTooltip(routeManeuverLabel(maneuver),{direction:'top',opacity:.95});
+  routeManeuverMarker.bringToFront();
+}
 function renderMap() {
-  if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) { selectedMarkerId=null; hideSelectionCard(); }
-  if(offlineMap){ renderOfflineMap(); return; }
+  if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) { selectedMarkerId=null; offlineSelection=null; syncFocusState(''); hideSelectionCard(); }
+  if(offlineMap){ clearComparisonMapLayer(); renderOfflineMap(); return; }
   if (!map || !markerLayer) return;
   if(routeLine){ routeLine.remove(); routeLine=null; }
   markerLayer.clearLayers(); markerById.clear();
@@ -2898,6 +5499,8 @@ function renderMap() {
     if(selectedMarkerId===row.osm_id) setMarkerSelected(marker,true);
   });
   if(routeGeometry&&routeGeometry.length>1){ routeLine=L.polyline(routeGeometry.map(([lon,lat])=>[lat,lon]),{color:'#1d4ed8',weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map); routeLine.bringToFront(); }
+  renderComparisonMapLayer();
+  renderRouteManeuverMarker();
   updateMapHud();
 }
 function mapTime(value) {
@@ -2908,7 +5511,46 @@ function mapSnapshotText() {
   const generated=String(SUMMARY.generated_at||'').replace('T',' ').replace('Z','');
   return generated ? `snapshot ${generated.slice(0,16)}` : 'snapshot date unavailable';
 }
+function coordinateLabel(value,positive,negative) {
+  const number=Number(value);
+  if(!Number.isFinite(number)) return '—';
+  return `${Math.abs(number).toFixed(4)}° ${number>=0?positive:negative}`;
+}
+function updateMapStamp() {
+  const center=map?.getCenter?.();
+  let lat=Number(center?.lat), lon=Number(center?.lng);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)) {
+    const bounds=offlineMap?offlineBounds():null;
+    if(bounds) { lat=(bounds.minLat+bounds.maxLat)/2; lon=(bounds.minLon+bounds.maxLon)/2; }
+    else { lat=53.2; lon=-7.7; }
+  }
+  const selectedId=selectedMarkerId||offlineSelection;
+  const row=selectedId?DATA.find(item=>item.osm_id===selectedId):null;
+  const place=row?.spatial?.settlement_name||row?.address_city||row?.spatial?.county||row?.niah?.county;
+  const context=row
+    ? [row.name||row.osm_id,place,row.group].filter(Boolean).join(' · ')
+    : `${filtered.length.toLocaleString()} matching footprints · ${offlineMap?'offline analytical field':`zoom ${map?.getZoom?.()??'—'}`}`;
+  const centerText=$('mapCenterText'), contextText=$('mapContextText');
+  if(centerText) centerText.textContent=`${coordinateLabel(lat,'N','S')} / ${coordinateLabel(lon,'E','W')}`;
+  if(contextText) contextText.textContent=context;
+}
+function renderMapConstellation() {
+  const rows=Array.isArray(filtered)?filtered:[], total=rows.length;
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const display=key=>{
+    const count=rows.filter(row=>rowHasSignal(row,key)).length;
+    return total?`${count.toLocaleString()} · ${fmt(count/total*100,1)}%`:'—';
+  };
+  const counties=new Set(rows.map(row=>row.spatial?.county||row.niah?.county).filter(Boolean));
+  set('mapRatioSignal',display('golden_ratio'));
+  set('mapAngleSignal',display('golden_angle'));
+  set('mapSymmetrySignal',display('reflective_symmetry'));
+  set('mapOrthogonalSignal',display('orthogonal'));
+  set('mapConstellationScope',`${SERVER_MODE?'current page':'active field'} · ${counties.size.toLocaleString()} county contexts`);
+}
 function updateMapHud() {
+  updateMapStamp();
+  renderMapConstellation();
   const live=$('mapLiveState'), tile=$('mapTileStatus'), count=$('mapVisibleCount');
   if(!live||!tile||!count) return;
   const online=typeof navigator==='undefined'||navigator.onLine!==false;
@@ -2979,7 +5621,7 @@ function setAtlasNavActive(key) {
 function initAtlasNav() {
   const panel=$('panel'), links=[...document.querySelectorAll('[data-nav-section]')];
   if(!panel||!links.length) return;
-  setAtlasNavActive('studio');
+  setAtlasNavActive('field');
   links.forEach(link=>link.addEventListener('click',()=>setAtlasNavActive(link.dataset.navSection)));
   const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean);
   if(typeof IntersectionObserver==='undefined') return;
@@ -2998,6 +5640,12 @@ function initMapHud() {
   window.addEventListener('offline',updateMapHud);
   if(mapLiveTimer===null) mapLiveTimer=setInterval(updateMapHud,1000);
   updateMapHud();
+}
+function restoreFocusedTarget() {
+  const id=new URLSearchParams(location.search).get('focus');
+  if(!id || !DATA.some(row=>row.osm_id===id)) return false;
+  focusRow(id,{scroll:true,openPopup:false});
+  return true;
 }
 function focusRow(id,{scroll=true,openPopup=true}={}) {
   const row=DATA.find(item=>item.osm_id===id);
@@ -3103,6 +5751,150 @@ function routeSegmentText(route) {
   }
   return 'mapped segment IDs unavailable';
 }
+function routeManeuverRoadText(maneuver) {
+  const context=maneuver?.road_context||{};
+  const labels=[context.name,context.ref].filter(value=>value);
+  if(labels.length) return labels.join(' · ');
+  if(context.route==='ferry') return 'Ferry crossing';
+  return context.highway ? `Mapped ${context.highway}` : 'Mapped way';
+}
+function routeManeuverKindText(kind) {
+  const labels={start:'Start',arrive:'Arrive',continue:'Continue',change_way:'Continue onto mapped way',slight_left:'Bear left',left:'Turn left',slight_right:'Bear right',right:'Turn right',u_turn:'U-turn',ferry_boarding:'Board ferry',ferry_landing:'Leave ferry'};
+  return labels[kind]||String(kind||'Maneuver').replaceAll('_',' ');
+}
+function routeManeuverLabel(maneuver) {
+  if(!maneuver) return 'Route maneuver';
+  const kind=String(maneuver.kind||'');
+  const road=routeManeuverRoadText(maneuver);
+  if(kind==='start') return `Start on ${road}`;
+  if(kind==='arrive') return `Arrive from ${road}`;
+  if(kind==='ferry_boarding') return `Board ${road}`;
+  if(kind==='ferry_landing') return `Leave ${road}`;
+  if(kind==='continue') return `Continue on ${road}`;
+  if(kind==='change_way') return `Continue onto ${road}`;
+  return `${routeManeuverKindText(kind)} onto ${road}`;
+}
+function routeManeuverMetricText(maneuver) {
+  const distance=Number(maneuver?.distance_m), duration=Number(maneuver?.duration_s), wait=Number(maneuver?.wait_s);
+  const metrics=[];
+  if(Number.isFinite(distance)) metrics.push(`${fmt(distance,0)} m`);
+  if(Number.isFinite(duration)) metrics.push(routeDurationText(duration));
+  if(Number.isFinite(wait)&&wait>0) metrics.push(`${routeDurationText(wait)} wait`);
+  return metrics.join(' · ');
+}
+function routeSegmentRoadText(segment) {
+  const context=segment?.road_context||{};
+  const labels=[context.name,context.ref].filter(value=>value);
+  if(labels.length) return labels.join(' · ');
+  if(segment?.ferry||context.route==='ferry') return 'Ferry crossing';
+  if(context.highway) return `Mapped ${context.highway}`;
+  return segment?.way_id ? `Way ${segment.way_id}` : 'Mapped way';
+}
+function routeSegmentChecksText(segment) {
+  const counts=[
+    [Array.isArray(segment?.constraints)?segment.constraints.length:0,'static'],
+    [Array.isArray(segment?.conditional_rules)?segment.conditional_rules.length:0,'conditional'],
+    [Array.isArray(segment?.transition_rules)?segment.transition_rules.length:0,'turn'],
+  ].filter(([count])=>count>0).map(([count,label])=>`${count} ${label}`);
+  return counts.length ? counts.join(' · ') : 'none recorded';
+}
+function routeSegmentCheckRecords(segment) {
+  const records=[];
+  const valueText=record=>{
+    const value=record?.value;
+    if(value===undefined||value===null||String(value)==='') return '';
+    return `${value}${record?.unit?` ${record.unit}`:''}`;
+  };
+  const stateText=record=>record?.evaluated===false?'not evaluated':record?.applied===true?'applied':record?.active===true?'active':record?.active===false?'inactive':'evaluated';
+  (Array.isArray(segment?.constraints)?segment.constraints:[]).forEach(record=>{
+    records.push(`${record?.key||'static constraint'}${valueText(record)?` = ${valueText(record)}`:''} · ${stateText(record)}`);
+  });
+  (Array.isArray(segment?.conditional_rules)?segment.conditional_rules:[]).forEach(record=>{
+    const condition=record?.condition?` · ${record.condition}`:'';
+    const profile=record?.profile?` · ${record.profile}`:'';
+    records.push(`${record?.key||'conditional rule'}${valueText(record)?` = ${valueText(record)}`:''}${condition} · ${stateText(record)}${profile}`);
+  });
+  (Array.isArray(segment?.transition_rules)?segment.transition_rules:[]).forEach(record=>{
+    const relation=record?.relation_id?`relation ${record.relation_id}`:'turn restriction';
+    const ways=[record?.from_way,record?.to_way].filter(value=>value).join(' → ');
+    const via=Array.isArray(record?.via_way_ids)&&record.via_way_ids.length?` via ${record.via_way_ids.join(' → ')}`:'';
+    const selected=record?.selected===true?' · selected':record?.selected===false?' · not selected':'';
+    records.push(`${relation}${record?.kind?` · ${record.kind}`:''}${ways?` · ${ways}`:''}${via}${selected} · ${stateText(record)}`);
+  });
+  return records;
+}
+function routeSegmentChecksHtml(segment) {
+  const records=routeSegmentCheckRecords(segment);
+  if(!records.length) return 'none recorded';
+  return `<details class="route-segment-checks"><summary>${esc(routeSegmentChecksText(segment))}</summary><ul class="route-segment-check-list">${records.map(record=>`<li>${esc(record)}</li>`).join('')}</ul></details>`;
+}
+function renderRouteSegments(payload) {
+  const panel=$('routeSegments'), list=$('routeSegmentList'), summary=$('routeSegmentSummary');
+  if(!panel||!list||!summary) return;
+  const route=routePayloadDetails(payload), raw=route.path_segments;
+  const segments=Array.isArray(raw) ? raw.filter(item=>item&&typeof item==='object') : [];
+  if(!segments.length) { panel.hidden=true; list.innerHTML=''; summary.textContent=''; return; }
+  const declared=Number(route.path_segment_n);
+  const total=Number.isFinite(declared)&&declared>=segments.length ? declared : segments.length;
+  const visible=segments.slice(0,ROUTE_SEGMENT_DISPLAY_LIMIT);
+  summary.textContent=visible.length<total
+    ? `showing ${visible.length} of ${total} mapped segments`
+    : `${total} mapped ${total===1?'segment':'segments'} · restriction provenance included`;
+  list.innerHTML=visible.map((segment,index)=>{
+    const distance=Number(segment.distance_m), duration=Number(segment.duration_s), wait=Number(segment.wait_s);
+    const time=[Number.isFinite(duration)?routeDurationText(duration):'—',Number.isFinite(wait)&&wait>0?`${routeDurationText(wait)} wait`:null].filter(Boolean).join(' · ');
+    const mode=segment.ferry?'Ferry':'Road';
+    const way=segment.way_id||'way ID unavailable';
+    return `<tr><th scope="row">${index+1}</th><td><strong>${esc(routeSegmentRoadText(segment))}</strong><small>${esc(way)}</small></td><td>${Number.isFinite(distance)?`${fmt(distance,0)} m`:'—'}</td><td>${esc(time)}</td><td>${mode}</td><td>${routeSegmentChecksHtml(segment)}</td></tr>`;
+  }).join('');
+  panel.hidden=false;
+}
+function renderRouteManeuvers(payload) {
+  if(routeManeuverMarker) { routeManeuverMarker.remove(); routeManeuverMarker=null; }
+  routeManeuverFocus=null;
+  const route=routePayloadDetails(payload), raw=route.maneuvers;
+  routeManeuverData=Array.isArray(raw) ? raw.filter(item=>item&&typeof item==='object') : [];
+  const panel=$('routeManeuvers'), list=$('routeManeuverList'), summary=$('routeManeuverSummary');
+  if(!panel||!list||!summary) return;
+  if(!routeManeuverData.length) { panel.hidden=true; list.innerHTML=''; summary.textContent=''; return; }
+  summary.textContent=`${routeManeuverData.length} mapped steps · click a step to focus the map`;
+  list.innerHTML=routeManeuverData.map((maneuver,index)=>{
+    const label=routeManeuverLabel(maneuver), metrics=routeManeuverMetricText(maneuver);
+    return `<li><button class="route-maneuver" type="button" data-route-maneuver-index="${index}" aria-current="false" aria-label="${esc(`${index+1}. ${label}${metrics?`; ${metrics}`:''}`)}"><span class="route-maneuver-index" aria-hidden="true">${index+1}</span><span class="route-maneuver-copy"><strong>${esc(label)}</strong><small>${esc(metrics||'Map focus available')}</small></span></button></li>`;
+  }).join('');
+  list.querySelectorAll('[data-route-maneuver-index]').forEach(button=>button.addEventListener('click',()=>focusRouteManeuver(Number(button.dataset.routeManeuverIndex))));
+  panel.hidden=false;
+}
+function focusRouteManeuver(index) {
+  if(!Number.isInteger(index)||!routeManeuverData[index]) return;
+  routeManeuverFocus=index;
+  document.querySelectorAll('[data-route-maneuver-index]').forEach(button=>{
+    const active=Number(button.dataset.routeManeuverIndex)===index;
+    button.setAttribute('aria-current',String(active));
+  });
+  const coordinate=routeManeuverData[index].coordinate;
+  if(Array.isArray(coordinate)&&coordinate.length>=2) {
+    const lon=Number(coordinate[0]), lat=Number(coordinate[1]);
+    if(Number.isFinite(lat)&&Number.isFinite(lon)) {
+      if(offlineMap) renderOfflineMap();
+      else if(map) { map.setView([lat,lon],Math.max(Number(map.getZoom()||0),16),{animate:true}); renderRouteManeuverMarker(); }
+    }
+  }
+}
+function clearRouteManeuvers() {
+  if(routeManeuverMarker) { routeManeuverMarker.remove(); routeManeuverMarker=null; }
+  routeManeuverData=[]; routeManeuverFocus=null;
+  const panel=$('routeManeuvers'), list=$('routeManeuverList'), summary=$('routeManeuverSummary');
+  if(panel) panel.hidden=true;
+  if(list) list.innerHTML='';
+  if(summary) summary.textContent='';
+}
+function clearRouteSegments() {
+  const panel=$('routeSegments'), list=$('routeSegmentList'), summary=$('routeSegmentSummary');
+  if(panel) panel.hidden=true;
+  if(list) list.innerHTML='';
+  if(summary) summary.textContent='';
+}
 function routeWeightText(route) {
   const weight=Number(route.vehicle_weight_t);
   return Number.isFinite(weight)&&weight>0 ? `vehicle-weight profile ${fmt(weight,1)} t` : 'vehicle weight unspecified';
@@ -3140,7 +5932,121 @@ function routeStatusText(payload) {
   if(route.reachable) return `Reachable · ${routeObjectiveText(route)} · ${fmt(route.route_distance_m,0)} m · ${fmt(route.estimated_duration_s,1)} s · ${routeVehicleClassText(route)} · ${routeDestinationText(route)} · ${routeWeightText(route)} · ${routeRatingText(route)} · ${routeHeightText(route)} · ${routeWidthText(route)} · ${routeLengthText(route)} · ${routeAxleloadText(route)} · ${routeSegmentText(route)} · ${routeFerryText(route)} · ${routeWaitText(route)}`;
   return route.error || route.status || 'Route unavailable';
 }
-async function runRoute() {
+function routeComparisonProfileText(row) {
+  const labels=[routeVehicleClassText(row)];
+  const dimensions=[['vehicle_weight_t','t',1],['vehicle_rating_t','t rating',1],['vehicle_height_m','m high',2],['vehicle_width_m','m wide',2],['vehicle_length_m','m long',2],['vehicle_axleload_t','t axle',2]];
+  dimensions.forEach(([key,unit,digits])=>{ const value=Number(row[key]); if(Number.isFinite(value)&&value>0) labels.push(`${fmt(value,digits)} ${unit}`); });
+  if(row.vehicle_class==='hgv'&&row.allow_hgv_destination) labels.push('destination access');
+  return labels.join(' · ');
+}
+function routeComparisonDeltaText(row, field, digits, suffix='') {
+  const value=Number(row.delta_from_baseline?.[field]);
+  if(!Number.isFinite(value)) return '—';
+  const sign=value>0?'+':'';
+  return `${sign}${fmt(value,digits)}${suffix}`;
+}
+function routeComparisonStatusText(payload) {
+  const total=Number(payload.profile_n), reachable=Number(payload.reachable_n), baseline=payload.baseline_profile||'first profile';
+  const objective=payload.objective==='duration'?'fastest duration':'shortest distance';
+  return `${Number.isFinite(reachable)?reachable:'?'} of ${Number.isFinite(total)?total:'?'} profiles reachable · baseline ${baseline} · ${objective}`;
+}
+function clearRouteComparisonResponse() {
+  routeComparisonPayloadData=null; routeComparisonSelectedIndex=null;
+  const panel=$('routeCompareResults'), list=$('routeCompareList'), summary=$('routeCompareSummary'), result=$('routeCompareResult'), downloadButton=$('routeCompareDownloadJson');
+  if(panel) panel.hidden=true;
+  if(list) list.innerHTML='';
+  if(summary) summary.textContent='';
+  if(result) { result.textContent=''; result.hidden=true; }
+  if(downloadButton) downloadButton.hidden=true;
+}
+function renderRouteComparison(payload) {
+  const panel=$('routeCompareResults'), list=$('routeCompareList'), summary=$('routeCompareSummary');
+  if(!panel||!list||!summary) return;
+  const rows=Array.isArray(payload.profiles)?payload.profiles.filter(row=>row&&typeof row==='object'):[];
+  summary.textContent=routeComparisonStatusText(payload);
+  list.innerHTML=rows.map((row,index)=>{
+    const reachable=row.reachable===true;
+    const status=reachable?'Reachable':(row.status||'Unavailable');
+    const path=row.route&&typeof row.route==='object';
+    const baseline=row.name===payload.baseline_profile;
+    return `<tr><th scope="row"><strong>${esc(row.name||`Profile ${index+1}`)}${baseline?' · baseline':''}</strong><small>${esc(routeComparisonProfileText(row))}</small></th><td class="${reachable?'':'route-compare-unreachable'}">${esc(status)}</td><td>${reachable?`${fmt(row.route_distance_m,0)} m`:'—'}</td><td>${routeComparisonDeltaText(row,'route_distance_m',0,' m')}</td><td>${reachable?routeDurationText(row.estimated_duration_s):'—'}</td><td>${routeComparisonDeltaText(row,'estimated_duration_s',0,'')}</td><td>${Number.isFinite(Number(row.ferry_wait_s))?routeDurationText(row.ferry_wait_s):'—'}</td><td>${path?`<button class="route-compare-path" type="button" data-route-compare-index="${index}" aria-current="${routeComparisonSelectedIndex===index?'true':'false'}">${routeComparisonSelectedIndex===index?'Showing path':'Show path'}</button>`:'—'}</td></tr>`;
+  }).join('');
+  list.querySelectorAll('[data-route-compare-index]').forEach(button=>button.addEventListener('click',()=>selectRouteComparisonProfile(Number(button.dataset.routeCompareIndex))));
+  panel.hidden=false;
+}
+function showRoutePathPayload(route,label) {
+  routePayloadData=route; setRouteResponseActions(route);
+  routeGeometry=routeCoordinates(route); clearRouteManeuvers(); clearRouteSegments();
+  renderRouteManeuvers(route); renderRouteSegments(route); renderMap();
+  if(map&&routeLine) map.fitBounds(routeLine.getBounds(),{padding:[24,24],maxZoom:16});
+  $('routeStatus').textContent=`${label} · ${routeStatusText(route)}${routeGeometry?' · line shown on map':''}`;
+}
+function selectRouteComparisonProfile(index) {
+  const rows=Array.isArray(routeComparisonPayloadData?.profiles)?routeComparisonPayloadData.profiles:[], row=rows[index];
+  if(!row) return;
+  routeComparisonSelectedIndex=index;
+  document.querySelectorAll('[data-route-compare-index]').forEach(button=>{
+    const active=Number(button.dataset.routeCompareIndex)===index;
+    button.setAttribute('aria-current',String(active)); button.textContent=active?'Showing path':'Show path';
+  });
+  const route=row.route&&typeof row.route==='object'?row.route:null;
+  if(!route) { $('routeStatus').textContent=`${row.name||'Profile'} has no embedded path; rerun with profile paths enabled.`; return; }
+  showRoutePathPayload(route,row.name||'Profile');
+}
+function downloadRouteComparison() {
+  if(!routeComparisonPayloadData) return;
+  download('ireland-geometry-route-comparison.json',JSON.stringify(routeComparisonPayloadData,null,2),'application/json');
+  $('routeCompareStatus').textContent='JSON profile comparison downloaded.';
+}
+function routeMatrixPointText(point) {
+  if(!point||!Number.isFinite(Number(point.lat))||!Number.isFinite(Number(point.lon))) return '—';
+  return `${fmt(point.lat,5)}, ${fmt(point.lon,5)}`;
+}
+function routeMatrixStatusText(payload) {
+  const origins=Number(payload.origin_n), destinations=Number(payload.destination_n), pairs=Number(payload.pair_n), reachable=Number(payload.reachable_n);
+  const objective=payload.objective==='duration'?'fastest duration':'shortest distance';
+  return `${Number.isFinite(origins)?origins:'?'} origins × ${Number.isFinite(destinations)?destinations:'?'} destinations · ${Number.isFinite(pairs)?pairs:'?'} pairs · ${Number.isFinite(reachable)?reachable:'?'} reachable · ${objective}`;
+}
+function clearRouteMatrixResponse() {
+  routeMatrixPayloadData=null; routeMatrixSelectedIndex=null;
+  const panel=$('routeMatrixResults'), list=$('routeMatrixList'), summary=$('routeMatrixSummary'), result=$('routeMatrixResult'), downloadButton=$('routeMatrixDownloadJson');
+  if(panel) panel.hidden=true;
+  if(list) list.innerHTML='';
+  if(summary) summary.textContent='';
+  if(result) { result.textContent=''; result.hidden=true; }
+  if(downloadButton) downloadButton.hidden=true;
+}
+function renderRouteMatrix(payload) {
+  const panel=$('routeMatrixResults'), list=$('routeMatrixList'), summary=$('routeMatrixSummary');
+  if(!panel||!list||!summary) return;
+  const origins=Array.isArray(payload.origins)?payload.origins:[], destinations=Array.isArray(payload.destinations)?payload.destinations:[], pairs=Array.isArray(payload.pairs)?payload.pairs.filter(pair=>pair&&typeof pair==='object'):[];
+  summary.textContent=routeMatrixStatusText(payload);
+  list.innerHTML=pairs.map((pair,index)=>{
+    const origin=origins[Number(pair.origin_index)], destination=destinations[Number(pair.destination_index)], reachable=pair.reachable===true, path=pair.route&&typeof pair.route==='object';
+    const status=reachable?'Reachable':(pair.status||'Unavailable');
+    return `<tr><th scope="row"><strong>O${Number(pair.origin_index)+1} → D${Number(pair.destination_index)+1}</strong><small>${esc(routeMatrixPointText(origin))} → ${esc(routeMatrixPointText(destination))}</small></th><td class="${reachable?'':'route-matrix-unreachable'}">${esc(status)}</td><td>${reachable?`${fmt(pair.route_distance_m,0)} m`:'—'}</td><td>${reachable?routeDurationText(pair.estimated_duration_s):'—'}</td><td>${Number.isFinite(Number(pair.ferry_wait_s))?routeDurationText(pair.ferry_wait_s):'—'}</td><td>${pair.arrival?esc(pair.arrival):'—'}</td><td>${path?`<button class="route-matrix-path" type="button" data-route-matrix-index="${index}" aria-current="${routeMatrixSelectedIndex===index?'true':'false'}">${routeMatrixSelectedIndex===index?'Showing path':'Show path'}</button>`:'—'}</td></tr>`;
+  }).join('');
+  list.querySelectorAll('[data-route-matrix-index]').forEach(button=>button.addEventListener('click',()=>selectRouteMatrixPair(Number(button.dataset.routeMatrixIndex))));
+  panel.hidden=false;
+}
+function selectRouteMatrixPair(index) {
+  const pairs=Array.isArray(routeMatrixPayloadData?.pairs)?routeMatrixPayloadData.pairs:[], pair=pairs[index];
+  if(!pair) return;
+  routeMatrixSelectedIndex=index;
+  document.querySelectorAll('[data-route-matrix-index]').forEach(button=>{
+    const active=Number(button.dataset.routeMatrixIndex)===index;
+    button.setAttribute('aria-current',String(active)); button.textContent=active?'Showing path':'Show path';
+  });
+  const route=pair.route&&typeof pair.route==='object'?pair.route:null;
+  if(!route) { $('routeStatus').textContent='This matrix response does not include pair paths; rerun with pair paths enabled.'; return; }
+  showRoutePathPayload(route,`Matrix O${Number(pair.origin_index)+1} → D${Number(pair.destination_index)+1}`);
+}
+function downloadRouteMatrix() {
+  if(!routeMatrixPayloadData) return;
+  download('ireland-geometry-route-matrix.json',JSON.stringify(routeMatrixPayloadData,null,2),'application/json');
+  $('routeMatrixStatus').textContent='JSON route matrix downloaded.';
+}
+function routeFieldsFromForm() {
   const fields={
     start_lat:$('routeStartLat').value.trim(), start_lon:$('routeStartLon').value.trim(),
     goal_lat:$('routeGoalLat').value.trim(), goal_lon:$('routeGoalLon').value.trim(),
@@ -3156,32 +6062,194 @@ async function runRoute() {
   if($('routeIncludePath').checked) fields.include_path='1';
   if($('routeIncludeFerries').checked) fields.include_ferries='1';
   if($('routeFormat').value==='geojson') fields.format='geojson';
-  const missing=['start_lat','start_lon','goal_lat','goal_lon'].filter(key=>!fields[key]);
-  if(missing.length) { routeGeometry=null; renderMap(); $('routeStatus').textContent=`Missing: ${missing.join(', ')}`; return; }
-  const button=$('routeRun'); button.disabled=true; routeGeometry=null; renderMap(); $('routeStatus').textContent='Routing…'; $('routeResult').hidden=true;
+  return fields;
+}
+function routeComparisonFieldsFromForm() {
+  const fields={
+    start_lat:$('routeStartLat').value.trim(), start_lon:$('routeStartLon').value.trim(),
+    goal_lat:$('routeGoalLat').value.trim(), goal_lon:$('routeGoalLon').value.trim(),
+    speed_kmh:$('routeSpeed').value.trim(), objective:$('routeObjective').value,
+    profiles:$('routeCompareProfiles').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean),
+  };
+  if($('routeDeparture').value.trim()) fields.departure=$('routeDeparture').value.trim();
+  if($('routeCompareIncludePath').checked) fields.include_path='1';
+  if($('routeCompareIncludeFerries').checked) fields.include_ferries='1';
+  return fields;
+}
+function routeMatrixFieldsFromForm() {
+  const fields={
+    origins:$('routeMatrixOrigins').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean),
+    destinations:$('routeMatrixDestinations').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean),
+    speed_kmh:$('routeSpeed').value.trim(), weight_t:$('routeWeight').value.trim(), rating_t:$('routeRating').value.trim(), height_m:$('routeHeight').value.trim(), width_m:$('routeWidth').value.trim(), length_m:$('routeLength').value.trim(), axleload_t:$('routeAxleload').value.trim(), vehicle_class:$('routeVehicleClass').value, allow_hgv_destination:$('routeAllowHgvDestination').checked?'1':'0', objective:$('routeObjective').value,
+  };
+  if($('routeDeparture').value.trim()) fields.departure=$('routeDeparture').value.trim();
+  ['weight_t','rating_t','height_m','width_m','length_m','axleload_t'].forEach(key=>{ if(!fields[key]) delete fields[key]; });
+  if($('routeMatrixIncludePath').checked) fields.include_path='1';
+  if($('routeMatrixIncludeFerries').checked) fields.include_ferries='1';
+  return fields;
+}
+function routeGeojsonPayload(payload) {
+  if(payload?.type==='Feature') return payload;
+  const route=routePayloadDetails(payload), coordinates=routeCoordinates(payload);
+  const pathOnly=new Set(['path_node_ids','path_coordinates','path_way_ids','path_segments','path_segment_n','path_segment_total_distance_m','path_segment_total_duration_s','path_segment_total_wait_s','path_segment_source','maneuver_n','maneuvers']);
+  const properties=Object.fromEntries(Object.entries(route).filter(([key])=>!pathOnly.has(key)));
+  const geometry=!coordinates ? null : coordinates.length===1 ? {type:'Point',coordinates:coordinates[0]} : {type:'LineString',coordinates};
+  return {type:'Feature',contract:payload?.contract||route.contract||'ireland-geometry.route.v1',properties,geometry};
+}
+function clearRouteResponseActions() {
+  routePayloadData=null;
+  const json=$('routeDownloadJson'), geojson=$('routeDownloadGeojson'), status=$('routeShareStatus');
+  if(json) json.hidden=true;
+  if(geojson) geojson.hidden=true;
+  if(status) status.textContent='';
+}
+function setRouteResponseActions(payload) {
+  routePayloadData=payload;
+  const json=$('routeDownloadJson'), geojson=$('routeDownloadGeojson');
+  if(json) json.hidden=false;
+  if(geojson) geojson.hidden=false;
+}
+function downloadRouteResponse(format) {
+  if(!routePayloadData) return;
+  const output=format==='geojson' ? routeGeojsonPayload(routePayloadData) : routePayloadData;
+  const filename=format==='geojson'?'ireland-geometry-route.geojson':'ireland-geometry-route.json';
+  const type=format==='geojson'?'application/geo+json':'application/json';
+  download(filename,JSON.stringify(output,null,2),type);
+  if($('routeShareStatus')) $('routeShareStatus').textContent=`${format==='geojson'?'GeoJSON':'JSON'} route response downloaded.`;
+}
+async function copyRouteLink() {
+  const fields=routeFieldsFromForm(), missing=['start_lat','start_lon','goal_lat','goal_lon'].filter(key=>!fields[key]);
+  const status=$('routeShareStatus');
+  if(missing.length) { if(status) status.textContent=`Enter ${missing.join(', ')} before copying a route link.`; return; }
+  syncRouteState(fields);
   try {
-    const response=await fetch(`/api/route?${new URLSearchParams(fields)}`);
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(location.href);
+    if(status) status.textContent='Route link copied; opening it restores the inputs and reruns the query.';
+  } catch(error) {
+    if(status) status.textContent='Route state saved in the URL; clipboard access is unavailable in this browser.';
+  }
+}
+async function runRoute() {
+  const fields=routeFieldsFromForm();
+  const missing=['start_lat','start_lon','goal_lat','goal_lon'].filter(key=>!fields[key]);
+  if(missing.length) { routeGeometry=null; clearRouteManeuvers(); clearRouteSegments(); renderMap(); $('routeStatus').textContent=`Missing: ${missing.join(', ')}`; return; }
+  const numericFields=['speed_kmh','weight_t','rating_t','height_m','width_m','length_m','axleload_t'];
+  const invalidNumeric=numericFields.find(key=>fields[key]!==undefined && (!Number.isFinite(Number(fields[key])) || Number(fields[key])<=0));
+  if(invalidNumeric) { $('routeStatus').textContent=`${invalidNumeric} must be a finite positive number.`; return; }
+  syncRouteState(fields);
+  const button=$('routeRun'); button.disabled=true; routeGeometry=null; clearRouteManeuvers(); clearRouteSegments(); clearRouteResponseActions(); renderMap(); $('routeStatus').textContent='Routing…'; $('routeResult').hidden=true;
+  const body={
+    start:{lat:Number(fields.start_lat),lon:Number(fields.start_lon)},
+    goal:{lat:Number(fields.goal_lat),lon:Number(fields.goal_lon)},
+    speed_kmh:Number(fields.speed_kmh),
+    vehicle_class:fields.vehicle_class,
+    allow_hgv_destination:fields.allow_hgv_destination==='1',
+    objective:fields.objective,
+    include_path:fields.include_path==='1',
+    include_ferries:fields.include_ferries==='1',
+    format:fields.format||'json'
+  };
+  ['departure','weight_t','rating_t','height_m','width_m','length_m','axleload_t'].forEach(key=>{ if(fields[key]!==undefined&&fields[key]!=='') body[key]=key==='departure'?fields[key]:Number(fields[key]); });
+  try {
+    const response=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const payload=await response.json();
     if(!response.ok) throw new Error(payload.error || `Route request failed (${response.status})`);
-    routeGeometry=routeCoordinates(payload); renderMap();
+    routeGeometry=routeCoordinates(payload); renderRouteManeuvers(payload); renderRouteSegments(payload); renderMap();
     if(map&&routeLine) map.fitBounds(routeLine.getBounds(),{padding:[24,24],maxZoom:16});
     $('routeStatus').textContent=routeStatusText(payload)+(routeGeometry?' · line shown on map':'');
+    setRouteResponseActions(payload);
     $('routeResult').textContent=JSON.stringify(payload,null,2); $('routeResult').hidden=false;
   } catch(error) {
     $('routeStatus').textContent=`Route unavailable: ${error.message}`;
   } finally { button.disabled=false; }
 }
+async function runRouteComparison() {
+  const fields=routeComparisonFieldsFromForm(), missing=['start_lat','start_lon','goal_lat','goal_lon'].filter(key=>!fields[key]);
+  if(missing.length) { $('routeCompareStatus').textContent=`Missing: ${missing.join(', ')}`; return; }
+  if(fields.profiles.length<2||fields.profiles.length>8) { $('routeCompareStatus').textContent='Enter between 2 and 8 non-empty profile lines.'; return; }
+  const speed=Number(fields.speed_kmh);
+  if(!Number.isFinite(speed)||speed<=0) { $('routeCompareStatus').textContent='speed_kmh must be a finite positive number.'; return; }
+  syncRouteComparisonState(fields);
+  const button=$('routeCompareRun'); button.disabled=true; clearRouteComparisonResponse(); routeComparisonSelectedIndex=null; $('routeCompareStatus').textContent='Comparing profiles…';
+  const body={
+    start:{lat:Number(fields.start_lat),lon:Number(fields.start_lon)},
+    goal:{lat:Number(fields.goal_lat),lon:Number(fields.goal_lon)},
+    profiles:fields.profiles,
+    speed_kmh:speed,
+    objective:fields.objective,
+    include_path:fields.include_path==='1',
+    include_ferries:fields.include_ferries==='1'
+  };
+  if(fields.departure) body.departure=fields.departure;
+  try {
+    const response=await fetch('/api/route/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}), payload=await response.json();
+    if(!response.ok) throw new Error(payload.error||`Profile comparison failed (${response.status})`);
+    routeComparisonPayloadData=payload; renderRouteComparison(payload); $('routeCompareStatus').textContent=routeComparisonStatusText(payload);
+    const result=$('routeCompareResult'); result.textContent=JSON.stringify(payload,null,2); result.hidden=false; $('routeCompareDownloadJson').hidden=false;
+    const first=Array.isArray(payload.profiles)?payload.profiles.findIndex(row=>row&&row.route): -1;
+    if(first>=0) selectRouteComparisonProfile(first);
+  } catch(error) {
+    $('routeCompareStatus').textContent=`Profile comparison unavailable: ${error.message}`;
+  } finally { button.disabled=false; }
+}
+async function runRouteMatrix() {
+  const fields=routeMatrixFieldsFromForm(), pairCount=fields.origins.length*fields.destinations.length;
+  if(!fields.origins.length||!fields.destinations.length) { $('routeMatrixStatus').textContent='Enter at least one origin and one destination, one lat,lon per line.'; return; }
+  if(pairCount>25) { $('routeMatrixStatus').textContent=`This matrix has ${pairCount} pairs; reduce it to the 25-pair limit.`; return; }
+  const numericFields=['speed_kmh','weight_t','rating_t','height_m','width_m','length_m','axleload_t'];
+  const invalidNumeric=numericFields.find(key=>fields[key]!==undefined && (!Number.isFinite(Number(fields[key])) || Number(fields[key])<=0));
+  if(invalidNumeric) { $('routeMatrixStatus').textContent=`${invalidNumeric} must be a finite positive number.`; return; }
+  syncRouteMatrixState(fields);
+  const button=$('routeMatrixRun'); button.disabled=true; clearRouteMatrixResponse(); routeMatrixSelectedIndex=null; routeGeometry=null; clearRouteManeuvers(); clearRouteSegments(); renderMap(); $('routeMatrixStatus').textContent='Routing matrix…';
+  const point=value=>{ const [lat,lon]=value.split(',').map(Number); return {lat,lon}; };
+  const body={origins:fields.origins.map(point),destinations:fields.destinations.map(point),speed_kmh:Number(fields.speed_kmh),objective:fields.objective,vehicle_class:fields.vehicle_class,allow_hgv_destination:fields.allow_hgv_destination==='1',include_path:fields.include_path==='1',include_ferries:fields.include_ferries==='1'};
+  ['departure','weight_t','rating_t','height_m','width_m','length_m','axleload_t'].forEach(key=>{ if(fields[key]!==undefined&&fields[key]!=='') body[key]=key==='departure'?fields[key]:Number(fields[key]); });
+  try {
+    const response=await fetch('/api/route/matrix',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}), payload=await response.json();
+    if(!response.ok) throw new Error(payload.error||`Route matrix failed (${response.status})`);
+    routeMatrixPayloadData=payload; renderRouteMatrix(payload); $('routeMatrixStatus').textContent=routeMatrixStatusText(payload);
+    const result=$('routeMatrixResult'); result.textContent=JSON.stringify(payload,null,2); result.hidden=false; $('routeMatrixDownloadJson').hidden=false;
+    const first=Array.isArray(payload.pairs)?payload.pairs.findIndex(pair=>pair&&pair.route): -1;
+    if(first>=0) selectRouteMatrixPair(first);
+  } catch(error) {
+    $('routeMatrixStatus').textContent=`Route matrix unavailable: ${error.message}`;
+  } finally { button.disabled=false; }
+}
 function initRoute() {
   $('routeRun').addEventListener('click',runRoute);
-  $('routeStatus').textContent=location.protocol==='file:'
+  $('routeCopyLink').addEventListener('click',copyRouteLink);
+  $('routeDownloadJson').addEventListener('click',()=>downloadRouteResponse('json'));
+  $('routeDownloadGeojson').addEventListener('click',()=>downloadRouteResponse('geojson'));
+  $('routeCompareRun').addEventListener('click',runRouteComparison);
+  $('routeCompareDownloadJson').addEventListener('click',downloadRouteComparison);
+  $('routeMatrixRun').addEventListener('click',runRouteMatrix);
+  $('routeMatrixDownloadJson').addEventListener('click',downloadRouteMatrix);
+  const restored=restoreRouteState(), comparisonRestored=restoreRouteComparisonState(), matrixRestored=restoreRouteMatrixState();
+  $('routeStatus').textContent=restored
+    ? 'Route inputs restored from this link; rerunning against the local graph…'
+    : location.protocol==='file:'
     ? 'Serve this report with ireland-geometry-serve; file mode has no route API.'
     : 'Enter coordinates and run a route against the local graph.';
+  if(restored) setTimeout(runRoute,0);
+  $('routeCompareStatus').textContent=comparisonRestored
+    ? 'Comparison inputs restored from this link; rerunning against the local graph…'
+    : location.protocol==='file:'
+    ? 'Serve this report with ireland-geometry-serve; file mode has no route comparison API.'
+    : 'Compare profiles against the same coordinates and route options.';
+  if(comparisonRestored) setTimeout(runRouteComparison,50);
+  $('routeMatrixStatus').textContent=matrixRestored
+    ? 'Matrix inputs restored from this link; rerunning against the local graph…'
+    : location.protocol==='file:'
+    ? 'Serve this report with ireland-geometry-serve; file mode has no route matrix API.'
+    : 'Run up to 25 ordered origin–destination pairs against the local graph.';
+  if(matrixRestored) setTimeout(runRouteMatrix,100);
 }
 function download(name, content, type) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),500); }
 async function downloadFiltered(format) {
-  const params=currentFilterParameters(); params.set('format',format);
+  const params=currentFilterParameters();
   const endpoint=PACK.endpoints?.export || '/api/report/export';
-  const response=await fetch(`${endpoint}?${params}`); const body=await response.text();
+  const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(reportRequestBody(params,{format}))}); const body=await response.text();
   if(!response.ok) { let message=body; try { message=JSON.parse(body).error || body; } catch(error) {} throw new Error(message || `Export failed (${response.status})`); }
   const runtimeStatus=response.headers.get('X-Ireland-Geometry-Runtime-Status');
   if(applyRuntimeHeaders(response.headers)) { renderRuntimeStatus(); if(runtimeStatus && runtimeStatus!=='pass') renderInterpretation(); }
@@ -3210,8 +6278,9 @@ async function loadMapAssets() {
   }
 }
 function initMap() {
-  if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined') { offlineMap=true; renderOfflineMap(); return; }
+  if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined') { offlineMap=true; renderOfflineMap(); restoreFocusedTarget(); return; }
   map=L.map('map',{preferCanvas:true}).setView(DEFAULT_MAP_CENTER,DEFAULT_MAP_ZOOM);
+  map.on('moveend zoomend',updateMapHud);
   setMapLoading(true,'Loading satellite imagery…');
   const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
     attribution:'Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,maxNativeZoom:18,detectRetina:true
@@ -3240,10 +6309,14 @@ function initMap() {
     syncMapLayerButtons(); updateMapHud();
   });
   L.control.layers({'Satellite':satellite,'Hybrid':hybrid,'Streets':streets},{'Top outlines':outlineLayer,'Markers':markerLayer},{collapsed:true}).addTo(map);
-  activeMapLayer='satellite'; syncMapLayerButtons(); renderMap();
+  activeMapLayer='satellite'; syncMapLayerButtons(); renderMap(); restoreFocusedTarget();
 }
-function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); restoreViewState(); initAtlasNav(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initMapHud(); initStudio(); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), Esri World Imagery for visual reference, and live basemap tiles from Esri/OSM.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap();startRuntimeRefresh(); }
-async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { setMapLoading(false); document.body.innerHTML=`<pre style="padding:20px">${error}</pre>`; } }
+function init() { $('score').addEventListener('input',()=>{$('scoreValue').textContent=$('score').value; $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); queueFilters();}); ['query','group','century','rating','niahType','reviewState','onlyAngle','onlyRatio','onlyCircular','onlyMulti'].forEach(id=>$(id).addEventListener(id==='query'?'input':'change',queueFilters)); $('prev').addEventListener('click',()=>{if(page>1){page--; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); $('next').addEventListener('click',()=>{const total=SERVER_MODE?Number(pageStats.total||0):filtered.length; if(page<Math.ceil(total/PAGE_SIZE)){page++; if(SERVER_MODE) fetchServerPage(); else renderTable();}}); document.addEventListener('click',event=>{ const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(header) sortBy(header.dataset.sort); }); document.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; const button=event.target.closest?.('button.sort-button'); const header=button?.closest('th[data-sort]'); if(!header) return; event.preventDefault(); sortBy(header.dataset.sort); }); $('downloadCsv').addEventListener('click',downloadCsv); $('downloadGeo').addEventListener('click',downloadGeo); $('runtimeReload')?.addEventListener('click',()=>location.reload()); restoreViewState(); initAtlasNav(); $('score').setAttribute('aria-valuetext',`Minimum score ${$('score').value}`); initMapHud(); initStudio(); initRoute(); $('method').innerHTML=`<p>Target rows: <b>${Number(SUMMARY.targets||0).toLocaleString()}</b>; controls: <b>${Number(SUMMARY.controls||0).toLocaleString()}</b>; NIAH joins: <b>${Number(SUMMARY.niah_matches||0).toLocaleString()}</b> (${Number(SUMMARY.niah_contained||0).toLocaleString()} contained, ${Number(SUMMARY.niah_near||0).toLocaleString()} near).</p><p>Source readiness: ${sourceStatusText()}.</p><p>Input freshness: <b>${sourceFreshnessText()}</b>.</p><p>Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.</p><p>Shape descriptors include rectangularity, angle entropy, radial Fourier coefficients, and radial variability. ${Number(SUMMARY.part_mapped||0).toLocaleString()} target footprints have mapped OSM building parts; LiDAR coverage is ${Number(SUMMARY.lidar_available||0).toLocaleString()} targets. Historical rows are review evidence, not proof of intent.</p><p>Primary rates use building-level two-proportion z-tests, Wilson confidence intervals, risk differences, continuity-corrected odds ratios, matched controls, hierarchical stratified odds ratios, Moran's I, county permutations, and Ripley summaries as sensitivity diagnostics. Construction dates and ratings cover the NIAH dataset, not all of Ireland. Generated ${esc(SUMMARY.generated_at||'unknown')}.</p><p>Sources: OpenStreetMap contributors (ODbL), National Inventory of Architectural Heritage (CC BY 4.0), Esri World Imagery for visual reference, and live basemap tiles from Esri/OSM.</p>`; renderInterpretation(); renderBars();renderQuality();renderStats();applyFilters();initMap();startRuntimeRefresh(); }
+async function reportLaunch() { try { await loadMapAssets(); init(); } catch(error) { setMapLoading(false); showReportError(error,'Dashboard initialization unavailable'); } }
+document.getElementById('reportRetry')?.addEventListener('click',retryReportRequest);
+initFieldAtlas();
+renderFieldAtlas();
+initSiteIntro();
 reportLaunch();
 </script>
 </body></html>"""
