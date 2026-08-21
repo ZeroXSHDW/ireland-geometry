@@ -329,9 +329,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "revealPanelTarget($('studioPairReference'))" in html
     assert 'id="selectionHeritage"' in html
     assert 'id="selectionMath"' in html
+    assert 'id="selectionMathRead"' in html
+    assert 'data-maths-read="maths"' in html
     assert 'id="selectionCultureTrace"' in html
     assert 'id="selectionCultureRead"' in html
     assert 'data-culture-read="culture"' in html
+    assert "const mathsReturn=event.target.closest?.('#mathsReadingReturn');" in html
     assert "const returnToDossier=event.target.closest?.('#cultureReadingReturn');" in html
     assert "function focusAtlasSection(key)" in html
     assert "Re-assert the destination once it is in view" in html
@@ -382,6 +385,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'data-nav-section="maths"' in html
     assert 'id="maths"' in html
     assert 'id="mathsIndex"' in html
+    assert 'id="mathsReadingContext"' in html
+    assert 'id="mathsReadingContextTitle"' in html
+    assert 'id="mathsReadingReturn"' in html
     assert 'id="mathsReadoutTitle"' in html
     assert 'class="maths-card"' in html
     assert "MATHS_INDEX" in html
@@ -460,6 +466,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function renderSelectionContext(row)" in html
     assert "data-context-focus" in html
     assert "function renderMathsIndex()" in html
+    assert "function renderMathsReadingContext()" in html
     assert "function selectMathCard(key)" in html
     assert "Cruth — Ireland Field Atlas V2" in html
     assert 'id="siteIntro"' in html

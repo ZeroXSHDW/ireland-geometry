@@ -1494,6 +1494,14 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .maths-head h2 { max-width:620px; margin:8px 0 0; color:#f7f0dc; font:700 clamp(27px,3vw,39px)/1.02 Georgia,serif; letter-spacing:-.05em; }
 .maths-head h2 em { color:#e1bd66; font-style:normal; }
 .maths-head p { max-width:650px; margin:10px 0 0; color:rgba(247,240,220,.68); font-size:11px; line-height:1.55; }
+.maths-reading-context { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:13px; padding:11px 13px; border:1px solid rgba(225,189,102,.48); border-radius:10px; background:rgba(7,29,32,.3); }
+.maths-reading-context[hidden] { display:none; }
+.maths-reading-context > div { min-width:0; }
+.maths-reading-context span { display:block; color:#e1bd66; font-size:8px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.maths-reading-context strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:#f7f0dc; font:700 17px/1.05 Georgia,serif; letter-spacing:-.035em; }
+.maths-reading-context p { margin:5px 0 0; color:rgba(247,240,220,.62); font-size:9px; line-height:1.45; }
+.maths-reading-context button { flex:0 0 auto; min-height:29px; padding:5px 9px; border:1px solid #e1bd66; border-radius:7px; color:#173b3d; background:#e1bd66; font-size:10px; font-weight:800; }
+.maths-reading-context button:hover, .maths-reading-context button:focus-visible { border-color:#f7f0dc; color:#173b3d; background:#f7f0dc; }
 .maths-notation { flex:0 0 148px; display:flex; align-items:center; justify-content:center; width:148px; height:108px; border:1px solid rgba(225,189,102,.42); border-radius:50%; color:#e1bd66; font:700 20px/1.5 Georgia,serif; letter-spacing:.08em; transform:rotate(-7deg); }
 .maths-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin-top:18px; }
 .maths-card { min-width:0; min-height:184px; padding:11px; border:1px solid rgba(247,240,220,.2); border-radius:10px; color:#f7f0dc; background:rgba(7,29,32,.28); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
@@ -1669,6 +1677,8 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-math span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
 .selection-math strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .selection-math small { display:block; margin-top:4px; color:#6c786f; font-size:9px; line-height:1.35; }
+.selection-math-action { display:inline-flex; align-items:center; min-height:27px; margin-top:7px; padding:4px 8px; border:1px solid #b9aa7c; border-radius:7px; color:#315c57; background:rgba(255,253,248,.78); font-size:10px; font-weight:750; }
+.selection-math-action:hover, .selection-math-action:focus-visible { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .selection-culture { margin-top:8px; padding:9px 10px; border:1px solid rgba(76,118,95,.46); background:linear-gradient(135deg,rgba(232,241,231,.84),rgba(247,240,222,.78)); }
 .selection-culture[hidden] { display:none; }
 .selection-culture-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
@@ -2558,6 +2568,8 @@ tr:hover td { background:#f1f6f1; }
   .maths-section { padding:18px; }
   .maths-head { display:block; }
   .maths-notation { display:none; }
+  .maths-reading-context { display:block; }
+  .maths-reading-context button { margin-top:9px; }
   .maths-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .maths-readout { grid-template-columns:1fr; }
   .measure-ledger { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -2729,6 +2741,14 @@ tr:hover td { background:#f1f6f1; }
         <p>This index names the mathematical properties used to read Irish building footprints: proportion, angle, symmetry, compactness and boundary shape. Select a card to trace a screening signal into the catalogue and map, or to read the descriptor inside a selected building’s geometry dossier.</p>
       </div>
       <div class="maths-notation" aria-hidden="true">A / P<br/>φ · θ · Fₙ</div>
+    </div>
+    <div id="mathsReadingContext" class="maths-reading-context" aria-live="polite" hidden>
+      <div>
+        <span>Tracing from the dossier / selected footprint</span>
+        <strong id="mathsReadingContextTitle">—</strong>
+        <p id="mathsReadingContextText">The Maths field stays attached to the measured footprint that opened it.</p>
+      </div>
+      <button id="mathsReadingReturn" type="button">Return to building dossier →</button>
     </div>
     <div id="mathsIndex" class="maths-grid" aria-label="Interactive mathematical property index"></div>
     <div class="maths-readout" aria-live="polite"><span>Maths lens</span><div><strong id="mathsReadoutTitle">Choose a property to trace it.</strong><p id="mathsReadoutText">Each card connects a named mathematical idea to a measured descriptor or screening flag in this report.</p></div></div>
@@ -3032,7 +3052,7 @@ tr:hover td { background:#f1f6f1; }
       <div class="selection-fact"><span>Geometry signals</span><strong id="selectionGeometry">—</strong></div>
       <div class="selection-fact"><span>Review state</span><strong id="selectionReview">—</strong></div>
     </div>
-    <div class="selection-math"><span>Measured geometry / snapshot descriptors</span><strong id="selectionMath">—</strong><small>Area, boundary, dimensions, compactness, radial variation, and Fourier terms describe the mapped footprint; they do not establish historical intent.</small></div>
+    <div class="selection-math"><span>Measured geometry / snapshot descriptors</span><strong id="selectionMath">—</strong><small>Area, boundary, dimensions, compactness, radial variation, and Fourier terms describe the mapped footprint; they do not establish historical intent.</small><button id="selectionMathRead" class="selection-math-action" type="button" data-maths-read="maths">Trace this geometry through Maths →</button></div>
     <div id="selectionCultureTrace" class="selection-culture" aria-labelledby="selectionCultureTraceTitle" hidden>
       <div class="selection-culture-head"><div><span>Áit / cultural trace</span><strong id="selectionCultureTraceTitle">Place context beside the measurement.</strong><p id="selectionCultureTraceIntro">The selected footprint will be read through the place, heritage, shared-life, or civic context that the source row actually carries.</p></div></div>
       <div class="selection-culture-facts"><div class="selection-culture-fact"><span>Lens</span><strong id="selectionCultureLens">—</strong></div><div class="selection-culture-fact"><span>Source context</span><strong id="selectionCultureContext">—</strong></div></div>
@@ -4060,6 +4080,27 @@ function renderMathsIndex() {
   const title=$('mathsReadoutTitle'), text=$('mathsReadoutText');
   if(title) title.textContent=readoutTitle;
   if(text) text.textContent=readoutText;
+  renderMathsReadingContext();
+}
+function renderMathsReadingContext() {
+  const panel=$('mathsReadingContext');
+  if(!panel) return;
+  const id=selectedMarkerId||offlineSelection, row=targetRowForId(id);
+  if(!row) { panel.hidden=true; return; }
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const area=Number(row.area_m2), length=Number(row.length_m), width=Number(row.width_m), aspect=Number(row.aspect_ratio), circularity=Number(row.circularity), rectangularity=Number(row.rectangularity), radial=Number(row.radial_cv);
+  const metrics=[
+    Number.isFinite(area)?`A ${fmt(area,0)} m²`:'',
+    Number.isFinite(length)&&Number.isFinite(width)?`l×w ${fmt(length,1)} × ${fmt(width,1)} m`:'',
+    Number.isFinite(aspect)?`r ${fmt(aspect,3)}`:'',
+    Number.isFinite(circularity)?`C ${fmt(circularity,3)}`:'',
+    Number.isFinite(rectangularity)?`R ${fmt(rectangularity,3)}`:'',
+    Number.isFinite(radial)?`σᵣ/μᵣ ${fmt(radial,3)}`:''
+  ].filter(Boolean).join(' · ');
+  const flags=(row.flags||[]).slice(0,3).map(patternLabel), place=selectionPlaceText(row), placeText=place&&place!=='Context not reported'?`${place} · `:'';
+  set('mathsReadingContextTitle',contextTitle(row));
+  set('mathsReadingContextText',`${placeText}${metrics||'Measured descriptors are not reported'}.${flags.length?` Screens: ${flags.join(' · ')}.`:''} Trace the descriptors below; screening flags remain exploratory and do not establish historic intent.`);
+  panel.hidden=false;
 }
 function selectMathCard(key) {
   const item=MATHS_INDEX.find(candidate=>candidate.key===key);
@@ -5206,8 +5247,16 @@ document.addEventListener('click',event=>{
   if(event.target.closest?.('#clearComparison')) { clearComparison(); return; }
   const sequence=event.target.closest?.('button[data-sequence-target]');
   if(sequence?.dataset.sequenceTarget) { focusAtlasTarget(sequence.dataset.sequenceTarget,sequence.dataset.sequenceSection||'field'); return; }
+  const mathsRead=event.target.closest?.('button[data-maths-read]');
+  if(mathsRead?.dataset.mathsRead) { focusAtlasSection(mathsRead.dataset.mathsRead); return; }
   const cultureRead=event.target.closest?.('button[data-culture-read]');
   if(cultureRead?.dataset.cultureRead) { focusAtlasSection(cultureRead.dataset.cultureRead); return; }
+  const mathsReturn=event.target.closest?.('#mathsReadingReturn');
+  if(mathsReturn) {
+    const selection=$('selectionCard');
+    if(selection&&!selection.hidden) { setAtlasNavActive('filters'); revealSelectionCard(selection); }
+    return;
+  }
   const returnToDossier=event.target.closest?.('#cultureReadingReturn');
   if(returnToDossier) {
     const selection=$('selectionCard');
@@ -5683,6 +5732,7 @@ function renderSelectionCard(id) {
   set($('selectionMath'),selectionMathText(row));
   renderSelectionCulturalTrace(row);
   renderCultureReadingContext();
+  renderMathsReadingContext();
   renderSelectionEvidence(row);
   renderSelectionContext(row);
   drawSelectionFingerprint(row);
@@ -5715,7 +5765,7 @@ function clearSelection() {
   selectedMarkerId=null; offlineSelection=null;
   syncFocusState('');
   if(map?.closePopup) map.closePopup();
-  hideSelectionCard(); renderCultureReadingContext(); renderFieldWalk(); renderTable();
+  hideSelectionCard(); renderCultureReadingContext(); renderMathsReadingContext(); renderFieldWalk(); renderTable();
   if(offlineMap) renderOfflineMap();
 }
 async function copySelectionLink() {
