@@ -264,6 +264,16 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="mapFit"' in html
     assert 'id="mapLoading"' in html
     assert "function selectMapTarget" in html
+    assert 'id="focusSelectionMap"' in html
+    assert "let selectionOutlineLayer = null;" in html
+    assert "function clearSelectionMapOutline()" in html
+    assert "function renderSelectionMapOutline(row)" in html
+    assert "selected-footprint-outline" in html
+    assert "offline-selection-outline" in html
+    assert "let offlineMapFocus = false;" in html
+    assert "Focused place view · source outline shown" in html
+    assert "transform=\"translate(-230 0)\"" in html
+    assert "function focusSelectedMap()" in html
     assert "Focus in list" in html
     assert "A place is more than a pattern." in html
     assert 'id="cultureLens"' in html

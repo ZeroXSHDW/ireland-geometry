@@ -3849,3 +3849,14 @@ costs: unnecessary cache misses and browser downloads of the full report pack.
   updated Pages artifact, and passed pipeline verification, generated-
   JavaScript parsing, Pages audit, local HTTP, `git diff --check`, and the full
   project test suite.
+
+## Cruth selected-footprint map focus — 2026-08-21
+
+- Added a persistent source-footprint outline for the selected building on the
+  live Leaflet map, with a highlighted centroid and place tooltip; the outline
+  follows the dossier as the visitor moves between nearby places.
+- Added the same source geometry to the offline SVG fallback, an explicit
+  `Show on map` action, and a close place view that keeps the selected outline
+  legible while preserving a reset path to the island-scale field.
+- Kept the map cue descriptive: it shows the mapped footprint and snapshot
+  coordinates, not a claim about historic form or cultural meaning.

@@ -1874,6 +1874,9 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 @keyframes map-pulse { 0%,100% { opacity:.42; transform:scale(.82); } 50% { opacity:1; transform:scale(1); } }
 .offline-grid { stroke:#b7c8d2; stroke-width:1; stroke-dasharray:4 8; opacity:.75; }
 .offline-outline { fill:rgba(37,99,235,.08); stroke:#526f80; stroke-width:1.2; }
+.offline-selection-outline { fill:rgba(224,189,110,.18); stroke:#bf5b45; stroke-width:3; stroke-linejoin:round; vector-effect:non-scaling-stroke; pointer-events:none; }
+.offline-selection-ring { fill:#e0bd6e; stroke:#fffaf0; stroke-width:2.5; vector-effect:non-scaling-stroke; pointer-events:none; }
+.offline-selection-label { fill:#173f40; font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace; paint-order:stroke; stroke:#fffaf0; stroke-width:3px; stroke-linejoin:round; }
 .offline-route { fill:none; stroke:#1d4ed8; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; opacity:.9; pointer-events:none; }
 .offline-route-focus { fill:#f59e0b; stroke:#fff; stroke-width:2.5; }
 .offline-comparison-chord { pointer-events:none; }
@@ -1884,6 +1887,7 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .offline-comparison-label { fill:#173f40; font:700 11px ui-monospace,SFMono-Regular,Menlo,monospace; paint-order:stroke; stroke:#fffaf0; stroke-width:3px; stroke-linejoin:round; }
 .offline-point { stroke:#17324d; stroke-width:1; cursor:pointer; opacity:.82; }
 .offline-point:hover, .offline-point.selected { stroke:#111827; stroke-width:2.5; opacity:1; }
+.selected-footprint-outline { stroke:#fffaf0; stroke-width:3; stroke-linejoin:round; vector-effect:non-scaling-stroke; filter:drop-shadow(0 0 4px rgba(191,91,69,.8)); }
 .offline-map-note, .offline-selection { position:absolute; z-index:2; left:14px; max-width:350px; padding:7px 9px;
   border:1px solid #cbd5df; border-radius:8px; background:rgba(255,255,255,.94); box-shadow:0 2px 8px rgba(15,23,42,.12); }
 .offline-map-note { top:14px; color:#526071; font-size:11px; }
@@ -3072,7 +3076,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="selection-fingerprint"><div class="selection-fingerprint-head"><span>Boundary fingerprint / mapped shape</span><strong id="selectionFingerprintLabel">Select a footprint to draw its boundary.</strong><p id="selectionFingerprintText">The atlas will normalize the mapped outline to show its measured proportions, axis, and centre without changing the source geometry.</p></div><div><canvas id="selectionFingerprint" class="selection-fingerprint-canvas" width="520" height="200" role="img" aria-label="Selected footprint boundary fingerprint">Mapped footprint fingerprint appears here when geometry is available.</canvas><small id="selectionFingerprintNote" class="selection-fingerprint-note">Geometry source status: waiting for selection.</small></div></div>
     <div class="selection-weave"><div class="selection-weave-head"><span>Cruth / derived field print</span><strong id="selectionWeaveLabel">Select a footprint to translate its signals.</strong><p id="selectionWeaveText">A contemporary visual study will combine the selected descriptors and screening flags into a repeatable field—not a historic ornament or a claim about cultural origin.</p></div><div><canvas id="selectionWeave" class="selection-weave-canvas" width="520" height="200" role="img" aria-label="Derived geometry field print">Derived field print appears here when geometry is available.</canvas><small id="selectionWeaveNote" class="selection-weave-note">Descriptor-led study: waiting for selection.</small></div></div>
     <div class="selection-passport" aria-label="Downloadable visual field passport"><div><span>Field passport / take the place with you</span><strong>One measured Irish footprint, one visual record.</strong><p>Download a self-contained SVG card with the place context, source trail, geometry descriptors, and an honest evidence boundary.</p></div><div class="selection-passport-actions"><button id="downloadSelectionPassport" type="button">Download SVG passport →</button><span id="selectionPassportStatus" class="selection-passport-status" role="status" aria-live="polite"></span></div></div>
-    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
+    <div class="selection-actions"><button id="focusSelectionMap" type="button">Show on map →</button><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
   </section>
   <section id="comparisonTray" class="comparison-tray atlas-section" aria-labelledby="comparisonTitle" aria-live="polite" hidden>
     <div class="comparison-head"><div><span class="selection-kicker">Field comparison / two places</span><h2 id="comparisonTitle">Read two footprints together.</h2><p id="comparisonIntro">Add a selected target to begin a side-by-side comparison of place context, geometry and screening signals.</p></div><div class="comparison-head-actions"><button id="copyComparisonLink" class="comparison-copy" type="button" disabled>Copy comparison link →</button><button id="clearComparison" class="comparison-clear" type="button">Clear comparison</button><span id="comparisonShareStatus" class="comparison-share-status" role="status" aria-live="polite"></span></div></div>
@@ -3246,6 +3250,7 @@ let mapTileErrorCount = 0;
 let mapLiveTimer = null;
 let offlineMap = false;
 let offlineSelection = null;
+let offlineMapFocus = false;
 let routeGeometry = null;
 let routeLine = null;
 let comparisonLine = null;
@@ -3264,6 +3269,7 @@ const DEFAULT_MAP_CENTER = [53.35,-8.05];
 const DEFAULT_MAP_ZOOM = 7;
 let selectedMarkerId = null;
 let fieldWalkFocusMarker = null;
+let selectionOutlineLayer = null;
 let studioReferenceData = null;
 let studioReferenceId = '';
 let studioPairData = [];
@@ -5268,6 +5274,7 @@ document.addEventListener('click',event=>{
   const contextFocus=event.target.closest?.('button[data-context-focus]');
   if(contextFocus?.dataset.contextFocus) { focusRow(contextFocus.dataset.contextFocus,{scroll:true,openPopup:false}); return; }
   if(event.target.closest?.('#downloadSelectionPassport')) { downloadSelectionPassport(); return; }
+  if(event.target.closest?.('#focusSelectionMap')) { focusSelectedMap(); return; }
   if(event.target.closest?.('#copySelectionLink')) { copySelectionLink(); return; }
   if(event.target.closest?.('#clearSelection')) { clearSelection(); return; }
   if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
@@ -5759,10 +5766,17 @@ function renderSelectionCard(id) {
   card.hidden=false;
 }
 function hideSelectionCard() { const card=$('selectionCard'); if(card) card.hidden=true; }
+function focusSelectedMap() {
+  const id=selectedMarkerId||offlineSelection, status=$('selectionShareStatus'), row=targetRowForId(id);
+  if(!row) { if(status) status.textContent='Select a place before focusing the map.'; return; }
+  focusRow(row.osm_id,{scroll:false,openPopup:true});
+  if(status) status.textContent=`Map focused on ${contextTitle(row)} · outline follows the source geometry.`;
+}
 function clearSelection() {
   if(selectedMarkerId) setMarkerSelected(markerById.get(selectedMarkerId),false);
   clearFieldWalkFocusMarker();
-  selectedMarkerId=null; offlineSelection=null;
+  clearSelectionMapOutline();
+  selectedMarkerId=null; offlineSelection=null; offlineMapFocus=false;
   syncFocusState('');
   if(map?.closePopup) map.closePopup();
   hideSelectionCard(); renderCultureReadingContext(); renderMathsReadingContext(); renderFieldWalk(); renderTable();
@@ -5828,12 +5842,13 @@ function offlineBounds() {
   let minLat=Infinity,maxLat=-Infinity,minLon=Infinity,maxLon=-Infinity;
   const comparisonRows=comparisonMapRows();
   const focusedRow=targetRowForId(offlineSelection||selectedMarkerId);
-  const points=(routeGeometry&&routeGeometry.length>1?routeGeometry.map(([lon,lat])=>({lat,lon})):DATA).concat(comparisonRows).concat(focusedRow?[focusedRow]:[]);
+  const nearbyFocusRows=offlineMapFocus&&focusedRow?DATA.filter(row=>String(row.osm_id)!==String(focusedRow.osm_id)).map(row=>({...row,focusDistance:contextDistanceMeters(focusedRow,row)})).filter(row=>Number.isFinite(row.focusDistance)).sort((a,b)=>a.focusDistance-b.focusDistance||String(a.osm_id).localeCompare(String(b.osm_id))).slice(0,8):[];
+  const focusRows=offlineMapFocus&&focusedRow?[focusedRow,...nearbyFocusRows]:DATA;
+  const routeFocused=Boolean(routeGeometry&&routeGeometry.length>1), points=(routeFocused?routeGeometry.map(([lon,lat])=>({lat,lon})):focusRows).concat(comparisonRows).concat(focusedRow?[focusedRow]:[]);
   points.forEach(row=>{ const lat=Number(row.lat), lon=Number(row.lon); if(Number.isFinite(lat)&&Number.isFinite(lon)){ minLat=Math.min(minLat,lat); maxLat=Math.max(maxLat,lat); minLon=Math.min(minLon,lon); maxLon=Math.max(maxLon,lon); } });
   if(!Number.isFinite(minLat)) return null;
-  const routeFocused=Boolean(routeGeometry&&routeGeometry.length>1);
-  const latSpan=Math.max(maxLat-minLat,routeFocused ? 0.01 : 0.1), lonSpan=Math.max(maxLon-minLon,routeFocused ? 0.01 : 0.1);
-  const latPad=latSpan*.08, lonPad=lonSpan*.08;
+  const focusView=Boolean(offlineMapFocus&&focusedRow&&!routeFocused), latSpan=Math.max(maxLat-minLat,focusView ? 0.004 : routeFocused ? 0.01 : 0.1), lonSpan=Math.max(maxLon-minLon,focusView ? 0.006 : routeFocused ? 0.01 : 0.1);
+  const latPad=latSpan*(focusView?.24:.08), lonPad=lonSpan*(focusView?.24:.08);
   return {minLat:minLat-latPad,maxLat:maxLat+latPad,minLon:minLon-lonPad,maxLon:maxLon+lonPad};
 }
 function offlinePoint(row,bounds) {
@@ -5856,6 +5871,18 @@ function setMarkerSelected(marker,selected) {
 function clearFieldWalkFocusMarker() {
   if(fieldWalkFocusMarker) { fieldWalkFocusMarker.remove(); fieldWalkFocusMarker=null; }
 }
+function clearSelectionMapOutline() {
+  if(selectionOutlineLayer) { selectionOutlineLayer.remove(); selectionOutlineLayer=null; }
+}
+function renderSelectionMapOutline(row) {
+  clearSelectionMapOutline();
+  if(offlineMap||!map||!row||typeof L==='undefined') return;
+  const feature=GEOJSON_BY_ID.get(String(row.osm_id||''));
+  if(!feature?.geometry) return;
+  selectionOutlineLayer=L.geoJSON(feature,{interactive:false,style:{className:'selected-footprint-outline',color:'#fffaf0',weight:3,opacity:1,fillColor:'#e0bd6e',fillOpacity:.2}}).addTo(map);
+  selectionOutlineLayer.bindTooltip(esc(`${contextTitle(row)} · ${selectionPlaceText(row)}`),{direction:'top',opacity:.96,sticky:true});
+  selectionOutlineLayer.bringToFront();
+}
 function renderFieldWalkFocusMarker(row) {
   clearFieldWalkFocusMarker();
   if(!map||!row||markerById.has(row.osm_id)) return;
@@ -5873,6 +5900,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   syncFocusState(id);
   renderFieldWalk();
   setMarkerSelected(markerById.get(id),true);
+  renderSelectionMapOutline(targetRowForId(id));
   renderSelectionCard(id);
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
     const active=row.dataset.id===id;
@@ -5891,7 +5919,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   updateMapHud();
 }
 function fitMapToResults() {
-  if(offlineMap) { renderOfflineMap(); return; }
+  if(offlineMap) { offlineMapFocus=false; renderOfflineMap(); return; }
   if(!map || !markerLayer) return;
   const bounds=typeof markerLayer.getBounds==='function'?markerLayer.getBounds():null;
   if(bounds && bounds.isValid && bounds.isValid()) {
@@ -5904,7 +5932,7 @@ function fitMapToResults() {
 }
 function resetMapView() {
   if(map) map.setView(DEFAULT_MAP_CENTER,DEFAULT_MAP_ZOOM);
-  if(offlineMap) { offlineSelection=null; renderOfflineMap(); }
+  if(offlineMap) { offlineSelection=null; offlineMapFocus=false; renderOfflineMap(); }
 }
 function renderOfflineMap() {
   setMapLoading(false);
@@ -5924,10 +5952,14 @@ function renderOfflineMap() {
   const mapRows=filtered.slice(0,__MARKER_LIMIT__);
   const selected=targetRowForId(offlineSelection||selectedMarkerId);
   if(selected&&!mapRows.some(row=>row.osm_id===selected.osm_id)) mapRows.push(selected);
+  const selectedRing=selected?geometryOuterRing(GEOJSON_BY_ID.get(String(selected.osm_id||''))):[];
+  const selectedPoint=selected?offlinePoint(selected,bounds):null;
+  const selectedOutline=selected&&selectedRing.length>=3&&selectedPoint?`<g class="offline-selection-layer" aria-hidden="true"><polyline class="offline-selection-outline" points="${selectedRing.map(([lon,lat])=>{const p=offlinePoint({lat,lon},bounds);return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;}).join(' ')}"/><circle class="offline-selection-ring" cx="${selectedPoint.x.toFixed(2)}" cy="${selectedPoint.y.toFixed(2)}" r="12"/><text class="offline-selection-label" text-anchor="end" x="${(selectedPoint.x-16).toFixed(2)}" y="${(selectedPoint.y-12).toFixed(2)}">SELECTED / ${esc(contextTitle(selected))}</text></g>`:'';
   const points=mapRows.map(row=>{ const p=offlinePoint(row,bounds), isSelected=offlineSelection===row.osm_id||selectedMarkerId===row.osm_id; return `<circle class="offline-point${isSelected?' selected':''}" data-id="${esc(row.osm_id)}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${isSelected?6:4}" fill="${color(row.score)}"><title>${esc(contextTitle(row))} · ${esc(row.group)} · score ${fmt(row.score)}</title></circle>`; }).join('');
   const selection=selected?`<div class="offline-selection"><b>${esc(contextTitle(selected))}</b> · ${esc(selected.group)} · score ${fmt(selected.score)}<br><span class="footnote">${esc(selected.osm_id)} · click a point to inspect another target</span></div>`:'';
-  const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
-  el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback">${grid}${outlines}${route}${comparisonChord}${routeFocus}${points}</svg><div class="offline-map-note">${note}</div>${selection}`;
+  const note=routeGeometry&&routeGeometry.length>1?`Offline route view · ${routeGeometry.length.toLocaleString()} path points.`:offlineMapFocus&&selected?`Focused place view · source outline shown · ${selected.osm_id}.`:`Offline map fallback · ${filtered.length.toLocaleString()} matching targets; basemap unavailable.`;
+  const focusTransform=offlineMapFocus&&selected&&!(routeGeometry&&routeGeometry.length>1)?' transform="translate(-230 0)"':'';
+  el.className='offline-map'; el.innerHTML=`<svg class="offline-map-svg" viewBox="0 0 1000 700" role="img" aria-label="Offline map fallback"><g class="offline-map-field"${focusTransform}>${grid}${outlines}${route}${comparisonChord}${routeFocus}${selectedOutline}${points}</g></svg><div class="offline-map-note">${note}</div>${selection}`;
   el.querySelectorAll('.offline-point').forEach(point=>point.addEventListener('click',()=>focusRow(point.dataset.id,{scroll:false,openPopup:false})));
   updateMapHud();
 }
@@ -5975,7 +6007,7 @@ function decorateMapAccessibility() {
 }
 function renderMap() {
   if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId) && !targetRowForId(selectedMarkerId)) { selectedMarkerId=null; offlineSelection=null; syncFocusState(''); hideSelectionCard(); renderFieldWalk(); }
-  if(offlineMap){ clearFieldWalkFocusMarker(); clearComparisonMapLayer(); renderOfflineMap(); return; }
+  if(offlineMap){ clearFieldWalkFocusMarker(); clearSelectionMapOutline(); clearComparisonMapLayer(); renderOfflineMap(); return; }
   if (!map || !markerLayer) return;
   clearFieldWalkFocusMarker();
   if(routeLine){ routeLine.remove(); routeLine=null; }
@@ -5994,6 +6026,7 @@ function renderMap() {
   });
   const selectedWalkRow=selectedMarkerId&&!filtered.some(row=>row.osm_id===selectedMarkerId)?targetRowForId(selectedMarkerId):null;
   if(selectedWalkRow) renderFieldWalkFocusMarker(selectedWalkRow);
+  renderSelectionMapOutline(targetRowForId(selectedMarkerId));
   if(routeGeometry&&routeGeometry.length>1){ routeLine=L.polyline(routeGeometry.map(([lon,lat])=>[lat,lon]),{color:'#1d4ed8',weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map); routeLine.bringToFront(); }
   renderComparisonMapLayer();
   renderRouteManeuverMarker();
@@ -6172,6 +6205,7 @@ function restoreFocusedTarget() {
 function focusRow(id,{scroll=true,openPopup=true}={}) {
   const row=targetRowForId(id);
   if(!row) return;
+  if(offlineMap) offlineMapFocus=true;
   selectMapTarget(id,{scroll});
   if(map){
     map.setView([row.lat,row.lon],17);
