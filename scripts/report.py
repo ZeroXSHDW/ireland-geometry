@@ -3774,7 +3774,7 @@ function carrySelectionToStudio(id) {
   setAtlasNavActive('studio');
   window.setTimeout(()=>{
     $('studio')?.scrollIntoView({behavior:'smooth',block:'start'});
-    $('studioReference')?.scrollIntoView({behavior:'smooth',block:'start'});
+    revealPanelTarget($('studioReference'));
   },120);
 }
 function carryComparisonToStudio() {
@@ -3785,7 +3785,7 @@ function carryComparisonToStudio() {
   if(status) status.textContent='Relationship carried to the studio · controls remain editable.';
   window.setTimeout(()=>{
     $('studio')?.scrollIntoView({behavior:'smooth',block:'start'});
-    $('studioPairReference')?.scrollIntoView({behavior:'smooth',block:'start'});
+    revealPanelTarget($('studioPairReference'));
   },120);
 }
 function clearStudioReference() {
@@ -5836,15 +5836,16 @@ function renderRouteManeuverMarker() {
 function mapTargetAriaLabel(row) {
   return `Map target ${contextTitle(row)} · ${selectionPlaceText(row)} · ${fmt(row.area_m2,0)} square metres · ${selectionGeometryText(row)}`;
 }
-function revealSelectionCard(selection) {
+function revealPanelTarget(target) {
   const panel=$('panel');
-  if(panel&&panel.contains(selection)) {
+  if(panel&&target&&panel.contains(target)) {
     const stickyOffset=Math.max(54,Math.round($('atlasNav')?.getBoundingClientRect().height||0));
-    panel.scrollTo({top:Math.max(0,selection.offsetTop-stickyOffset),behavior:'smooth'});
-  } else if(selection?.scrollIntoView) {
-    selection.scrollIntoView({behavior:'smooth',block:'start'});
+    panel.scrollTo({top:Math.max(0,target.offsetTop-stickyOffset),behavior:'smooth'});
+  } else if(target?.scrollIntoView) {
+    target.scrollIntoView({behavior:'smooth',block:'start'});
   }
 }
+function revealSelectionCard(selection) { revealPanelTarget(selection); }
 function decorateMapAccessibility() {
   if(!map) return;
   filtered.slice(0,__MARKER_LIMIT__).forEach(row=>{

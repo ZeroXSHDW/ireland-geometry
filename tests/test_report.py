@@ -314,9 +314,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "scroll-margin-top:54px" in html
     assert "const stickyOffset=Math.max(54,Math.round($('atlasNav')?.getBoundingClientRect().height||0));" in html
     assert "selection-card-arrived" in html
+    assert "function revealPanelTarget(target)" in html
     assert "function revealSelectionCard(selection)" in html
-    assert "panel.contains(selection)" in html
-    assert "panel.scrollTo({top:Math.max(0,selection.offsetTop-stickyOffset),behavior:'smooth'})" in html
+    assert "panel.contains(target)" in html
+    assert "panel.scrollTo({top:Math.max(0,target.offsetTop-stickyOffset),behavior:'smooth'})" in html
+    assert "revealPanelTarget($('studioReference'))" in html
+    assert "revealPanelTarget($('studioPairReference'))" in html
     assert 'id="selectionHeritage"' in html
     assert 'id="selectionMath"' in html
     assert 'id="selectionCultureTrace"' in html
