@@ -57,6 +57,20 @@ The visual layer remains explicitly non-inferential: mathematical screens are
 shown as prompts for inspection and contemporary design hypotheses, not proof
 of historic intention or a substitute for Irish lived culture.
 
+## Cultural trace handoff — 2026-08-21
+
+- Added a place-aware cultural trace card to each selected footprint dossier.
+  It names the available lens (`Ainm`, `Oidhreacht`, `Pobal`, civic, or place
+  context), the carried settlement/county context, and the source-linked NIAH
+  type/rating/era when present.
+- Split the old ambiguous cultural action into two explicit paths: “Read the
+  cultural field” moves to the Culture chapter, while “Filter this lens” keeps
+  the measured target exploration in Explore.
+- Preserved the evidence boundary in the generated copy: place and heritage
+  fields are context from the row, not proof that geometry caused, represents,
+  or proves a cultural tradition. Added report assertions and verified both
+  browser paths in the rebuilt standalone report with no console errors.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

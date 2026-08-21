@@ -24,6 +24,18 @@ The new story layer preserves the project’s evidence boundary: geometry is a
 way to notice and ask better questions about Irish buildings and land, not a
 claim that a historical builder consciously used a named mathematical system.
 
+## Cultural trace handoff — 2026-08-21
+
+Selected footprints now carry a compact **Áit / cultural trace** card inside
+the dossier. It makes the row’s available cultural lens, settlement/county
+context, and source-linked heritage type visible beside the measured geometry.
+The handoff has two deliberate actions: **Read the cultural field** moves to
+the Culture chapter; **Filter this lens** applies the existing Explore filter.
+This removes the previous ambiguity where the cultural action skipped past the
+cultural chapter. Standalone rendered browser checks passed with no console
+errors, and the copy keeps place context separate from claims of cultural
+origin or historic mathematical intent.
+
 ## Field walk sequence rail — 2026-08-21
 
 The **Wander the field** chapter now has a compact sequence rail after a stop

@@ -1660,6 +1660,23 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-math span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
 .selection-math strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .selection-math small { display:block; margin-top:4px; color:#6c786f; font-size:9px; line-height:1.35; }
+.selection-culture { margin-top:8px; padding:9px 10px; border:1px solid rgba(76,118,95,.46); background:linear-gradient(135deg,rgba(232,241,231,.84),rgba(247,240,222,.78)); }
+.selection-culture[hidden] { display:none; }
+.selection-culture-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.selection-culture-head > div { min-width:0; }
+.selection-culture-head span { display:block; color:#4c765f; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-culture-head strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-culture-head p { max-width:620px; margin:5px 0 0; color:#64746a; font-size:9px; line-height:1.4; }
+.selection-culture-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; margin-top:9px; }
+.selection-culture-fact { min-width:0; padding:7px 8px; border:1px solid rgba(76,118,95,.25); background:rgba(255,253,248,.62); }
+.selection-culture-fact span, .selection-culture-fact strong { display:block; }
+.selection-culture-fact span { color:#897c67; font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.selection-culture-fact strong { margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font-size:10px; line-height:1.25; }
+.selection-culture-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.selection-culture-actions button { min-height:28px; padding:5px 9px; border:1px solid #4c765f; border-radius:7px; color:#fff8eb; background:#4c765f; font-size:10px; font-weight:800; }
+.selection-culture-actions button:hover, .selection-culture-actions button:focus-visible { border-color:var(--deep); background:var(--deep); }
+.selection-culture-actions button[data-selection-culture] { color:#315c57; background:rgba(255,253,248,.78); }
+.selection-culture-note { margin:9px 0 0; padding-top:8px; border-top:1px solid rgba(76,118,95,.24); color:#6d786f; font-size:9px; line-height:1.4; }
 .selection-evidence { margin-top:8px; padding:9px 10px; border:1px solid rgba(110,139,127,.48); background:rgba(235,241,232,.68); }
 .selection-evidence-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
 .selection-evidence-head > div { min-width:0; }
@@ -2587,6 +2604,8 @@ tr:hover td { background:#f1f6f1; }
   .selection-evidence-head { display:block; }
   .selection-evidence-status { display:inline-block; margin-top:8px; }
   .selection-evidence-grid { grid-template-columns:1fr; }
+  .selection-culture-head { display:block; }
+  .selection-culture-facts { grid-template-columns:1fr; }
   .selection-context-head { display:block; }
   .selection-context-status { display:inline-block; margin-top:8px; }
   .selection-context-list { grid-template-columns:1fr; }
@@ -2987,6 +3006,12 @@ tr:hover td { background:#f1f6f1; }
       <div class="selection-fact"><span>Review state</span><strong id="selectionReview">—</strong></div>
     </div>
     <div class="selection-math"><span>Measured geometry / snapshot descriptors</span><strong id="selectionMath">—</strong><small>Area, boundary, dimensions, compactness, radial variation, and Fourier terms describe the mapped footprint; they do not establish historical intent.</small></div>
+    <div id="selectionCultureTrace" class="selection-culture" aria-labelledby="selectionCultureTraceTitle" hidden>
+      <div class="selection-culture-head"><div><span>Áit / cultural trace</span><strong id="selectionCultureTraceTitle">Place context beside the measurement.</strong><p id="selectionCultureTraceIntro">The selected footprint will be read through the place, heritage, shared-life, or civic context that the source row actually carries.</p></div></div>
+      <div class="selection-culture-facts"><div class="selection-culture-fact"><span>Lens</span><strong id="selectionCultureLens">—</strong></div><div class="selection-culture-fact"><span>Source context</span><strong id="selectionCultureContext">—</strong></div></div>
+      <div class="selection-culture-actions"><button id="selectionCultureRead" type="button" data-culture-read="culture">Read the cultural field →</button><button id="selectionCulture" type="button" data-selection-culture="" hidden>Filter this lens →</button></div>
+      <p id="selectionCultureNote" class="selection-culture-note">Culture is a context layer here, not a formula or a claim about historic intent.</p>
+    </div>
     <div class="selection-evidence" aria-labelledby="selectionEvidenceHeading">
       <div class="selection-evidence-head"><div><span>Rian / evidence trail</span><strong id="selectionEvidenceHeading">Follow this building across the source layers.</strong><p id="selectionEvidenceIntro">The selected footprint will place geometry, heritage, historical evidence, review, and mapping history beside one another.</p></div><span id="selectionEvidenceStatus" class="selection-evidence-status">Waiting for selection</span></div>
       <div id="selectionEvidenceGrid" class="selection-evidence-grid" aria-label="Evidence trail for selected building"></div>
@@ -3000,7 +3025,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="selection-fingerprint"><div class="selection-fingerprint-head"><span>Boundary fingerprint / mapped shape</span><strong id="selectionFingerprintLabel">Select a footprint to draw its boundary.</strong><p id="selectionFingerprintText">The atlas will normalize the mapped outline to show its measured proportions, axis, and centre without changing the source geometry.</p></div><div><canvas id="selectionFingerprint" class="selection-fingerprint-canvas" width="520" height="200" role="img" aria-label="Selected footprint boundary fingerprint">Mapped footprint fingerprint appears here when geometry is available.</canvas><small id="selectionFingerprintNote" class="selection-fingerprint-note">Geometry source status: waiting for selection.</small></div></div>
     <div class="selection-weave"><div class="selection-weave-head"><span>Cruth / derived field print</span><strong id="selectionWeaveLabel">Select a footprint to translate its signals.</strong><p id="selectionWeaveText">A contemporary visual study will combine the selected descriptors and screening flags into a repeatable field—not a historic ornament or a claim about cultural origin.</p></div><div><canvas id="selectionWeave" class="selection-weave-canvas" width="520" height="200" role="img" aria-label="Derived geometry field print">Derived field print appears here when geometry is available.</canvas><small id="selectionWeaveNote" class="selection-weave-note">Descriptor-led study: waiting for selection.</small></div></div>
     <div class="selection-passport" aria-label="Downloadable visual field passport"><div><span>Field passport / take the place with you</span><strong>One measured Irish footprint, one visual record.</strong><p>Download a self-contained SVG card with the place context, source trail, geometry descriptors, and an honest evidence boundary.</p></div><div class="selection-passport-actions"><button id="downloadSelectionPassport" type="button">Download SVG passport →</button><span id="selectionPassportStatus" class="selection-passport-status" role="status" aria-live="polite"></span></div></div>
-    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
+    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
   </section>
   <section id="comparisonTray" class="comparison-tray atlas-section" aria-labelledby="comparisonTitle" aria-live="polite" hidden>
     <div class="comparison-head"><div><span class="selection-kicker">Field comparison / two places</span><h2 id="comparisonTitle">Read two footprints together.</h2><p id="comparisonIntro">Add a selected target to begin a side-by-side comparison of place context, geometry and screening signals.</p></div><div class="comparison-head-actions"><button id="copyComparisonLink" class="comparison-copy" type="button" disabled>Copy comparison link →</button><button id="clearComparison" class="comparison-clear" type="button">Clear comparison</button><span id="comparisonShareStatus" class="comparison-share-status" role="status" aria-live="polite"></span></div></div>
@@ -5106,6 +5131,8 @@ document.addEventListener('click',event=>{
   if(removeCompare?.dataset.compareRemove) { removeComparisonTarget(removeCompare.dataset.compareRemove); return; }
   if(event.target.closest?.('#copyComparisonLink')) { copyComparisonLink(); return; }
   if(event.target.closest?.('#clearComparison')) { clearComparison(); return; }
+  const cultureRead=event.target.closest?.('button[data-culture-read]');
+  if(cultureRead?.dataset.cultureRead) { setAtlasNavActive(cultureRead.dataset.cultureRead); $('culture')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
   const selectionCulture=event.target.closest?.('button[data-selection-culture]');
   if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
   const contextFocus=event.target.closest?.('button[data-context-focus]');
@@ -5163,6 +5190,36 @@ function selectionGeometryText(row) {
 function selectionMathText(row) {
   const fourier=[row.fourier_1,row.fourier_2,row.fourier_3,row.fourier_4].map(value=>fmt(value,3)).join(' / ');
   return [`A ${fmt(row.area_m2,1)} m²`,`P ${fmt(row.perimeter_m,1)} m`,`l×w ${fmt(row.length_m,1)} × ${fmt(row.width_m,1)} m`,`r ${fmt(row.aspect_ratio,3)}`,`C ${fmt(row.circularity,3)}`,`R ${fmt(row.rectangularity,3)}`,`σᵣ/μᵣ ${fmt(row.radial_cv,3)}`,`F₁…₄ ${fourier}`].join(' · ');
+}
+function renderSelectionCulturalTrace(row) {
+  const trace=$('selectionCultureTrace'), title=$('selectionCultureTraceTitle'), intro=$('selectionCultureTraceIntro'), lensValue=$('selectionCultureLens'), contextValue=$('selectionCultureContext'), read=$('selectionCultureRead'), filter=$('selectionCulture'), note=$('selectionCultureNote');
+  if(!trace) return;
+  const lens=culturalLensForRow(row), place=selectionPlaceText(row), hasPlace=place&&place!=='Context not reported', niah=row.niah||{}, type=String(niah.type||'').trim(), record=[type,niah.rating,niah.century].filter(Boolean).join(' · '), hasContext=Boolean(lens||hasPlace||niah.reg_no||row.spatial?.county||row.address_city);
+  trace.hidden=!hasContext;
+  if(!hasContext) return;
+  const lensLabel=lens?CULTURE_LENS_LABELS[lens]:'Áit / place context';
+  const sourceLabel=record||(niah.reg_no?`NIAH ${niah.reg_no}`:`${spatialGroupLabel(row.group)} record`);
+  if(title) title.textContent=hasPlace?`${lensLabel} / ${place}`:`${lensLabel} / context carried by this row`;
+  if(lensValue) lensValue.textContent=lensLabel;
+  if(contextValue) contextValue.textContent=sourceLabel;
+  if(lens==='named') {
+    if(intro) intro.textContent=`The row carries a named settlement context: ${place}. Read that name beside the mapped footprint, then bring local knowledge into the interpretation.`;
+  } else if(lens==='heritage') {
+    if(intro) intro.textContent=`The row carries a source-linked heritage join${record?` (${record})`:''}. Read the inventory beside the shape without turning a type into a cultural proof.`;
+  } else if(lens==='pobal') {
+    if(intro) intro.textContent=`The row sits in the worship/shared-life lens${hasPlace?` at ${place}`:''}. Read the mapped room beside its community context, not as a formula for belief or belonging.`;
+  } else if(lens==='civic') {
+    if(intro) intro.textContent=`The row enters the civic/public-institution lens${hasPlace?` at ${place}`:''}. Carry its measured scale into the shared-space question while keeping the source boundary visible.`;
+  } else if(intro) {
+    intro.textContent=`The row carries ${hasPlace?`${place} and `:''}${sourceLabel} as context. The atlas keeps that context beside the measurement rather than inventing a cultural reading.`;
+  }
+  if(read) read.dataset.cultureRead='culture';
+  if(filter) {
+    filter.hidden=!lens;
+    filter.dataset.selectionCulture=lens||'';
+    filter.textContent=lens?`Filter ${CULTURE_LENS_LABELS[lens]} →`:'Filter this lens →';
+  }
+  if(note) note.textContent=`Context comes from the report row’s place, group, and source fields. It is a prompt for a more grounded reading—not evidence that the mapped geometry caused, represents, or proves a cultural tradition.`;
 }
 function geometryOuterRing(feature) {
   const geometry=feature?.geometry;
@@ -5539,6 +5596,7 @@ function renderSelectionCard(id) {
   set($('selectionHeritage'),selectionHeritageText(row));
   set($('selectionGeometry'),selectionGeometryText(row));
   set($('selectionMath'),selectionMathText(row));
+  renderSelectionCulturalTrace(row);
   renderSelectionEvidence(row);
   renderSelectionContext(row);
   drawSelectionFingerprint(row);
@@ -5560,7 +5618,7 @@ function renderSelectionCard(id) {
   if(lensButton) {
     lensButton.hidden=!lens;
     lensButton.dataset.selectionCulture=lens;
-    lensButton.textContent=lens?`Explore ${CULTURE_LENS_LABELS[lens]} →`:'Explore this cultural lens →';
+    lensButton.textContent=lens?`Filter ${CULTURE_LENS_LABELS[lens]} →`:'Filter this lens →';
   }
   card.hidden=false;
 }
