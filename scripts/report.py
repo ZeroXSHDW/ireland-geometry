@@ -5481,6 +5481,12 @@ function selectMapTarget(id,{scroll=false}={}) {
   syncFocusState(id);
   setMarkerSelected(markerById.get(id),true);
   renderSelectionCard(id);
+  document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
+    const active=row.dataset.id===id;
+    row.classList.toggle('selected',active);
+    row.setAttribute('aria-selected',String(active));
+    if(active && scroll) row.scrollIntoView({block:'nearest'});
+  });
   const selection=$('selectionCard');
   if(scroll&&selection&&!selection.hidden) {
     selection.classList.remove('selection-card-arrived');
@@ -5489,12 +5495,6 @@ function selectMapTarget(id,{scroll=false}={}) {
     revealSelectionCard(selection);
     setTimeout(()=>selection.classList.remove('selection-card-arrived'),900);
   }
-  document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
-    const active=row.dataset.id===id;
-    row.classList.toggle('selected',active);
-    row.setAttribute('aria-selected',String(active));
-    if(active && scroll) row.scrollIntoView({block:'nearest'});
-  });
   updateMapHud();
 }
 function fitMapToResults() {
