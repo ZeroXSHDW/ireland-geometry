@@ -3909,6 +3909,16 @@ const patternNamesText = row => row.flags.map(patternLabel).join(', ');
 const CULTURE_LENS_LABELS = {named:'Ainm / named places',heritage:'Oidhreacht / heritage joins',pobal:'Pobal / shared life',civic:'Civic / public institutions'};
 const ATLAS_NAV_LABELS = {field:'The Irish field',maths:'Mathematical grammar',studio:'Design studio',culture:'Cultural lens',filters:'Explore targets',evidence:'Evidence and findings'};
 let atlasNavFocusTimer=null;
+function atlasNavStatusText(key) {
+  const base=ATLAS_NAV_LABELS[key]||'Atlas';
+  if(key!=='filters') return base;
+  const culture=$('cultureLens')?.value, type=$('niahType')?.value, pattern=$('pattern')?.value, century=$('century')?.value;
+  if(culture) return `${base} · ${CULTURE_LENS_LABELS[culture]||culture}`;
+  if(type) return `${base} · ${heritageTypeLabel(type)}`;
+  if(pattern) return `${base} · ${patternLabel(pattern)}`;
+  if(century) return `${base} · ${century}`;
+  return base;
+}
 const FIELD_SIGNAL_META = {
   golden_ratio: {
     title: 'Golden ratio / φ',
@@ -4506,7 +4516,11 @@ function renderMethod() {
   if(paragraphs.length<3) return;
   paragraphs[2].innerHTML=`Analytical readiness: <b>${SUMMARY.analysis_ready?'pass':'incomplete'}</b>; validation records: <b>${esc(SUMMARY.validation?.status||'not reported')}</b>.`;
 }
-function renderAll() { renderFieldAtlas(); renderFieldWalk(); renderMathsIndex(); renderCultureAtlas(); renderComparisonTray(); renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus(); }
+function renderAll() {
+  renderFieldAtlas(); renderFieldWalk(); renderMathsIndex(); renderCultureAtlas(); renderComparisonTray(); renderSummary(); renderMethod(); renderPatternCatalog(); renderTable(); renderMap(); renderRuntimeStatus();
+  const active=document.querySelector('[data-nav-section][aria-current="page"]')?.dataset.navSection||'field', status=$('atlasNavStatus');
+  if(status) status.textContent=atlasNavStatusText(active);
+}
 
 function rowCounty(row) { return String(row.spatial?.county||row.niah?.county||'').trim(); }
 function renderCountyFieldNote() {
@@ -4850,6 +4864,7 @@ function setHeritageType(key) {
   if(!select||!key||![...select.options].some(option=>option.value===key)) return;
   select.value=select.value===key?'':key;
   heritageEraKey='';
+  setAtlasNavActive('filters');
   applyFilters();
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -5067,6 +5082,7 @@ function setPatternFilter(key) { $('pattern').value=$('pattern').value===key?'':
 function clearPatternFilter() { $('pattern').value=''; applyFilters(); }
 function setCultureFilter(key) {
   $('cultureLens').value=$('cultureLens').value===key?'':key;
+  setAtlasNavActive('filters');
   applyFilters();
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -6010,7 +6026,7 @@ function setAtlasNavActive(key) {
     step.setAttribute('aria-current',active?'step':'false');
   });
   const status=$('atlasNavStatus');
-  if(status) status.textContent=ATLAS_NAV_LABELS[key]||'Atlas';
+  if(status) status.textContent=atlasNavStatusText(key);
 }
 function focusAtlasTarget(targetKey,navKey=targetKey) {
   const section=$(targetKey);

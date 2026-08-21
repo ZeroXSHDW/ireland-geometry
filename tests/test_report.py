@@ -238,6 +238,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "const PACK =" in html
     assert "const MATCHED =" in html
     assert "function renderAll()" in html
+    assert "function atlasNavStatusText(key)" in html
+    assert "CULTURE_LENS_LABELS[culture]||culture" in html
+    assert "if(status) status.textContent=atlasNavStatusText(active);" in html
     assert "function renderOfflineMap()" in html
     assert 'id="fieldWalkGrid"' in html
     assert 'class="field-walk-shape"' in html
