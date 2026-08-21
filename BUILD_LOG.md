@@ -57,6 +57,23 @@ The visual layer remains explicitly non-inferential: mathematical screens are
 shown as prompts for inspection and contemporary design hypotheses, not proof
 of historic intention or a substitute for Irish lived culture.
 
+## Field passport and accessible map constellation — 2026-08-21
+
+- Added a visual “Field passport” action to every selected footprint. The
+  browser now generates a self-contained SVG card containing the place
+  context, WGS84 coordinate stamp, OSM/NIAH source trail, normalized mapped
+  outline (or an explicitly labelled descriptor guide), geometry metrics, and
+  the active screening signals.
+- Kept the passport’s evidence boundary inside the artifact itself: it records
+  a dated mapped snapshot and contemporary geometry descriptors, not historic
+  intent, authorship, cultural origin, planning compliance, or one Irish
+  architectural tradition.
+- Added keyboard-readable labels and activation for visible Leaflet markers and
+  marker clusters, so a visitor can navigate the same field without relying on
+  pointer-only map interaction.
+- Added responsive styling, generated-report regression assertions, and parity
+  across standalone, lazy, and offline report modes before regeneration.
+
 ## Geometry dossiers and map constellation — 2026-08-21
 
 - Extended the selected-place card from a signal summary into a measured

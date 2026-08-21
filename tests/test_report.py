@@ -392,6 +392,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function trustStatusKind(value)" in html
     assert 'id="selectionWeave"' in html
     assert 'id="selectionWeaveLabel"' in html
+    assert 'id="downloadSelectionPassport"' in html
+    assert 'id="selectionPassportStatus"' in html
+    assert "function passportPathData(row)" in html
+    assert "function downloadSelectionPassport()" in html
+    assert "function decorateMapAccessibility()" in html
+    assert "Map cluster with" in html
     assert 'class="selection-evidence"' in html
     assert 'id="selectionEvidenceGrid"' in html
     assert 'id="selectionEvidenceStatus"' in html
@@ -430,7 +436,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="mapRatioSignal"' in html
     assert "function renderMapConstellation()" in html
     assert "function rowHasSignal(row,key)" in html
-    assert "map.on('moveend zoomend',updateMapHud)" in html
+    assert "map.on('moveend zoomend',()=>{ updateMapHud(); decorateMapAccessibility(); })" in html
     assert 'data-quick-view="signals"' in html
     assert "function initAtlasNav" in html
     assert "function applyQuickView" in html

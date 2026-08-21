@@ -1593,6 +1593,15 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-weave-head p { margin:6px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
 .selection-weave-canvas { display:block; width:100%; min-width:0; height:132px; border:1px solid #c6d2c8; background:#eef2e8; }
 .selection-weave-note { display:block; margin-top:5px; color:#6d786f; font:8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.selection-passport { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; padding:10px; border:1px solid rgba(191,91,69,.46); background:linear-gradient(135deg,rgba(255,247,230,.82),rgba(239,242,231,.82)); }
+.selection-passport > div:first-child { min-width:0; }
+.selection-passport span { display:block; color:#bf5b45; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-passport strong { display:block; margin-top:5px; color:var(--deep); font:700 14px/1.12 Georgia,serif; letter-spacing:-.03em; }
+.selection-passport p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.selection-passport-actions { display:flex; align-items:center; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.selection-passport-actions button { min-height:29px; padding:5px 9px; border:1px solid #bf5b45; border-radius:7px; color:#fff8eb; background:#bf5b45; font-size:10px; font-weight:800; cursor:pointer; }
+.selection-passport-actions button:hover, .selection-passport-actions button:focus-visible { border-color:#173b3a; background:#173b3a; }
+.selection-passport-status { color:#6c786f; font-size:9px; }
 .selection-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:10px; }
 .selection-actions a, .selection-actions button { min-height:27px; padding:4px 8px; border:1px solid #c9b995; border-radius:7px; color:#315c57; background:rgba(255,253,248,.78); font-size:10px; font-weight:750; text-decoration:none; }
 .selection-actions a:hover, .selection-actions button:hover { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
@@ -2452,6 +2461,8 @@ tr:hover td { background:#f1f6f1; }
   .selection-context-list { grid-template-columns:1fr; }
   .selection-fingerprint { grid-template-columns:1fr; }
   .selection-weave { grid-template-columns:1fr; }
+  .selection-passport { display:block; }
+  .selection-passport-actions { justify-content:flex-start; margin-top:9px; }
   .comparison-tray { margin:0 12px 10px; }
   .comparison-head { display:block; }
   .comparison-head-actions { justify-content:flex-start; margin-top:9px; }
@@ -2851,6 +2862,7 @@ tr:hover td { background:#f1f6f1; }
     </div>
     <div class="selection-fingerprint"><div class="selection-fingerprint-head"><span>Boundary fingerprint / mapped shape</span><strong id="selectionFingerprintLabel">Select a footprint to draw its boundary.</strong><p id="selectionFingerprintText">The atlas will normalize the mapped outline to show its measured proportions, axis, and centre without changing the source geometry.</p></div><div><canvas id="selectionFingerprint" class="selection-fingerprint-canvas" width="520" height="200" role="img" aria-label="Selected footprint boundary fingerprint">Mapped footprint fingerprint appears here when geometry is available.</canvas><small id="selectionFingerprintNote" class="selection-fingerprint-note">Geometry source status: waiting for selection.</small></div></div>
     <div class="selection-weave"><div class="selection-weave-head"><span>Cruth / derived field print</span><strong id="selectionWeaveLabel">Select a footprint to translate its signals.</strong><p id="selectionWeaveText">A contemporary visual study will combine the selected descriptors and screening flags into a repeatable field—not a historic ornament or a claim about cultural origin.</p></div><div><canvas id="selectionWeave" class="selection-weave-canvas" width="520" height="200" role="img" aria-label="Derived geometry field print">Derived field print appears here when geometry is available.</canvas><small id="selectionWeaveNote" class="selection-weave-note">Descriptor-led study: waiting for selection.</small></div></div>
+    <div class="selection-passport" aria-label="Downloadable visual field passport"><div><span>Field passport / take the place with you</span><strong>One measured Irish footprint, one visual record.</strong><p>Download a self-contained SVG card with the place context, source trail, geometry descriptors, and an honest evidence boundary.</p></div><div class="selection-passport-actions"><button id="downloadSelectionPassport" type="button">Download SVG passport →</button><span id="selectionPassportStatus" class="selection-passport-status" role="status" aria-live="polite"></span></div></div>
     <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><button id="selectionCulture" type="button" data-selection-culture="" hidden>Explore this cultural lens →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
   </section>
   <section id="comparisonTray" class="comparison-tray atlas-section" aria-labelledby="comparisonTitle" aria-live="polite" hidden>
@@ -4920,6 +4932,7 @@ document.addEventListener('click',event=>{
   if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
   const contextFocus=event.target.closest?.('button[data-context-focus]');
   if(contextFocus?.dataset.contextFocus) { focusRow(contextFocus.dataset.contextFocus,{scroll:true,openPopup:false}); return; }
+  if(event.target.closest?.('#downloadSelectionPassport')) { downloadSelectionPassport(); return; }
   if(event.target.closest?.('#copySelectionLink')) { copySelectionLink(); return; }
   if(event.target.closest?.('#clearSelection')) { clearSelection(); return; }
   if(event.target.closest?.('#clearPattern')) { clearPatternFilter(); return; }
@@ -4978,6 +4991,49 @@ function geometryOuterRing(feature) {
   if(!geometry) return [];
   const candidates=geometry.type==='Polygon' ? [geometry.coordinates?.[0]] : geometry.type==='MultiPolygon' ? (geometry.coordinates||[]).map(polygon=>polygon?.[0]) : [];
   return candidates.filter(ring=>Array.isArray(ring)&&ring.length>=3).sort((a,b)=>b.length-a.length)[0]||[];
+}
+function passportLine(value,max=54) {
+  const text=String(value??'').trim()||'Not reported';
+  return text.length>max ? `${text.slice(0,Math.max(1,max-1))}…` : text;
+}
+function passportFileName(value) {
+  const slug=String(value??'field').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,56);
+  return `${slug||'irish-field'}-field-passport.svg`;
+}
+function passportPathData(row) {
+  const feature=GEOJSON_BY_ID.get(String(row?.osm_id||'')), ring=geometryOuterRing(feature);
+  const points=ring.filter(pair=>Array.isArray(pair)&&pair.length>=2&&Number.isFinite(Number(pair[0]))&&Number.isFinite(Number(pair[1]))).map(pair=>[Number(pair[0]),Number(pair[1])]);
+  const x=770, y=212, width=340, height=340;
+  if(points.length>=3) {
+    const xs=points.map(pair=>pair[0]), ys=points.map(pair=>pair[1]), minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys), rangeX=Math.max(1e-12,maxX-minX), rangeY=Math.max(1e-12,maxY-minY), scale=Math.min((width-36)/rangeX,(height-36)/rangeY), usedW=rangeX*scale, usedH=rangeY*scale, left=x+(width-usedW)/2, top=y+(height-usedH)/2;
+    return {d:points.map((pair,index)=>`${index?'L':'M'} ${(left+(pair[0]-minX)*scale).toFixed(1)} ${(top+(maxY-pair[1])*scale).toFixed(1)}`).join(' ')+' Z',source:'mapped outline',vertices:Math.max(0,points.length-1)};
+  }
+  const aspect=Math.max(.3,Math.min(3.6,Number(row?.aspect_ratio)||1)), boxW=aspect>=1?Math.min(width*.72,100+aspect*48):Math.max(72,100*aspect), boxH=aspect>=1?Math.max(74,100/aspect):Math.min(160,100/aspect), left=x+(width-boxW)/2, top=y+(height-boxH)/2;
+  return {d:`M ${left.toFixed(1)} ${top.toFixed(1)} H ${(left+boxW).toFixed(1)} V ${(top+boxH).toFixed(1)} H ${left.toFixed(1)} Z`,source:'descriptor guide',vertices:0};
+}
+function downloadSelectionPassport() {
+  const id=selectedMarkerId||offlineSelection, status=$('selectionPassportStatus'), row=DATA.find(item=>item.osm_id===id)||filtered.find(item=>item.osm_id===id);
+  if(!row) { if(status) status.textContent='Select a place first.'; return; }
+  const niah=row.niah||{}, spatial=row.spatial||{}, name=passportLine(row.name||'Unnamed target',44), place=passportLine(selectionPlaceText(row),48), heritage=passportLine(niah.reg_no?[niah.name||'NIAH-linked record',niah.reg_no,niah.rating,niah.century].filter(Boolean).join(' · '):'No NIAH join in this snapshot',54), flags=passportLine((row.flags||[]).length?row.flags.slice(0,6).map(patternLabel).join(' · '):'No screening flags reported',62), coords=`${coordinateLabel(row.lat,'N','S')} / ${coordinateLabel(row.lon,'E','W')}`, path=passportPathData(row), source=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id||'')}`, geometryRows=[['AREA',`${fmt(row.area_m2,1)} m²`],['PERIMETER',`${fmt(row.perimeter_m,1)} m`],['LENGTH × WIDTH',`${fmt(row.length_m,1)} × ${fmt(row.width_m,1)} m`],['ASPECT',fmt(row.aspect_ratio,3)],['CIRCULARITY',fmt(row.circularity,3)],['RADIAL CV',fmt(row.radial_cv,3)]];
+  const metricSvg=geometryRows.map(([label,value],index)=>{ const column=index%3, rowIndex=Math.floor(index/3), x=72+column*218, y=782+rowIndex*93; return `<g><text x="${x}" y="${y}" fill="#9eb4a8" font-size="13" font-weight="700" letter-spacing="2">${esc(label)}</text><text x="${x}" y="${y+31}" fill="#f7f0df" font-size="24" font-weight="700">${esc(value)}</text></g>`; }).join('');
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500" role="img" aria-labelledby="passportTitle passportDescription">
+  <title id="passportTitle">Cruth field passport — ${esc(name)}</title>
+  <desc id="passportDescription">A measured visual record of ${esc(name)} in ${esc(place)}. It describes mapped geometry and source context; it does not establish historic intent.</desc>
+  <defs><linearGradient id="passportBg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d3030"/><stop offset="1" stop-color="#173e3c"/></linearGradient><pattern id="passportGrid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M 42 0 L 0 0 0 42" fill="none" stroke="#d8bd72" stroke-opacity=".12" stroke-width="1"/></pattern></defs>
+  <rect width="1200" height="1500" fill="url(#passportBg)"/><rect x="34" y="34" width="1132" height="1432" rx="26" fill="none" stroke="#e0bd6e" stroke-opacity=".55" stroke-width="2"/><rect x="58" y="58" width="1084" height="1384" rx="18" fill="url(#passportGrid)" opacity=".62"/>
+  <text x="72" y="110" fill="#e0bd6e" font-size="15" font-weight="800" letter-spacing="3">CRUTH / FIELD PASSPORT</text><text x="1128" y="110" text-anchor="end" fill="#9eb4a8" font-size="13" font-weight="700" letter-spacing="2">IRELAND · ${esc(path.source.toUpperCase())}</text>
+  <text x="72" y="190" fill="#f7f0df" font-size="58" font-family="Georgia,serif" font-weight="700">${esc(name)}</text><text x="72" y="234" fill="#e0bd6e" font-size="18" font-weight="700" letter-spacing="2">${esc(coords)} · ${esc(row.osm_id||'OSM target')}</text>
+  <line x1="72" y1="270" x2="1128" y2="270" stroke="#e0bd6e" stroke-opacity=".42"/>
+  <text x="72" y="326" fill="#9eb4a8" font-size="13" font-weight="800" letter-spacing="2">PLACE / AIT</text><text x="72" y="362" fill="#f7f0df" font-size="28" font-family="Georgia,serif">${esc(place)}</text><text x="72" y="400" fill="#b8c8bd" font-size="16">${esc(String(row.group||'other'))} · ${esc(String(spatial.settlement_class||'context not reported').replaceAll('_',' '))}</text>
+  <rect x="736" y="176" width="404" height="432" rx="18" fill="#f5efe0" fill-opacity=".92"/><path d="${path.d}" fill="#6d9b8f" fill-opacity=".36" stroke="#315c57" stroke-width="4"/><circle cx="940" cy="382" r="18" fill="#e0bd6e" stroke="#173e3c" stroke-width="3"/><circle cx="940" cy="382" r="58" fill="none" stroke="#bf5b45" stroke-opacity=".7" stroke-dasharray="7 9" stroke-width="2"/><text x="940" y="578" text-anchor="middle" fill="#315c57" font-size="13" font-weight="800" letter-spacing="2">${esc(path.source.toUpperCase())} · ${path.vertices?`${path.vertices} VERTICES`:'ASPECT GUIDE'}</text>
+  <text x="72" y="508" fill="#9eb4a8" font-size="13" font-weight="800" letter-spacing="2">OIDHREACHT / HERITAGE</text><text x="72" y="545" fill="#f7f0df" font-size="22" font-family="Georgia,serif">${esc(heritage)}</text><text x="72" y="582" fill="#b8c8bd" font-size="15">Source geometry remains open to inspection at OpenStreetMap.</text>
+  <rect x="72" y="640" width="1056" height="1" fill="#e0bd6e" fill-opacity=".42"/><text x="72" y="704" fill="#e0bd6e" font-size="15" font-weight="800" letter-spacing="3">MEASURED GEOMETRY / SNAPSHOT</text>${metricSvg}
+  <rect x="72" y="1006" width="1056" height="1" fill="#e0bd6e" fill-opacity=".42"/><text x="72" y="1070" fill="#e0bd6e" font-size="15" font-weight="800" letter-spacing="3">SIGNALS TO INSPECT</text><text x="72" y="1112" fill="#f7f0df" font-size="22" font-family="Georgia,serif">${esc(flags)}</text><text x="72" y="1154" fill="#b8c8bd" font-size="15">Descriptors and screening flags are prompts for place-based review.</text>
+  <rect x="72" y="1212" width="1056" height="132" rx="14" fill="#f7f0df" fill-opacity=".1" stroke="#9eb4a8" stroke-opacity=".42"/><text x="98" y="1252" fill="#e0bd6e" font-size="13" font-weight="800" letter-spacing="2">EVIDENCE BOUNDARY</text><text x="98" y="1285" fill="#f7f0df" font-size="16">This card records mapped geometry in a dated research snapshot.</text><text x="98" y="1315" fill="#b8c8bd" font-size="14">It is not proof of historic intention, authorship, cultural origin, planning compliance, or a single Irish architectural tradition.</text>
+  <text x="72" y="1400" fill="#9eb4a8" font-size="12">${esc(source)} · Generated by Cruth / Ireland Field Atlas · ${esc(String(SUMMARY.generated_at||'snapshot unavailable'))}</text>
+</svg>`;
+  download(passportFileName(row.name||row.osm_id),svg,'image/svg+xml;charset=utf-8');
+  if(status) status.textContent='SVG field passport downloaded.';
 }
 function drawSelectionFingerprint(row) {
   const canvas=$('selectionFingerprint'), label=$('selectionFingerprintLabel'), text=$('selectionFingerprintText'), note=$('selectionFingerprintNote');
@@ -5302,6 +5358,7 @@ function renderSelectionCard(id) {
   renderSelectionContext(row);
   drawSelectionFingerprint(row);
   drawSelectionWeave(row);
+  set($('selectionPassportStatus'),'');
   set($('selectionReview'),reviewState(row));
   const source=$('selectionOsm');
   if(source) source.href=row.osm_url||`https://www.openstreetmap.org/${encodeURIComponent(row.osm_id)}`;
@@ -5480,6 +5537,27 @@ function renderRouteManeuverMarker() {
   routeManeuverMarker.bindTooltip(routeManeuverLabel(maneuver),{direction:'top',opacity:.95});
   routeManeuverMarker.bringToFront();
 }
+function mapTargetAriaLabel(row) {
+  return `Map target ${contextTitle(row)} · ${selectionPlaceText(row)} · ${fmt(row.area_m2,0)} square metres · ${selectionGeometryText(row)}`;
+}
+function decorateMapAccessibility() {
+  if(!map) return;
+  filtered.slice(0,__MARKER_LIMIT__).forEach(row=>{
+    const marker=markerById.get(row.osm_id), element=marker?.getElement?.();
+    if(!element) return;
+    element.setAttribute('role','button'); element.setAttribute('tabindex','0'); element.setAttribute('aria-label',mapTargetAriaLabel(row));
+    if(element.dataset.irelandGeometryKeyboard==='1') return;
+    element.dataset.irelandGeometryKeyboard='1';
+    element.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; event.preventDefault(); selectMapTarget(row.osm_id,{scroll:true}); marker.openPopup?.(); });
+  });
+  document.querySelectorAll('#map .marker-cluster').forEach(element=>{
+    const count=Number(String(element.textContent||'').replace(/[^0-9]/g,''))||0;
+    element.setAttribute('role','button'); element.setAttribute('tabindex','0'); element.setAttribute('aria-label',`Map cluster with ${count.toLocaleString()} analysed building footprints. Activate to zoom in.`);
+    if(element.dataset.irelandGeometryKeyboard==='1') return;
+    element.dataset.irelandGeometryKeyboard='1';
+    element.addEventListener('keydown',event=>{ if(event.key!=='Enter'&&event.key!==' ') return; event.preventDefault(); element.click(); });
+  });
+}
 function renderMap() {
   if(selectedMarkerId && !filtered.some(row=>row.osm_id===selectedMarkerId)) { selectedMarkerId=null; offlineSelection=null; syncFocusState(''); hideSelectionCard(); }
   if(offlineMap){ clearComparisonMapLayer(); renderOfflineMap(); return; }
@@ -5501,6 +5579,8 @@ function renderMap() {
   if(routeGeometry&&routeGeometry.length>1){ routeLine=L.polyline(routeGeometry.map(([lon,lat])=>[lat,lon]),{color:'#1d4ed8',weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map); routeLine.bringToFront(); }
   renderComparisonMapLayer();
   renderRouteManeuverMarker();
+  decorateMapAccessibility();
+  if(typeof requestAnimationFrame==='function') requestAnimationFrame(decorateMapAccessibility);
   updateMapHud();
 }
 function mapTime(value) {
@@ -6280,7 +6360,7 @@ async function loadMapAssets() {
 function initMap() {
   if(OFFLINE_REQUESTED || !mapAssetsAvailable || typeof L==='undefined') { offlineMap=true; renderOfflineMap(); restoreFocusedTarget(); return; }
   map=L.map('map',{preferCanvas:true}).setView(DEFAULT_MAP_CENTER,DEFAULT_MAP_ZOOM);
-  map.on('moveend zoomend',updateMapHud);
+  map.on('moveend zoomend',()=>{ updateMapHud(); decorateMapAccessibility(); });
   setMapLoading(true,'Loading satellite imagery…');
   const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
     attribution:'Esri, Maxar, Earthstar Geographics, and the GIS User Community',maxZoom:19,maxNativeZoom:18,detectRetina:true

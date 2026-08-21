@@ -24,6 +24,19 @@ The new story layer preserves the project’s evidence boundary: geometry is a
 way to notice and ask better questions about Irish buildings and land, not a
 claim that a historical builder consciously used a named mathematical system.
 
+## Field passport and accessible map constellation — 2026-08-21
+
+The selected-place dossier now offers a downloadable **Field passport**: a
+self-contained SVG record of the chosen Irish footprint’s place context,
+coordinate stamp, OSM/NIAH source trail, mapped outline or clearly labelled
+descriptor guide, geometry measurements, and screening signals. The card
+repeats the atlas’s evidence boundary so a portable visual cannot turn a
+geometric resemblance into a claim about historic intent or Irish cultural
+origin. Visible Leaflet markers and clusters also expose meaningful labels and
+keyboard activation, keeping the immersive map legible to visitors who do not
+use a pointer. Standalone, lazy, and offline report generation share the same
+feature assertions and styling.
+
 ## Latest atlas refinement — 2026-08-21
 
 Selecting a footprint now opens a measured geometry dossier with area,
