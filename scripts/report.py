@@ -5486,7 +5486,7 @@ function selectMapTarget(id,{scroll=false}={}) {
     selection.classList.remove('selection-card-arrived');
     void selection.offsetWidth;
     selection.classList.add('selection-card-arrived');
-    selection.scrollIntoView({behavior:'smooth',block:'start'});
+    revealSelectionCard(selection);
     setTimeout(()=>selection.classList.remove('selection-card-arrived'),900);
   }
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
@@ -5549,6 +5549,14 @@ function renderRouteManeuverMarker() {
 }
 function mapTargetAriaLabel(row) {
   return `Map target ${contextTitle(row)} · ${selectionPlaceText(row)} · ${fmt(row.area_m2,0)} square metres · ${selectionGeometryText(row)}`;
+}
+function revealSelectionCard(selection) {
+  const panel=$('panel');
+  if(panel&&selection.offsetParent===panel) {
+    panel.scrollTo({top:Math.max(0,selection.offsetTop-12),behavior:'smooth'});
+  } else if(selection?.scrollIntoView) {
+    selection.scrollIntoView({behavior:'smooth',block:'start'});
+  }
 }
 function decorateMapAccessibility() {
   if(!map) return;
