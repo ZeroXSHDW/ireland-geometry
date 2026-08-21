@@ -359,6 +359,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function clearSelection" in html
     assert "data-selection-culture" in html
     assert 'id="atlasNav"' in html
+    assert "#panel > * { flex:0 0 auto; }" in html
+    assert "#panel > .table-wrap { flex:0 0 auto; }" in html
     assert 'data-nav-section="culture"' in html
     assert 'data-nav-section="maths"' in html
     assert 'id="maths"' in html

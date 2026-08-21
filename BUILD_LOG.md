@@ -82,6 +82,16 @@ of historic intention or a substitute for Irish lived culture.
   reads `Cultural lens`, and the separate heritage filter still returns to
   Explore. No browser console errors were recorded.
 
+## Atlas chapter sizing repair — 2026-08-21
+
+- Repaired the fixed atlas panel’s flex scroll model. Its direct chapters now
+  retain natural height instead of shrinking to the viewport; the Irish field
+  chapter expands to contain its land narrative, coordinate field, sequence,
+  field walk, signal cards, and measurement ledger.
+- Rebuilt and rendered the standalone report: entering the atlas now lands on
+  the full `The Irish field` chapter with the four curated waypoints reachable
+  in the first scroll sequence, while Maths begins after the field chapter.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

@@ -1377,6 +1377,8 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
          background:var(--panel); box-shadow:0 22px 80px rgba(4,20,23,.38); }
 #panel > header { flex:0 0 auto; padding:24px 26px 22px; border-bottom:1px solid rgba(231,219,193,.2); color:#f7f2e6; background:linear-gradient(135deg,var(--deep) 0%,#154241 54%,#2b5c53 100%); position:relative; overflow:hidden; }
 #panel > header::after { content:"᚛ ᚜"; position:absolute; right:22px; bottom:-26px; color:rgba(231,201,135,.16); font:130px/1 Georgia,serif; letter-spacing:-.18em; transform:rotate(-10deg); }
+#panel > * { flex:0 0 auto; }
+#panel > .table-wrap { flex:0 0 auto; }
 #panel > header h1 { margin:0; max-width:620px; font-size:clamp(28px,4vw,44px); line-height:.97; letter-spacing:-.06em; font-weight:760; }
 #panel > header h1 em { color:#e0b962; font-style:normal; }
 #panel > header .subtitle { margin-top:12px; max-width:620px; color:rgba(247,242,230,.76); font-size:13px; line-height:1.55; }

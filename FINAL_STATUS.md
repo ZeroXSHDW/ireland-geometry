@@ -45,6 +45,15 @@ Explore label; the separate **Filter this lens** action still returns to
 Explore with the heritage filter applied. The rebuilt standalone interaction
 check passed with no console errors.
 
+## Atlas chapter sizing repair — 2026-08-21
+
+The fixed atlas panel no longer compresses the long field chapter as a flex
+child. Entering the site now reveals the complete **Irish field** opening—land
+context, coordinate field, seven-part sequence, curated field walk, signal
+cards, and measurement ledger—before the Maths chapter begins. The rendered
+standalone check confirms the field chapter keeps its natural height and the
+active navigation state remains **The Irish field**.
+
 ## Field walk sequence rail — 2026-08-21
 
 The **Wander the field** chapter now has a compact sequence rail after a stop
