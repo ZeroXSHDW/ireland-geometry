@@ -5911,6 +5911,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   setMarkerSelected(markerById.get(id),true);
   renderSelectionMapOutline(targetRowForId(id));
   renderSelectionCard(id);
+  setAtlasNavActive('filters');
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
     const active=row.dataset.id===id;
     row.classList.toggle('selected',active);
@@ -5923,6 +5924,7 @@ function selectMapTarget(id,{scroll=false}={}) {
     void selection.offsetWidth;
     selection.classList.add('selection-card-arrived');
     revealSelectionCard(selection);
+    setTimeout(()=>setAtlasNavActive('filters'),480);
     setTimeout(()=>selection.classList.remove('selection-card-arrived'),900);
   }
   updateMapHud();
@@ -6211,6 +6213,10 @@ function restoreFocusedTarget() {
   focusRow(id,{scroll:true,openPopup:false});
   return true;
 }
+function mapFocusPanOffset() {
+  const width=Number(window.innerWidth)||0;
+  return width>=900?[-Math.round(Math.min(240,Math.max(150,width*.17))),0]:[0,0];
+}
 function focusRow(id,{scroll=true,openPopup=true}={}) {
   const row=targetRowForId(id);
   if(!row) return;
@@ -6218,6 +6224,8 @@ function focusRow(id,{scroll=true,openPopup=true}={}) {
   selectMapTarget(id,{scroll});
   if(map){
     map.setView([row.lat,row.lon],17);
+    const offset=mapFocusPanOffset();
+    if(offset[0]) map.panBy(offset,{animate:false});
     const marker=markerById.get(id);
     if(marker && openPopup){
       let opened=false;

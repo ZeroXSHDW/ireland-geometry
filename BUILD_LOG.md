@@ -3860,3 +3860,12 @@ costs: unnecessary cache misses and browser downloads of the full report pack.
   legible while preserving a reset path to the island-scale field.
 - Kept the map cue descriptive: it shows the mapped footprint and snapshot
   coordinates, not a claim about historic form or cultural meaning.
+
+## Cruth live focus correction — 2026-08-21
+
+- Reasserted `Explore targets` when a selected dossier opens, including the
+  default satellite-map path where the sticky observer could otherwise leave
+  the interface labelled `Evidence and findings`.
+- Offset desktop map focus into the visible map side of the split-screen so a
+  selected footprint is not centered underneath the dossier panel; compact
+  screens retain the normal single-column focus behavior.

@@ -269,6 +269,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "let selectionOutlineLayer = null;" in html
     assert "function clearSelectionMapOutline()" in html
     assert "function renderSelectionMapOutline(row)" in html
+    assert "setAtlasNavActive('filters');" in html
+    assert "function mapFocusPanOffset()" in html
+    assert "map.panBy(offset,{animate:false});" in html
     assert "selected-footprint-outline" in html
     assert "offline-selection-outline" in html
     assert "let offlineMapFocus = false;" in html
