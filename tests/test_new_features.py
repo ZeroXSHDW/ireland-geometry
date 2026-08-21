@@ -17,6 +17,7 @@ from scripts.negative_controls import build_negative_controls
 from scripts.osm_history import build_history
 from scripts.review import calibration
 from scripts.road_routing import (
+    PortableRoadGraph,
     SQLiteRoadGraph,
     build_node_index,
     conditional_access_profile_rules,
@@ -52,6 +53,7 @@ from scripts.road_routing import (
 )
 from scripts.road_routing import main as road_routing_main
 from scripts.route_query import main as route_query_main
+from scripts.route_query import query_route, query_route_matrix
 from scripts.runtime import sha256_file
 from scripts.spatial_bootstrap import bootstrap_rows
 from scripts.validation import build_strict_matches
@@ -177,6 +179,143 @@ def test_routing_graph_export_round_trips_and_indexes_nearest_nodes(tmp_path):
     assert (graph_path / "road_graph_metadata.json").exists()
 
 
+def test_portable_graph_preserves_directed_way_context_and_path_segments(tmp_path):
+    graph = graph_from_rows(
+        [
+            {"node_id": "a", "lat": "53", "lon": "-8"},
+            {"node_id": "b", "lat": "53", "lon": "-8.001"},
+            {"node_id": "c", "lat": "53", "lon": "-8.002"},
+        ],
+        [
+            {
+                "u": "a",
+                "v": "b",
+                "length_m": "10",
+                "oneway": "yes",
+                "way_id": "way/a-b",
+                "name": "Main Road",
+                "highway": "primary",
+            },
+            {
+                "u": "b",
+                "v": "c",
+                "length_m": "20",
+                "oneway": "yes",
+                "way_id": "way/b-c",
+                "ref": "R1",
+            },
+        ],
+    )
+    assert isinstance(graph, PortableRoadGraph)
+    result = query_route(53.0, -8.0, 53.0, -8.002, graph, include_path=True)
+    assert result["path_segment_source"] == "portable_edges"
+    assert result["path_way_ids"] == ["way/a-b", "way/b-c"]
+    assert result["path_segment_total_distance_m"] == 30.0
+    assert result["path_segments"][0]["road_context"] == {
+        "name": "Main Road",
+        "ref": None,
+        "highway": "primary",
+        "route": None,
+        "oneway": "yes",
+    }
+    assert result["graph"]["way_context"] is True
+    assert result["graph"]["way_context_n"] == 2
+
+    graph_path = tmp_path / "portable-graph"
+    write_graph(graph_path, graph, source="fixture.pbf")
+    loaded = load_graph(graph_path)
+    loaded_result = query_route(53.0, -8.0, 53.0, -8.002, loaded, include_path=True)
+    assert loaded_result["path_segment_source"] == "portable_edges"
+    assert loaded_result["path_way_ids"] == ["way/a-b", "way/b-c"]
+    metadata = json.loads((graph_path / "road_graph_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["path_segment_source"] == "portable_edges"
+
+
+def test_portable_ferry_geometry_is_opt_in_and_round_trips(tmp_path):
+    graph = graph_from_rows(
+        [
+            {"node_id": "a", "lat": "53", "lon": "-8"},
+            {"node_id": "f1", "lat": "53", "lon": "-8.001"},
+            {"node_id": "f2", "lat": "53", "lon": "-8.002"},
+            {"node_id": "b", "lat": "53", "lon": "-8.003"},
+        ],
+        [
+            {"u": "a", "v": "f1", "length_m": "1", "oneway": "yes", "way_id": "road/a"},
+            {
+                "u": "f1",
+                "v": "f2",
+                "length_m": "2",
+                "oneway": "yes",
+                "way_id": "ferry/1",
+                "route": "ferry",
+            },
+            {"u": "f2", "v": "b", "length_m": "1", "oneway": "yes", "way_id": "road/b"},
+        ],
+    )
+
+    assert graph.ferry_edge_count == 1
+    assert graph.neighbours("f1")[0].ferry is True
+    assert shortest_path("a", "b", graph) is None
+    assert shortest_path("a", "b", graph, include_ferries=True) == 4
+
+    excluded = query_route(53.0, -8.0, 53.0, -8.003, graph, include_path=True)
+    assert excluded["reachable"] is False
+    assert excluded["graph"]["ferry_edge_n"] == 1
+    assert "ferry geometry available but excluded" in excluded["method"]
+
+    included = query_route(
+        53.0,
+        -8.0,
+        53.0,
+        -8.003,
+        graph,
+        include_ferries=True,
+        include_path=True,
+    )
+    assert included["reachable"] is True
+    assert included["ferry_way_ids"] == ["ferry/1"]
+    assert included["ferry_distance_m"] == 2.0
+    assert included["ferry_crossing_s"] == 0.0
+    assert included["ferry_edge_n"] == 1
+    assert included["path_segments"][1]["ferry"] is True
+    assert included["path_segments"][1]["road_context"]["route"] == "ferry"
+    assert "schedules, waits, and crossing durations unavailable" in included["method"]
+
+    compact = query_route(
+        53.0,
+        -8.0,
+        53.0,
+        -8.003,
+        graph,
+        include_ferries=True,
+    )
+    assert compact["reachable"] is True
+    assert compact["ferry_way_ids"] == ["ferry/1"]
+    assert compact["ferry_distance_m"] == 2.0
+    assert compact["ferry_crossing_s"] == 0.0
+    assert compact["ferry_edge_n"] == 1
+    assert "path_segments" not in compact
+
+    matrix = query_route_matrix(
+        [(53.0, -8.0)],
+        [(53.0, -8.003)],
+        graph,
+        include_ferries=True,
+    )
+    assert matrix["pairs"][0]["ferry_distance_m"] == 2.0
+    assert matrix["pairs"][0]["ferry_edge_n"] == 1
+
+    graph_path = tmp_path / "portable-ferry-graph"
+    write_graph(graph_path, graph, source="fixture.pbf")
+    loaded = load_graph(graph_path)
+    assert isinstance(loaded, PortableRoadGraph)
+    assert loaded.ferry_edge_count == 1
+    assert shortest_path("a", "b", loaded) is None
+    assert shortest_path("a", "b", loaded, include_ferries=True) == 4
+    metadata = json.loads((graph_path / "road_graph_metadata.json").read_text(encoding="utf-8"))
+    assert metadata["ferry_edge_n"] == 1
+
+
 def test_sqlite_graph_round_trips_and_routes_without_loading_adjacency(tmp_path):
     coordinates = {
         "a": (53.0, -8.0),
@@ -199,6 +338,45 @@ def test_sqlite_graph_round_trips_and_routes_without_loading_adjacency(tmp_path)
     metadata = json.loads((graph_path / "road_graph_metadata.json").read_text(encoding="utf-8"))
     assert metadata["format"] == "ireland-geometry-road-sqlite-v21"
     assert metadata["complete"] is True
+
+
+def test_route_matrix_reuses_route_contract_and_bounds_pair_count(tmp_path):
+    graph_path = tmp_path / "matrix-graph"
+    write_sqlite_graph(
+        graph_path,
+        {
+            "a": (53.0, -8.0),
+            "b": (53.0, -8.001),
+            "c": (53.0, -8.002),
+        },
+        [
+            {"u": "a", "v": "b", "length_m": "10", "way_id": "way/a-b"},
+            {"u": "b", "v": "c", "length_m": "10", "way_id": "way/b-c"},
+        ],
+        source="fixture.pbf",
+    )
+    loaded = load_graph(graph_path)
+    assert isinstance(loaded, SQLiteRoadGraph)
+    try:
+        matrix = query_route_matrix(
+            [(53.0, -8.0), (53.0, -8.001)],
+            [(53.0, -8.001), (53.0, -8.002)],
+            loaded,
+            speed_kmh=36,
+        )
+        assert matrix["contract"] == "ireland-geometry.route-matrix.v1"
+        assert matrix["pair_n"] == 4
+        assert matrix["reachable_n"] == 4
+        assert matrix["pairs"][0]["route_distance_m"] == 10.0
+        assert matrix["pairs"][0]["route"] is None
+        with pytest.raises(ValueError, match="must not exceed 25"):
+            query_route_matrix(
+                [(53.0, -8.0)] * 6,
+                [(53.0, -8.001)] * 5,
+                loaded,
+            )
+    finally:
+        loaded.close()
 
 
 def test_maxweight_parser_supports_numeric_units_and_fails_closed_values():
@@ -1116,6 +1294,13 @@ def test_ferry_schedule_contract_filters_service_and_applies_crossing_duration(t
     assert result["path_segment_total_wait_s"] == 0.0
     assert result["path_segments"][1]["ferry"] is True
     assert result["path_segments"][1]["duration_s"] == 1800.0
+    assert [maneuver["kind"] for maneuver in result["maneuvers"]] == [
+        "start",
+        "ferry_boarding",
+        "ferry_landing",
+        "arrive",
+    ]
+    assert result["maneuvers"][1]["road_context"]["route"] == "ferry"
     assert "ferry service windows and waiting evaluated" in result["method"]
     assert "ferry crossing durations applied" in result["method"]
 
@@ -1715,6 +1900,74 @@ def test_route_query_emits_human_readable_way_context(tmp_path):
         "route": None,
         "oneway": "no",
     }
+
+
+def test_route_query_emits_geometry_derived_maneuvers(tmp_path):
+    coordinates = {
+        "a": (53.0, -8.0),
+        "b": (53.0, -8.001),
+        "c": (53.001, -8.001),
+    }
+    edges = [
+        {
+            "u": "a",
+            "v": "b",
+            "length_m": "10",
+            "oneway": "yes",
+            "way_id": "way/main",
+            "highway": "primary",
+            "name": "Main Street",
+            "ref": "R100",
+        },
+        {
+            "u": "b",
+            "v": "c",
+            "length_m": "10",
+            "oneway": "yes",
+            "way_id": "way/branch",
+            "highway": "residential",
+            "name": "Harbour Road",
+        },
+    ]
+    graph_path = tmp_path / "maneuver-graph"
+    write_sqlite_graph(graph_path, coordinates, edges, source="fixture.pbf")
+    output = tmp_path / "maneuver-route.json"
+    route_query_main(
+        [
+            "--road-graph",
+            str(graph_path),
+            "--start-lat",
+            "53.0",
+            "--start-lon",
+            "-8.0",
+            "--goal-lat",
+            "53.001",
+            "--goal-lon",
+            "-8.001",
+            "--include-path",
+            "--out",
+            str(output),
+        ]
+    )
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["maneuver_n"] == 3
+    assert [maneuver["kind"] for maneuver in result["maneuvers"]] == [
+        "start",
+        "right",
+        "arrive",
+    ]
+    assert result["maneuvers"][0]["coordinate"] == [-8.0, 53.0]
+    assert result["maneuvers"][0]["to_way_id"] == "way/main"
+    assert result["maneuvers"][0]["distance_m"] == 10.0
+    assert result["maneuvers"][1]["node_id"] == "b"
+    assert result["maneuvers"][1]["from_way_id"] == "way/main"
+    assert result["maneuvers"][1]["to_way_id"] == "way/branch"
+    assert result["maneuvers"][1]["bearing_before_deg"] == 270.0
+    assert result["maneuvers"][1]["bearing_after_deg"] == 0.0
+    assert result["maneuvers"][1]["turn_angle_deg"] == 90.0
+    assert result["maneuvers"][1]["road_context"]["name"] == "Harbour Road"
+    assert result["maneuvers"][2]["to_way_id"] is None
+    assert result["maneuvers"][2]["distance_m"] == 0.0
 
 
 def test_sqlite_graph_evaluates_conditional_turn_windows_with_departure_profile(tmp_path):

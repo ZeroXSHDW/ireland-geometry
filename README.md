@@ -15,7 +15,7 @@ pre-specified or independently replicated analysis.
 
 ## Current cached build
 
-The checked local snapshot was regenerated on 2026-08-18 with seed `20260816`
+The checked local snapshot was regenerated on 2026-08-21 with seed `20260816`
 and 300 Monte Carlo iterations:
 
 - 135,173 OSM area elements ingested;
@@ -25,7 +25,9 @@ and 300 Monte Carlo iterations:
   self-describing weights, thresholds, and `output/scoring_config.json`
   provenance;
 - 9,455 OSM→NIAH spatial joins (8,884 analyzed rows);
-- 41 NIAH significance tests, 2 point-pattern groups, 1,114 architect-evidence rows;
+- 41 NIAH significance tests, 2 point-pattern groups, 739 architect-evidence rows
+  and 45 retained architect-rate rows; architect evidence now requires explicit
+  design or architect-role context and records the matched source phrase;
 - 100,212 local target-control pairs, 12 matched tests, and 12 hierarchical tests;
 - 246 footprints with mapped OSM building parts, 30 Ripley rows, 5 Moran rows,
   8 county permutations, and 5 road-proximity summaries;
@@ -89,6 +91,13 @@ and 300 Monte Carlo iterations:
   coordinates and returns machine-readable snap, distance, duration, arrival,
   departure-profile, and optional path/GeoJSON metadata from the persisted
   graph, including ordered SQLite way/segment explainability;
+- a standalone `ireland-geometry-route-matrix` command that accepts repeated
+  WGS84 `--origin LAT,LON` and `--destination LAT,LON` points, caps the
+  Cartesian request at 25 pairs, and emits the same versioned matrix contract
+  as the local API;
+- a standalone `ireland-geometry-route-compare` command that compares two to
+  eight named vehicle profiles over one trip, reports reachability and metric
+  deltas from the first baseline profile, and can embed full route evidence;
 - a standalone report at `output/report.html`, a hosted lazy-data version at
   `output/report_lazy.html`, the compact `output/interpretation.json` sidecar,
   JSONL/Parquet/DuckDB analysis exports, and a provenance manifest at
@@ -130,6 +139,19 @@ open output/report.html
   --goal-lat 53.3438 --goal-lon -6.2672 \
   --departure 2026-08-17T08:00:00+00:00 --speed-kmh 50 \
   --objective duration --include-ferries
+
+# Query a bounded origin/destination matrix:
+.venv/bin/ireland-geometry-route-matrix --road-graph data/roads \
+  --origin 53.3498,-6.2603 --origin 53.3438,-6.2672 \
+  --destination 53.3445,-6.2408 --destination 53.3500,-6.2600 \
+  --objective duration --include-path
+
+# Compare the same trip for a general vehicle and a weighted HGV:
+.venv/bin/ireland-geometry-route-compare --road-graph data/roads \
+  --start 53.3498,-6.2603 --goal 53.3438,-6.2672 \
+  --profile general \
+  --profile 'hgv;vehicle_class=hgv;weight_t=7.5' \
+  --objective duration --include-path
 
 # Evaluate the weight-based conditional turn profile for a heavy vehicle:
 .venv/bin/ireland-geometry-route --road-graph data/roads \
@@ -228,8 +250,17 @@ arrival time. Pass `--include-path` to include graph node IDs, GeoJSON-order
 coordinates, ordered `path_way_ids`, and directed `path_segments` in the JSON,
 or `--geojson-out` to write a GeoJSON `LineString`. Each SQLite segment is
 identified by its `(from_node, to_node, way_id)` tuple; `path_segment_source`
-reports `sqlite_edges` when those IDs are available and `not_available` for the
-portable fallback graph. Segment records also report physical distance,
+reports `sqlite_edges` for persisted SQLite edge IDs, `portable_edges` for
+portable CSV/JSON edges that supply way IDs, and `not_available` when the graph
+does not supply way IDs. Portable graphs retain supplied `name`, `ref`,
+`highway`, `route`, and `oneway` context; rows tagged `route=ferry` (or
+`ferry=yes`) retain opt-in ferry geometry as well. Portable ferry edges are
+excluded unless `--include-ferries` is supplied; when included, path segments
+report `ferry: true`, and compact/path-enabled route responses report basic
+ferry distance/edge/way metrics. Portable graphs do not model ferry schedules,
+waits, or crossing durations, so those timing fields remain zero. Portable
+graphs also intentionally do not claim the
+SQLite-only vehicle-profile or turn-restriction semantics. Segment records also report physical distance,
 estimated duration, ferry-wait seconds, and ferry status; the response exposes
 the corresponding `path_segment_total_*` reconciliation fields. SQLite-backed
 segments also expose a `constraints` array of normalized static OSM edge
@@ -247,6 +278,10 @@ contains `conditional_rules` for persisted `maxspeed:conditional`,
 `oneway:conditional`, and direction-aware `conditional_access` rows; those
 records retain the condition, mode, profile, active state, and whether the
 rule was applied at the segment's entry time.
+Path-enabled responses also include `maneuver_n` and `maneuvers`: deterministic
+start/arrival, turn, mapped-way-change, and ferry-transition records with
+bearings, the outgoing road context, and distance/duration/wait to the next
+maneuver.
 It accepts the same `--departure` and `--speed-kmh` profile parameters.
 `--objective distance` (the default) preserves the shortest physical route;
 `--objective duration` selects the fastest estimated route, allowing modeled
@@ -277,8 +312,10 @@ Supported `oneway:conditional` and `oneway:motor_vehicle:conditional` windows
 are evaluated from the same departure profile; schedule-only values are
 interpreted as temporary forward one-way rules, while unsupported qualifiers
 such as `permit` and `private` preserve the base one-way semantics.
-`--include-ferries` enables the persisted ferry geometry layer. SQLite graphs
-may carry the versioned `ferry_schedules.json` companion contract; when a
+`--include-ferries` enables the persisted ferry geometry layer in either graph
+backend. Portable CSV/JSON graphs use the retained ferry geometry only and do
+not provide schedule-aware timing. SQLite graphs may carry the versioned
+`ferry_schedules.json` companion contract; when a
 departure is supplied, supported weekly, seasonal, and fixed-date
 `opening_hours` windows are enforced; time-aware metrics wait for the next
 supported opening when a route reaches a closed service window. Optional per-way
@@ -289,6 +326,30 @@ companion. The active calendar covers 2023–2030 and route metadata exposes its
 date bounds; unsupported or absent schedule metadata remains explicit in the
 route method, and terminal platform semantics and service frequency are not
 modeled.
+The installed `ireland-geometry-route-matrix` command uses the same profile
+flags and accepts repeated `--origin LAT,LON` and `--destination LAT,LON`
+arguments. It emits `ireland-geometry.route-matrix.v1` JSON in deterministic
+origin-major/destination-minor order, with compact pair summaries by default;
+`--include-path` embeds the complete point-to-point route response for each
+pair. Requests above 25 Cartesian pairs fail before the graph is opened, and
+`--out` uses the same symlink-safe output boundary as the single-route command.
+The installed `ireland-geometry-route-compare` command accepts repeated
+`--profile NAME[;key=value]` specifications, with the first profile as the
+baseline and a hard two-to-eight profile bound. Supported keys are
+`vehicle_class`, `weight_t`, `rating_t`, `height_m`, `width_m`, `length_m`,
+`axleload_t`, and `allow_hgv_destination`. Its
+`ireland-geometry.route-comparison.v1` response reports each profile's
+reachability, snap metadata, distance/duration/ferry metrics, and deltas from
+the baseline; `--include-path` embeds the existing full route contract per
+profile. Profile comparisons use the same graph and departure-time semantics
+as individual route queries.
+The served dashboard exposes the same comparison through its **Compare vehicle
+profiles** panel. Enter one profile specification per line, submit the shared
+trip, inspect baseline deltas in the table, and select any embedded profile path
+to focus the live or offline map. Comparison coordinates, options, and profile
+lines are persisted in `compare=1` URL state, and the returned JSON can be
+downloaded from the panel. File-opened reports cannot call this local endpoint;
+serve the report with `ireland-geometry-serve`.
 With `--incremental`, a stage is skipped only when its declared inputs,
 parameters, code hashes, runtime signature, and expected output hashes still
 match the tracked `output/stage_cache.json`; report, verification, and
@@ -432,7 +493,8 @@ snapshot, or add `--strict` when a clean, fully cached, supported runtime with
 a passing verification, schema-validation, and reproducibility gate is
 required. After installation, the
 equivalent console commands are `ireland-geometry`, `ireland-geometry-doctor`,
-`ireland-geometry-serve`, `ireland-geometry-route`, and
+`ireland-geometry-serve`, `ireland-geometry-route`,
+`ireland-geometry-route-matrix`, `ireland-geometry-route-compare`, and
 `ireland-geometry-query`, `ireland-geometry-bundle`,
 `ireland-geometry-schema-audit`, `ireland-geometry-repro`, and
 `ireland-geometry-release-check`; each supports
@@ -540,6 +602,10 @@ otherwise the holdout stage uses the packaged plan and records its hash in
 `analysis_plan_used.json`.
 The source distribution also retains the root plan and optional LiDAR, road,
 and boundary guidance files for users who unpack it as a project skeleton.
+Distribution builds exclude Python bytecode caches from the installable wheel
+and source archive. The package-smoke job inspects both archives and fails if
+`__pycache__`, `.pyc`, or `.pyo` entries appear, keeping compiled local state
+out of release artifacts.
 The canonical Python 3.11 wheel, sdist, and SHA-256 manifest are retained as
 downloadable artifacts for 14 days from successful CI runs. The Pages
 deployment workflow runs only after the `Ireland geometry checks` workflow
@@ -550,9 +616,12 @@ uploading `docs/`.
 `report_lazy.html` by default. Use `--open` to launch it in the default
 browser, `--port 0` to select an available port, or `--report report.html` to
 serve the self-contained dashboard. The lazy dashboard requests only the
-first 50 target rows from `GET /api/report/page`; its filters, sorting,
-pagination, and CSV/GeoJSON exports stay server-side, so opening the report
-does not download the full target/geometry pack. Append `?offline=1` when a
+first 50 target rows from the structured JSON `POST /api/report/page`; its
+filters, sorting, pagination, and CSV/GeoJSON exports stay server-side, and
+its report-page/export requests use the same strict JSON contracts while the
+URL state remains shareable. The query-string GET forms remain available for
+direct links and existing clients. Opening the report does not download the
+full target/geometry pack. Append `?offline=1` when a
 full-pack, dependency-free offline review is intentional; the standalone
 `report.html` remains fully embedded. The `__health` endpoint can be used by a
 smoke test or local automation: it reports `ready: false` and
@@ -572,6 +641,50 @@ fallback testing. Health also probes the DuckDB, Parquet, CSV, and JSONL
 exports: `query_available` is true only when at least one backend is readable,
 `query_readable_backends` lists the usable formats, and
 `query_backend_health` preserves per-backend errors for diagnosis.
+All successful read-only API representations are conditionally cacheable. The
+capabilities response publishes their paths in `conditional_endpoints`; each
+response carries a deterministic `ETag` and `Cache-Control: no-cache`, and a
+matching `If-None-Match` request returns `304 Not Modified`. This includes
+health, metadata, interpretation, report pages/runtime/exports, analysis
+queries, and all route forms.
+Cacheable JSON responses at or above 1,024 bytes also negotiate deterministic
+gzip when the request advertises `Accept-Encoding: gzip` (or `*`); such
+responses carry `Content-Encoding: gzip` and `Vary: Accept-Encoding`, and their
+ETags identify the encoded representation. The `api_json_gzip` and
+`api_json_gzip_min_bytes` fields in capabilities publish this transport
+behavior.
+Every read-only API GET path also accepts `HEAD`, returning the same
+representation headers (including `Content-Length`, ETag, cache, and optional
+gzip headers) without transferring a body. The `head_endpoints` capability
+list and OpenAPI `head` operations publish this monitoring/cache-probing
+surface.
+Every server response, including static report pages and data packs, carries
+`X-Ireland-Geometry-Request-ID`. Clients may send a validated
+`X-Ireland-Geometry-Request-ID` or `X-Request-ID` value and receive it back;
+otherwise the server generates a correlation ID. API failures use the
+`ireland-geometry.api-error.v1` JSON envelope with `error_code` and
+`request_id`, including unknown API paths and unsupported API methods rather
+than falling back to an HTML error page. Error responses are `no-store`, while
+successful representations retain their existing deterministic cache contract.
+Every access-log line includes `request_id=...`, so static-load and API
+failures can be traced through the same local log. Capabilities and OpenAPI
+publish the error contract, request-ID header, and log field.
+Every server response also carries the baseline browser security policy:
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a
+`Permissions-Policy` disabling geolocation, camera, and microphone access.
+Capabilities and OpenAPI publish the exact header values, and Doctor verifies
+that the policy is present at the shared response boundary.
+Responses also expose standard `Server-Timing: ireland_geometry;dur=...`
+processing measurements, and API/health access-log lines include the
+corresponding metric as `duration_ms` beside the request ID. Capabilities and OpenAPI
+publish the timing header, metric, and log-field names; the measurement covers
+server processing through response-header emission, not network transfer time.
+The lazy dashboard also compares the polled runtime snapshot with the build it
+first loaded. If the manifest changes, analytical readiness falls away, or
+artifact alignment becomes provisional, it keeps the current filters and view
+but exposes an accessible reload action so rows from an older data pack are
+not silently mistaken for the current build. The standalone report carries
+the same guarded UI contract but keeps the server-only notice inactive.
 `ready` describes whether the selected report can be served; `analysis_ready`
 is the stricter analytical gate and is true only when the provenance manifest
 exists, verification/schema-validation/reproducibility records all pass, and
@@ -623,6 +736,17 @@ The dashboard capability inventory also reports whether both generated report
 pages contain the live runtime-refresh contract under
 `capabilities.reports.live_runtime_refresh`; a stale generated page is marked
 incomplete instead of being treated as a fully capable dashboard.
+When a served build's manifest identity changes, or a previously ready build
+becomes provisional during a review, both dashboards expose an accessible
+`Data updated — reload` notice with a reload action. Doctor inventories this
+guard under `capabilities.reports.runtime_reload_notice` so a generated page
+cannot silently retain rows from an older data pack.
+If the lazy page API cannot be reached or a later page/filter request fails,
+the dashboard keeps its shell and exposes an accessible `Retry report request`
+action instead of replacing the page with a raw error or leaving an ambiguous
+empty table. Doctor inventories this under
+`capabilities.reports.report_error_recovery`; the initial lazy bootstrap guard
+is `capabilities.reports.lazy_initial_load_retry`.
 `GET /api/interpretation` returns the compact machine-readable interpretation
 sidecar, including derived findings, source-aware caveats, and the validation
 gate, without requiring automation to download the large `report_data.json`
@@ -660,6 +784,12 @@ The direct Pages audit reports the matching root guard as
 `capabilities.pages.audit_handles_non_directory_root`.
 The same local server exposes `GET /api/route` for point-to-point routing, for
 example `/api/route?start_lat=53&start_lon=-8&goal_lat=53&goal_lon=-8.002`.
+Clients can also `POST` `/api/route` with an `application/json` body containing
+`start` and `goal` `{lat,lon}` objects plus the shared route options and an
+optional `format` of `json` or `geojson`; the body is capped at 128 KiB. The
+structured form returns the same `ireland-geometry.route.v1` response and
+reuses the GET validators, while the repeated-parameter GET remains available
+for shareable links and backwards compatibility.
 It accepts optional `speed_kmh`, `weight_t`, `rating_t`, `height_m`, `width_m`, `length_m`,
 `axleload_t`, `vehicle_class=general|delivery|hgv|psv|taxi`,
 ISO-8601 `departure`, `objective=distance|duration`, `include_path=1`, and
@@ -669,11 +799,17 @@ with the reconstructed route geometry. Path-enabled JSON also exposes ordered
 `path_way_ids`, directed `path_segments`, per-segment distance/duration/wait
 metrics, persisted OSM `road_context`, static per-segment edge `constraints`,
 conditional `conditional_rules`, relation-level turn `transition_rules`, and
-`path_segment_source`; GeoJSON
+`path_segment_source` (`sqlite_edges`, `portable_edges`, or `not_available`);
+portable graphs retain supplied basic way context but not SQLite-only vehicle
+or turn-rule evaluation. Geometry-derived `maneuver_n`/`maneuvers` records with
+bearings, turn kinds, ferry transitions, and distance/duration to the next
+maneuver; GeoJSON
 keeps those route fields out of feature properties while preserving the route
 geometry. The endpoint uses `data/roads` by
 default; `--data-root` or `--road-graph` can point the server at another local
-graph. When the graph carries `ferry_schedules.json`, a supplied departure
+graph. Portable graphs expose the active backend as `portable_basic` and mark
+ferry geometry available while ferry schedules remain unavailable. When the
+graph carries `ferry_schedules.json`, a supplied departure
 enforces its supported weekly, seasonal, fixed-date, and public-holiday service
 windows, waiting for the next supported opening when necessary. Route responses
 expose `ferry_wait_s` and `ferry_wait_n` so clients can distinguish service
@@ -710,10 +846,54 @@ explicit `public_holidays.json` contract; the cached graph includes the
 Graphs without the companion report that the calendar was not provided.
 Responses expose both contract statuses and any modeled crossing durations.
 The served dashboard includes the same route form, displays the returned
-distance/duration/snap/vehicle-weight/ferry-breakdown/wait metadata, and draws the returned path on either the live
-Leaflet map or the dependency-free offline SVG map. It also preserves the full
-optional path/GeoJSON payload. In standalone `file://` mode it remains visible
-but explains that the local server is required.
+distance/duration/snap/vehicle-weight/ferry-breakdown/wait/maneuver metadata,
+renders an accessible clickable maneuver list and a bounded per-segment path
+detail table with mapped-road context, expandable static/conditional/turn-rule
+evidence, and aggregate check counts,
+and draws the returned path on either the live Leaflet map or the dependency-free
+offline SVG map. It also preserves the full optional path/GeoJSON payload. In
+standalone `file://` mode it remains visible but explains that the local server
+is required. Route inputs are written into shareable URL state; `Copy link`
+restores the form and reruns the query when opened, while `JSON` and `GeoJSON`
+buttons download the latest route response without requiring a second CLI/API
+call. The dashboard submits the route form through the structured POST body;
+the URL state remains independent of the request method.
+For repeated logistics or accessibility checks, the same server exposes the
+bounded read-only `GET /api/route/matrix` contract. Supply repeated
+`origin=lat,lon` and `destination=lat,lon` parameters; the Cartesian product is
+limited to 25 pairs and returns ordered compact distance/duration/reachability
+summaries with snap metadata. It accepts the same vehicle, departure, objective,
+and ferry profile parameters as `/api/route`. `include_path=1` adds the full
+versioned point-to-point route response under each pair, including segment and
+restriction evidence, while the default keeps matrix responses compact. The
+route-matrix contract is discoverable from `/api/capabilities` and
+`/api/openapi.json`. Clients can also `POST` the same query to
+`/api/route/matrix` as an `application/json` object with `origins` and
+`destinations` arrays of `{lat,lon}` objects plus the shared route options;
+the JSON body is capped at 128 KiB and is validated through the same contract.
+The dashboard uses this structured form, while the repeated-parameter GET
+form remains available for simple links and backwards compatibility.
+The served dashboard now exposes the same capability through a **Route matrix**
+panel. Enter one origin and destination per line, reuse the route form's
+vehicle/departure/objective options, and run up to 25 ordered pairs. Compact
+results show reachability, distance, duration, ferry wait, and arrival; when
+pair paths are requested, selecting a row focuses its route on the live or
+offline map. Matrix inputs and options persist in `matrix=1` URL state, and the
+raw `ireland-geometry.route-matrix.v1` response can be downloaded as JSON.
+For same-trip vehicle checks, `GET /api/route/compare` accepts the four
+`start_*`/`goal_*` coordinates plus repeated URL-encoded `profile` values such
+as `profile=general` and
+`profile=hgv;vehicle_class=hgv;weight_t=7.5`. The first profile is the
+baseline; two to eight profiles are allowed. Shared `objective`, `departure`,
+`speed_kmh`, `include_path`, and `include_ferries` parameters use the same
+semantics as `/api/route`. The endpoint returns
+`ireland-geometry.route-comparison.v1`, and is discoverable from
+`/api/capabilities` and `/api/openapi.json`. Clients can also `POST` the same
+comparison to `/api/route/compare` as an `application/json` object with
+`start`/`goal` `{lat,lon}` objects, a `profiles` array, and those shared
+options; the body is capped at 128 KiB. The dashboard uses this structured
+form, while the repeated-parameter GET remains available for backwards
+compatibility.
 The doctor capability matrix reports the route panel and both map-overlay modes
 independently, so a generated dashboard can be checked without opening it.
 It also exposes a bounded read-only `GET /api/query` endpoint backed by the
@@ -729,6 +909,13 @@ Responses include `has_more`, offset/cursor continuation metadata, the selected
 backend, filters, and rows as JSON. JSON and JSONL output normalize non-finite
 row numbers to `null`, so malformed optional exports cannot produce
 non-standard `NaN` or infinity tokens.
+Clients can also `POST` the same bounded query to `/api/query` as an
+`application/json` object containing the flat `backend`, `limit`, `offset`,
+filter, finite-score, and cursor fields; unknown fields, non-integer page
+values, non-finite numbers, unsupported media types, and bodies over 128 KiB
+are rejected before the backend is opened. The response remains
+`ireland-geometry.query.v1`, and the repeated-parameter GET remains available
+for links and existing clients.
 `GET /api/metadata` provides a compact build contract with manifest parameters,
 row counts, source/artifact counts, verification, schema-audit, and
 reproducibility status, plus usable export backends; each export backend now includes declared status,
@@ -736,7 +923,11 @@ file availability, runtime readability, and any probe error, alongside the
 `readable_backends` list. Its response links to the full local JSON records.
 `GET /api/report/page` exposes the versioned
 `ireland-geometry.report-page.v1` contract with bounded target pages and
-filter options. `GET /api/report/runtime` exposes the current compact
+filter options. Each `page` object includes `has_more` and an explicit
+`next_offset` continuation value when another page exists, or `null` at the
+end, so clients do not need to reconstruct offsets. Every supported sort uses
+ascending `osm_id` as its deterministic tie-breaker, published as
+`page.sort_tiebreaker`. `GET /api/report/runtime` exposes the current compact
 `ireland-geometry.report-runtime.v1` readiness envelope directly, with the
 same deterministic ETag revalidation behavior as other metadata surfaces. The
 envelope also carries a stable snapshot identity: manifest generation time,
@@ -746,15 +937,32 @@ current manifest SHA-256. Doctor inventories this under
 shows the active build revision when it is available.
 `GET /api/report/export?format=csv|geojson` exposes the
 matching `ireland-geometry.report-export.v1` export contract. Both endpoints
-reuse the dashboard predicate and reload the server-side pack only when its
-mtime/size changes. `GET /api/capabilities` provides a single discovery document for local
+also accept strict `application/json` `POST` bodies: the page form carries the
+same flat filters plus `limit`, `offset`, and `initial`, while the export form
+requires `format` and carries the same filters. Unknown fields, invalid types,
+unsupported media types, and bodies over 128 KiB are rejected before the
+server-side pack is opened; the existing GET forms remain available for links
+and existing clients. Both methods reuse the dashboard predicate and reload
+the server-side pack only when its mtime/size changes. `GET /api/capabilities` provides a single discovery document for local
 automation: it reports report readiness, analytical validation readiness,
 package version, endpoint paths,
 versioned response contracts, query limits/cursors, route availability, and
-per-backend readability. Its top-level `contracts` map is the canonical list;
+per-backend readability. The `routing_graph` inventory identifies the active
+`sqlite` or `portable` backend, its `profile_semantics`, active path-segment
+sources, and feature flags for vehicle profiles, conditional rules, turn
+restrictions, ferry geometry, ferry schedules, way context, and path explainability. The route,
+matrix, and comparison endpoint entries repeat those active graph semantics so
+clients do not mistake project-level implementation support for features
+available in the graph currently loaded by the server. The same inventory now
+reports metadata-backed node, directed-edge, ferry-edge, and way-context counts
+when the graph sidecar provides them, plus a `metadata_status` of
+`available`, `not_provided`, or `invalid`; missing or invalid sidecars leave
+the individual count fields explicitly null. Its top-level `contracts`
+map is the canonical list;
 the JSON surfaces identify themselves with stable
 contracts: `ireland-geometry.health.v1`, `ireland-geometry.query.v1`,
 `ireland-geometry.metadata.v1`, `ireland-geometry.route.v1`, and
+`ireland-geometry.route-matrix.v1`, `ireland-geometry.route-comparison.v1`, and
 `ireland-geometry.capabilities.v1`, plus
 `ireland-geometry.interpretation.v1`,
 `ireland-geometry.report-page.v1`, and
@@ -776,6 +984,10 @@ and reopened without losing its state.
 The `Review state` filter is included in that URL state, so reviewed,
 ambiguous, supportive, and not-yet-reviewed candidates can be triaged without
 leaving the dashboard.
+The route form uses the same shareable-state contract (`route=1` plus prefixed
+route profile parameters), so a route investigation can be reopened with its
+coordinates, vehicle profile, departure, objective, path, ferry, and response
+settings intact.
 Dashboard sorting uses named buttons with announced `aria-sort` state, result
 rows can be focused and activated with Enter or Space, and filters, route
 status, and pagination expose accessible names or live-region updates. The
@@ -1148,6 +1360,10 @@ These statements describe the cached artifacts above, not universal claims:
   Optional per-way crossing durations affect arrival estimates. The cached
   graph carries 26 durations and 4 parsed schedules, 1 of which requires that
   calendar. Terminal platform semantics and service frequency are not modeled.
+  Geometry-derived maneuver records are route inspection guidance rather than
+  full turn-by-turn navigation: they use graph-node bearings and mapped way
+  identity, and do not model lanes, signage, traffic, or platform-specific
+  ferry instructions.
   Access restrictions are applied from the most specific motor-vehicle tags.
   The legacy bounded CSV graph is retained for lightweight portable diagnostics.
 

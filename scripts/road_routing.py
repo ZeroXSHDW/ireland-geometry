@@ -57,6 +57,13 @@ exceptions. Static destination-only ways are blocked by default and can be
 enabled only with an explicit destination-delivery profile; numeric base
 limits remain enforced unless the corresponding conditional exception is
 explicitly enabled.
+
+Portable CSV/JSON graphs retain directed ``way_id`` values, optional
+human-readable road context, and explicit ferry identity when those columns
+are supplied. Ferry geometry is excluded unless ``include_ferries`` is
+enabled; portable graphs do not claim SQLite-only ferry schedules, waits, or
+crossing-duration semantics, nor the richer SQLite-only restriction and
+vehicle-profile semantics.
 """
 
 from __future__ import annotations
@@ -1356,13 +1363,120 @@ def straight_distance(a: dict[str, str], b: dict[str, str]) -> float:
     return math.hypot(dx, dy)
 
 
-def graph_from_rows(nodes: list[dict], edges: list[dict]) -> tuple[dict[str, tuple[float, float]], dict[str, list[tuple[str, float]]]]:
+@dataclass(frozen=True)
+class PortableEdge:
+    """One directed edge retained by a portable CSV/JSON graph."""
+
+    from_node: str
+    to_node: str
+    length_m: float
+    way_id: str = ""
+    direction: str = "forward"
+    road_context: dict[str, str | None] | None = None
+    ferry: bool = False
+
+
+class PortableRoadGraph:
+    """In-memory graph that keeps the legacy two-value unpacking contract.
+
+    ``coordinates, adjacency = graph`` remains valid for callers that use the
+    original portable graph API.  The object additionally retains directed edge
+    metadata so route responses can expose way IDs, basic road context, and
+    ferry identity when the supplied CSV/JSON rows provide them.
+    """
+
+    def __init__(
+        self,
+        coordinates: dict[str, tuple[float, float]],
+        adjacency: dict[str, list[tuple[str, float]]],
+        edges_by_from: dict[str, list[PortableEdge]],
+    ) -> None:
+        self.coordinates = coordinates
+        self.adjacency = adjacency
+        self.edges_by_from = edges_by_from
+
+    def __iter__(self):
+        """Yield coordinates and adjacency for backwards-compatible unpacking."""
+        yield self.coordinates
+        yield self.adjacency
+
+    def __getitem__(self, index: int):
+        if index in {0, -2}:
+            return self.coordinates
+        if index in {1, -1}:
+            return self.adjacency
+        raise IndexError(index)
+
+    def __len__(self) -> int:
+        return 2
+
+    def neighbours(self, node: str) -> tuple[PortableEdge, ...]:
+        """Return deterministic directed edges leaving ``node``."""
+        return tuple(self.edges_by_from.get(node, ()))
+
+    @property
+    def node_count(self) -> int:
+        return len(self.coordinates)
+
+    @property
+    def edge_count(self) -> int:
+        return sum(len(edges) for edges in self.edges_by_from.values())
+
+    @property
+    def ferry_edge_count(self) -> int:
+        """Return the number of directed ferry edges retained by the graph."""
+        return sum(
+            1
+            for values in self.edges_by_from.values()
+            for edge in values
+            if edge.ferry
+        )
+
+    @property
+    def has_way_ids(self) -> bool:
+        edges = [edge for values in self.edges_by_from.values() for edge in values]
+        return bool(edges) and all(edge.way_id for edge in edges)
+
+    @property
+    def has_way_context(self) -> bool:
+        return any(
+            edge.way_id
+            or any(
+                edge.road_context.get(field)
+                for field in ROAD_CONTEXT_FIELDS
+                if field != "oneway"
+            )
+            for values in self.edges_by_from.values()
+            for edge in values
+            if edge.road_context is not None
+        )
+
+    @property
+    def way_context_n(self) -> int:
+        return len({
+            edge.way_id
+            for values in self.edges_by_from.values()
+            for edge in values
+            if edge.way_id
+        })
+
+
+def _portable_road_context(row: dict, oneway: str) -> dict[str, str | None]:
+    """Normalize optional human-readable fields from one graph row."""
+    return {
+        field: _optional_way_tag(row.get(field, oneway if field == "oneway" else ""))
+        for field in ROAD_CONTEXT_FIELDS
+    }
+
+
+def graph_from_rows(nodes: list[dict], edges: list[dict]) -> PortableRoadGraph:
     coordinates = {
         str(row.get("node_id", row.get("id", ""))): (number(row.get("lat")), number(row.get("lon")))
         for row in nodes
         if str(row.get("node_id", row.get("id", ""))).strip()
     }
     adjacency: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    edges_by_from: dict[str, list[PortableEdge]] = defaultdict(list)
     for row in edges:
         u = str(row.get("u", row.get("from", ""))).strip()
         v = str(row.get("v", row.get("to", ""))).strip()
@@ -1379,13 +1493,47 @@ def graph_from_rows(nodes: list[dict], edges: list[dict]) -> tuple[dict[str, tup
         if not math.isfinite(length) or length < 0:
             continue
         oneway = str(row.get("oneway", "")).lower()
-        adjacency[u].append((v, length))
-        if oneway not in {"yes", "1", "true", "-1"}:
-            adjacency[v].append((u, length))
-        elif oneway == "-1":
-            adjacency[u].pop()
-            adjacency[v].append((u, length))
-    return coordinates, dict(adjacency)
+        way_id = str(row.get("way_id", row.get("id", ""))).strip()
+        context = _portable_road_context(row, oneway)
+        route = str(row.get("route", "")).strip().lower()
+        ferry_tag = str(row.get("ferry", "")).strip().lower()
+        is_ferry = route == "ferry" or ferry_tag not in {"", "0", "false", "no", "none"}
+        if is_ferry and not context.get("route"):
+            # Keep JSON/CSV rows that use ``ferry=yes`` round-trippable through
+            # the portable contract, whose human-readable context includes
+            # ``route`` but does not need a separate ferry column.
+            context["route"] = "ferry"
+
+        def append_edge(
+            from_node: str,
+            to_node: str,
+            direction: str,
+            *,
+            edge_length: float = length,
+            edge_way_id: str = way_id,
+            edge_context: dict[str, str | None] = context,
+            edge_ferry: bool = is_ferry,
+        ) -> None:
+            adjacency[from_node].append((to_node, edge_length))
+            edges_by_from[from_node].append(
+                PortableEdge(
+                    from_node=from_node,
+                    to_node=to_node,
+                    length_m=edge_length,
+                    way_id=edge_way_id,
+                    direction=direction,
+                    road_context=dict(edge_context),
+                    ferry=edge_ferry,
+                )
+            )
+
+        if oneway == "-1":
+            append_edge(v, u, "backward")
+        else:
+            append_edge(u, v, "forward")
+            if oneway not in {"yes", "1", "true"}:
+                append_edge(v, u, "backward")
+    return PortableRoadGraph(coordinates, dict(adjacency), dict(edges_by_from))
 
 
 class SQLiteRoadGraph:
@@ -3789,7 +3937,7 @@ def write_sqlite_graph(
     )
 
 
-def load_graph(path: Path) -> tuple[dict[str, tuple[float, float]], dict[str, list[tuple[str, float]]]] | SQLiteRoadGraph:
+def load_graph(path: Path) -> PortableRoadGraph | SQLiteRoadGraph:
     if path.is_dir():
         sqlite_path = path / "road_graph.sqlite"
         if sqlite_path.is_file():
@@ -3809,7 +3957,7 @@ def graph_from_pbf(
     *,
     include_restricted: bool = False,
     include_ferries: bool = False,
-) -> tuple[dict[str, tuple[float, float]], dict[str, list[tuple[str, float]]]]:
+) -> PortableRoadGraph:
     try:
         import osmium
     except ImportError as exc:  # pragma: no cover - optional adapter
@@ -3848,7 +3996,19 @@ def graph_from_pbf(
                     {"lat": str(first[1]), "lon": str(first[2])},
                     {"lat": str(second[1]), "lon": str(second[2])},
                 )
-                self.edges.append({"u": a, "v": b, "length_m": str(length), "oneway": oneway})
+                self.edges.append(
+                    {
+                        "u": a,
+                        "v": b,
+                        "length_m": str(length),
+                        "oneway": oneway,
+                        "way_id": str(way.id),
+                        "name": str(way.tags.get("name", "")),
+                        "ref": str(way.tags.get("ref", "")),
+                        "highway": str(way.tags.get("highway", "")),
+                        "route": str(way.tags.get("route", "")),
+                    }
+                )
 
     handler = Handler()
     handler.apply_file(str(path), locations=True)
@@ -4880,24 +5040,51 @@ def write_sqlite_graph_from_pbf(
 
 def write_graph(
     path: Path,
-    coordinates: dict[str, tuple[float, float]],
-    adjacency: dict[str, list[tuple[str, float]]],
+    coordinates: dict[str, tuple[float, float]] | PortableRoadGraph,
+    adjacency: dict[str, list[tuple[str, float]]] | None = None,
     *,
     source: str,
 ) -> None:
     """Persist a directed graph in the portable node/edge contract."""
+    portable_graph = coordinates if isinstance(coordinates, PortableRoadGraph) else None
+    if portable_graph is not None:
+        coordinates = portable_graph.coordinates
+        adjacency = portable_graph.adjacency
+        edge_rows = [
+            {
+                "u": edge.from_node,
+                "v": edge.to_node,
+                "length_m": round(edge.length_m, 3),
+                "way_id": edge.way_id,
+                **(
+                    edge.road_context
+                    if edge.road_context is not None
+                    else {}
+                ),
+                "oneway": "yes",
+            }
+            for node in sorted(portable_graph.edges_by_from)
+            for edge in sorted(
+                portable_graph.edges_by_from[node],
+                key=lambda item: (item.to_node, item.length_m, item.way_id, item.direction),
+            )
+        ]
+    else:
+        if adjacency is None:
+            raise ValueError("portable graph adjacency is required")
+        edge_rows = [
+            {"u": node, "v": neighbour, "length_m": round(length, 3), "oneway": "yes"}
+            for node in sorted(adjacency)
+            for neighbour, length in sorted(adjacency[node], key=lambda item: (item[0], item[1]))
+        ]
     path.mkdir(parents=True, exist_ok=True)
     node_rows = [
         {"node_id": node, "lat": lat, "lon": lon}
         for node, (lat, lon) in sorted(coordinates.items())
     ]
-    edge_rows = [
-        {"u": node, "v": neighbour, "length_m": round(length, 3), "oneway": "yes"}
-        for node in sorted(adjacency)
-        for neighbour, length in sorted(adjacency[node], key=lambda item: (item[0], item[1]))
-    ]
+    edge_fields = ["u", "v", "length_m", "oneway", "way_id", "name", "ref", "highway", "route"]
     atomic_write_csv(path / "road_nodes.csv", ["node_id", "lat", "lon"], node_rows)
-    atomic_write_csv(path / "road_edges.csv", ["u", "v", "length_m", "oneway"], edge_rows)
+    atomic_write_csv(path / "road_edges.csv", edge_fields, edge_rows)
     atomic_write_json(
         path / "road_graph_metadata.json",
         {
@@ -4906,6 +5093,14 @@ def write_graph(
             "source": source,
             "node_n": len(node_rows),
             "edge_n": len(edge_rows),
+            "way_context": bool(portable_graph and portable_graph.has_way_context),
+            "way_context_n": portable_graph.way_context_n if portable_graph else 0,
+            "path_segment_source": (
+                "portable_edges"
+                if portable_graph and portable_graph.has_way_ids
+                else "not_available"
+            ),
+            "ferry_edge_n": portable_graph.ferry_edge_count if portable_graph else 0,
         },
         indent=2,
     )
@@ -5088,10 +5283,37 @@ def _reconstruct_node_path(goal: str, predecessors: dict[str, str]) -> list[str]
     return nodes
 
 
+def _reconstruct_portable_path_details(
+    goal: str,
+    predecessors: dict[str, str],
+    predecessor_edges: dict[str, PortableEdge],
+) -> tuple[list[str], list[str], list[dict[str, object]]]:
+    """Reconstruct portable way IDs and directed edge context."""
+    nodes = _reconstruct_node_path(goal, predecessors)
+    way_ids: list[str] = []
+    segments: list[dict[str, object]] = []
+    for from_node, to_node in pairwise(nodes):
+        edge = predecessor_edges.get(to_node)
+        if edge is None:
+            continue
+        way_ids.append(edge.way_id)
+        segments.append(
+            {
+                "from_node": from_node,
+                "to_node": to_node,
+                "way_id": edge.way_id,
+                "distance_m": edge.length_m,
+                "ferry": edge.ferry,
+                "road_context": dict(edge.road_context or {}),
+            }
+        )
+    return nodes, way_ids, segments
+
+
 def shortest_path(
     start: str,
     goal: str,
-    adjacency: dict[str, list[tuple[str, float]]] | SQLiteRoadGraph,
+    adjacency: dict[str, list[tuple[str, float]]] | PortableRoadGraph | SQLiteRoadGraph,
     *,
     departure: datetime | None = None,
     speed_kmh: float = 50.0,
@@ -5253,6 +5475,40 @@ def shortest_path(
                         )
                     heapq.heappush(queue, (candidate, neighbour, next_ferry_way))
         return None
+    if isinstance(adjacency, PortableRoadGraph):
+        distances = {start: 0.0}
+        predecessors: dict[str, str] = {}
+        predecessor_edges: dict[str, PortableEdge] = {}
+        queue = [(0.0, start)]
+        while queue:
+            distance, node = heapq.heappop(queue)
+            if distance != distances.get(node):
+                continue
+            if node == goal:
+                if return_path_details:
+                    path, way_ids, segments = _reconstruct_portable_path_details(
+                        node,
+                        predecessors,
+                        predecessor_edges,
+                    )
+                    return distance, path, way_ids, segments
+                return (
+                    (distance, _reconstruct_node_path(node, predecessors))
+                    if return_path
+                    else distance
+                )
+            for edge in adjacency.neighbours(node):
+                if edge.ferry and not include_ferries:
+                    continue
+                candidate = distance + edge.length_m
+                if candidate < distances.get(edge.to_node, float("inf")):
+                    distances[edge.to_node] = candidate
+                    if return_path:
+                        predecessors[edge.to_node] = node
+                    if return_path_details:
+                        predecessor_edges[edge.to_node] = edge
+                    heapq.heappush(queue, (candidate, edge.to_node))
+        return None
     distances = {start: 0.0}
     predecessors: dict[str, str] = {}
     queue = [(0.0, start)]
@@ -5282,7 +5538,7 @@ def shortest_path(
 def shortest_path_metrics(
     start: str,
     goal: str,
-    adjacency: dict[str, list[tuple[str, float]]] | SQLiteRoadGraph,
+    adjacency: dict[str, list[tuple[str, float]]] | PortableRoadGraph | SQLiteRoadGraph,
     *,
     departure: datetime | None = None,
     speed_kmh: float = 50.0,
@@ -5335,7 +5591,7 @@ def shortest_path_metrics(
                 if distance_m is not None:
                     segment["duration_s"] = float(distance_m) / (speed_kmh / 3.6)
                     segment["wait_s"] = 0.0
-                    segment["ferry"] = False
+                    segment["ferry"] = bool(segment.get("ferry", False))
         elif return_path:
             distance, path = route
         else:
@@ -5592,7 +5848,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--include-ferries",
         action="store_true",
-        help="include persisted ferry geometry, schedules, waits, and durations",
+        help=(
+            "include persisted ferry geometry; SQLite graphs may also apply "
+            "schedules, waits, and durations"
+        ),
     )
     args = parser.parse_args(argv)
     if args.max_ways < 0:
@@ -5636,6 +5895,7 @@ def main(argv: list[str] | None = None) -> None:
     coordinates: dict[str, tuple[float, float]] = {}
     adjacency: dict[str, list[tuple[str, float]]] = {}
     graph: SQLiteRoadGraph | None = None
+    portable_graph: PortableRoadGraph | None = None
     try:
         if args.from_pbf:
             pbf = project_input_path(
@@ -5665,21 +5925,23 @@ def main(argv: list[str] | None = None) -> None:
                     )
                     graph = SQLiteRoadGraph(graph_output / "road_graph.sqlite")
                 else:
-                    coordinates, adjacency = graph_from_pbf(
+                    portable_graph = graph_from_pbf(
                         pbf,
                         args.max_ways,
                         include_restricted=args.include_restricted,
                         include_ferries=args.include_ferries,
                     )
-                    write_graph(graph_output, coordinates, adjacency, source=str(pbf))
+                    write_graph(graph_output, portable_graph, source=str(pbf))
+                    coordinates, adjacency = portable_graph
                 source = str(graph_output)
             else:
-                coordinates, adjacency = graph_from_pbf(
+                portable_graph = graph_from_pbf(
                     pbf,
                     args.max_ways,
                     include_restricted=args.include_restricted,
                     include_ferries=args.include_ferries,
                 )
+                coordinates, adjacency = portable_graph
         elif graph_path.is_dir() and not (
             (graph_path / "road_nodes.csv").exists() or (graph_path / "road_graph.sqlite").exists()
         ):
@@ -5691,7 +5953,8 @@ def main(argv: list[str] | None = None) -> None:
             if isinstance(loaded, SQLiteRoadGraph):
                 graph = loaded
             else:
-                coordinates, adjacency = loaded
+                portable_graph = loaded
+                coordinates, adjacency = portable_graph
         else:
             write_unavailable(out, "not_provided")
             print("[road-routing] no road graph supplied; wrote explicit not_provided outputs")
@@ -5719,7 +5982,13 @@ def main(argv: list[str] | None = None) -> None:
     pairs = sorted(pairs, key=lambda row: (row.get("target_osm_id", ""), row.get("control_osm_id", "")))[: args.max_pairs]
     node_index = None if graph is not None else build_node_index(coordinates)
     graph_coordinates = graph if graph is not None else coordinates
-    graph_adjacency = graph if graph is not None else adjacency
+    graph_adjacency = (
+        graph
+        if graph is not None
+        else portable_graph
+        if portable_graph is not None
+        else adjacency
+    )
     if graph is not None:
         routing_method = "Dijkstra on SQLite road graph; indexed nearest graph node snap"
         if graph.has_turn_restrictions:
@@ -5841,7 +6110,15 @@ def main(argv: list[str] | None = None) -> None:
                 routing_method += "; ferry geometry available but excluded"
     else:
         routing_method = "Dijkstra on supplied road graph; nearest graph node snap"
-        if args.include_ferries:
+        if portable_graph is not None and portable_graph.ferry_edge_count:
+            if args.include_ferries:
+                routing_method += (
+                    "; ferry geometry included; ferry schedules, waits, and "
+                    "crossing durations unavailable in portable graph"
+                )
+            else:
+                routing_method += "; ferry geometry available but excluded"
+        elif args.include_ferries:
             routing_method += "; ferry geometry unavailable in portable graph"
     routed = []
     for pair in pairs:

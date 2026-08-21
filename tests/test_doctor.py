@@ -180,7 +180,12 @@ def test_doctor_separates_project_data_from_packaged_capabilities(tmp_path):
     }
     assert all(output_safety["stage_output_guards"].values())
     assert all(output_safety["stage_output_tree_guards"].values())
-    assert output_safety["file_output_guards"] == {"doctor": True, "route-query": True}
+    assert output_safety["file_output_guards"] == {
+        "doctor": True,
+        "route-query": True,
+        "route-matrix": True,
+        "route-compare": True,
+    }
     data_safety = result["capabilities"]["data_safety"]
     assert data_safety["contract"] == "ireland-geometry.data-safety.v1"
     assert data_safety["status"] == "available"
@@ -207,6 +212,8 @@ def test_doctor_separates_project_data_from_packaged_capabilities(tmp_path):
         "roads": True,
         "spatial-covariates": True,
         "route-query": True,
+        "route-matrix": True,
+        "route-compare": True,
         "verify": True,
         "report-server": True,
     }
@@ -222,6 +229,8 @@ def test_doctor_separates_project_data_from_packaged_capabilities(tmp_path):
         "roads": True,
         "spatial-covariates": True,
         "route-query": True,
+        "route-matrix": True,
+        "route-compare": True,
         "verify": True,
         "report-server": True,
         "holdout": True,
@@ -267,14 +276,22 @@ def test_doctor_separates_project_data_from_packaged_capabilities(tmp_path):
     assert result["capabilities"]["report_server"]["report_runtime_snapshot"] is True
     assert result["capabilities"]["report_server"]["report_runtime_source_alignment"] is True
     assert result["capabilities"]["report_server"]["report_source_alignment_surfaces"] is True
+    assert result["capabilities"]["route_query"]["route_matrix"] is True
+    assert result["capabilities"]["route_query"]["route_matrix_cli"] is True
+    assert result["capabilities"]["route_query"]["route_matrix_command"] == "ireland-geometry-route-matrix"
+    assert result["capabilities"]["route_query"]["route_comparison"] is True
+    assert result["capabilities"]["route_query"]["route_comparison_cli"] is True
+    assert result["capabilities"]["route_query"]["route_comparison_command"] == "ireland-geometry-route-compare"
     assert result["capabilities"]["validation"]["source_alignment"]["status"] == "not_provided"
     assert result["capabilities"]["commands"]["status"] == "available"
-    assert result["capabilities"]["commands"]["command_count"] == 9
+    assert result["capabilities"]["commands"]["command_count"] == 11
     assert set(result["capabilities"]["commands"]["commands"]) == {
         "ireland-geometry",
         "ireland-geometry-doctor",
         "ireland-geometry-serve",
         "ireland-geometry-route",
+        "ireland-geometry-route-matrix",
+        "ireland-geometry-route-compare",
         "ireland-geometry-query",
         "ireland-geometry-bundle",
         "ireland-geometry-schema-audit",
@@ -558,7 +575,7 @@ def test_doctor_strict_readiness_requires_complete_command_installation(tmp_path
             "status": "available",
             "installation_status": "partial",
             "installed_count": 6,
-            "command_count": 9,
+            "command_count": 11,
             "commands": {},
         },
     )
@@ -690,8 +707,42 @@ def test_doctor_exposes_local_report_server_capability(tmp_path):
     assert capability["explicit_project_root"] is False
     assert capability["route_api"] is False
     assert capability["route_endpoint"] == "/api/route"
+    assert capability["route_json_post"] is False
+    assert capability["route_json_max_body_bytes"] is None
+    assert capability["route_matrix_api"] is False
+    assert capability["route_matrix_endpoint"] == "/api/route/matrix"
+    assert capability["route_matrix_max_pairs"] is None
+    assert capability["route_matrix_json_post"] is False
+    assert capability["route_comparison_api"] is False
+    assert capability["route_comparison_endpoint"] == "/api/route/compare"
+    assert capability["route_comparison_min_profiles"] is None
+    assert capability["route_comparison_max_profiles"] is None
+    assert capability["route_comparison_json_post"] is False
     assert capability["query_api"] is False
     assert capability["query_endpoint"] == "/api/query"
+    assert capability["query_json_post"] is False
+    assert capability["query_json_max_body_bytes"] is None
+    assert capability["report_page_json_post"] is False
+    assert capability["report_page_json_max_body_bytes"] is None
+    assert capability["report_page_next_offset"] is False
+    assert capability["report_page_sort_tiebreaker"] is False
+    assert capability["conditional_api_responses"] is False
+    assert capability["api_json_gzip"] is False
+    assert capability["head_api"] is False
+    assert capability["api_error_request_ids"] is False
+    assert capability["api_error_request_id_header"] is None
+    assert capability["api_request_logging"] is False
+    assert capability["api_request_log_field"] is None
+    assert capability["request_id_all_responses"] is False
+    assert capability["request_id_all_response_logging"] is False
+    assert capability["security_response_headers"] is False
+    assert capability["security_response_header_names"] == []
+    assert capability["api_request_timing"] is False
+    assert capability["api_request_timing_header"] is None
+    assert capability["api_request_timing_metric"] is None
+    assert capability["api_request_timing_log_field"] is None
+    assert capability["report_export_json_post"] is False
+    assert capability["report_export_json_max_body_bytes"] is None
     assert capability["query_pagination"] is False
     assert capability["query_cursor"] is False
     assert capability["query_invalid_score_cursor"] is False
@@ -713,7 +764,53 @@ def test_doctor_exposes_local_report_server_capability(tmp_path):
     assert capability["query_available"] is False
     (root / "scripts" / "serve_report.py").write_text(
         "ROUTE_API_PATH = '/api/route'\n"
+        "ROUTE_JSON_MAX_BODY_BYTES = 131072\n"
+        "def _json_route_request(): pass\n"
+        "self._write_route(json_body=payload)\n"
+        '"queryRouteJson"\n'
+        '"RouteRequest"\n'
+        "def _write_route(): pass\n"
+        "ROUTE_MATRIX_API_PATH = '/api/route/matrix'\n"
+        "def _write_route_matrix(): pass\n"
+        "def do_POST(self): pass\n"
+        "ROUTE_MATRIX_JSON_MAX_BODY_BYTES = 131072\n"
+        "def _json_matrix_points(): pass\n"
+        "def _json_route_options(): pass\n"
+        "self._write_route_matrix(json_body=payload)\n"
+        '"queryRouteMatrixJson"\n'
+        '"RouteMatrixRequest"\n'
+        "query_route_matrix\n"
+        "ROUTE_COMPARISON_API_PATH = '/api/route/compare'\n"
+        "def _write_route_comparison(): pass\n"
+        "ROUTE_COMPARISON_JSON_MAX_BODY_BYTES = 131072\n"
+        "def _json_comparison_request(): pass\n"
+        "self._write_route_comparison(json_body=payload)\n"
+        '"compareRouteProfilesJson"\n'
+        '"RouteComparisonRequest"\n'
+        "query_route_comparison\n"
         "QUERY_API_PATH = '/api/query'\n"
+        "QUERY_JSON_MAX_BODY_BYTES = 131072\n"
+        "def _json_query_request(): pass\n"
+        "self._write_query(json_body=payload)\n"
+        '"queryAnalysisRowsJson"\n'
+        '"QueryRequest"\n'
+        "REPORT_PAGE_JSON_MAX_BODY_BYTES = 131072\n"
+        "def _json_report_request(): pass\n"
+        "self._write_report_page(json_body=payload)\n"
+        '"getReportPageJson"\n'
+        '"ReportPageRequest"\n'
+        '"next_offset": offset + limit if offset + limit < len(matched) else None\n'
+        '"ReportPagePagination"\n'
+        '"pagination_continuation": "next_offset"\n'
+        'REPORT_PAGE_SORT_TIEBREAKER = "osm_id"\n'
+        "def sort_tiebreaker(): pass\n"
+        "matched = sorted(matched, key=sort_tiebreaker)\n"
+        '"sort_tiebreaker": REPORT_PAGE_SORT_TIEBREAKER\n'
+        '"sort_tiebreaker": {"const": REPORT_PAGE_SORT_TIEBREAKER}\n'
+        "REPORT_EXPORT_JSON_MAX_BODY_BYTES = 131072\n"
+        "self._write_report_export(json_body=payload)\n"
+        '"exportFilteredReportJson"\n'
+        '"ReportExportRequest"\n'
         "query_invalid_score_cursor = True\n"
         "query_auto_backend_failover = True\n"
         "query_backend_health query_readable_backends\n"
@@ -727,11 +824,60 @@ def test_doctor_exposes_local_report_server_capability(tmp_path):
         "INTERPRETATION_API_PATH = '/api/interpretation'\n"
         "INTERPRETATION_CONTRACT = 'ireland-geometry.interpretation.v1'\n"
         "def _write_capabilities(): pass\n"
+        "def _routing_graph_inventory(): pass\n"
+        '"routing_graph": routing_graph\n'
+        '"active_graph_features": dict(routing_graph["features"])\n'
         "def openapi_document(): pass\n"
         "def _write_openapi(): pass\n"
         "def _write_interpretation(): pass\n"
         "def _write_gzipped_data_pack(): pass\n"
         "If-None-Match compressed_data_info ETag next_cursor\n"
+        "CONDITIONAL_ENDPOINTS = (\n"
+        '"conditional_endpoints": list(CONDITIONAL_ENDPOINTS)\n'
+        'self._write_json(payload, cache_control="no-cache")\n'
+        'self._write_json(result, cache_control="no-cache")\n'
+        "def _openapi_conditional_headers(): pass\n"
+        "def _etag_matches(): pass\n"
+        "API_JSON_GZIP_MIN_BYTES = 1024\n"
+        "gzip.compress(body, compresslevel=6, mtime=0)\n"
+        '"api_json_gzip": True\n'
+        '"Content-Encoding"\n'
+        "HEAD_ENDPOINTS = CONDITIONAL_ENDPOINTS\n"
+        "def do_HEAD(self): pass\n"
+        '"head_endpoints": list(HEAD_ENDPOINTS)\n'
+        "def _openapi_with_head_operations(): pass\n"
+        "self._head_only\n"
+        'API_ERROR_CONTRACT = "ireland-geometry.api-error.v1"\n'
+        'REQUEST_ID_HEADER = "X-Ireland-Geometry-Request-ID"\n'
+        "def send_error(\n"
+        "def _request_id(\n"
+        '"error_code"\n'
+        '"request_id"\n'
+        "self.send_header(REQUEST_ID_HEADER\n"
+        "def log_message(\n"
+        "[request_id=\n"
+        "super().log_message(format, *args)\n"
+        '"api_request_logging": True\n'
+        '"api_request_log_field": "request_id"\n'
+        "def end_headers(self):\n"
+        "self.send_header(REQUEST_ID_HEADER, self._request_id())\n"
+        "super().end_headers()\n"
+        '"request_id_all_responses": True\n'
+        '"request_id_all_response_logging": True\n'
+        "SECURITY_RESPONSE_HEADERS = {\n"
+        "def end_headers(self): pass\n"
+        '"X-Content-Type-Options": "nosniff"\n'
+        '"Referrer-Policy": "no-referrer"\n'
+        '"Permissions-Policy": "geolocation=(), camera=(), microphone=()"\n'
+        '"security_response_headers": dict(SECURITY_RESPONSE_HEADERS)\n'
+        "import time\n"
+        'REQUEST_TIMING_HEADER = "Server-Timing"\n'
+        'REQUEST_TIMING_METRIC = "ireland_geometry"\n'
+        'REQUEST_TIMING_LOG_FIELD = "duration_ms"\n'
+        "def _request_duration_ms(): pass\n"
+        "Server processing time before response headers\n"
+        '"api_request_timing": True\n'
+        '"api_request_timing_log_field": REQUEST_TIMING_LOG_FIELD\n'
         "def _output_symlink_paths(): pass\n"
         "def _require_symlink_free_output(): pass\n"
         "Output directory contains a symlink\n"
@@ -806,7 +952,45 @@ def test_doctor_exposes_local_report_server_capability(tmp_path):
     assert complete["report_source_alignment_surfaces"] is True
     assert complete["explicit_project_root"] is True
     assert complete["route_api"] is True
+    assert complete["route_matrix_api"] is True
+    assert complete["route_json_post"] is True
+    assert complete["route_json_max_body_bytes"] == 131072
+    assert complete["route_matrix_endpoint"] == "/api/route/matrix"
+    assert complete["route_matrix_max_pairs"] == 25
+    assert complete["route_matrix_json_post"] is True
+    assert complete["route_comparison_api"] is True
+    assert complete["route_comparison_endpoint"] == "/api/route/compare"
+    assert complete["route_comparison_min_profiles"] == 2
+    assert complete["route_comparison_max_profiles"] == 8
+    assert complete["route_comparison_json_post"] is True
     assert complete["query_api"] is True
+    assert complete["query_json_post"] is True
+    assert complete["query_json_max_body_bytes"] == 131072
+    assert complete["report_page_json_post"] is True
+    assert complete["report_page_json_max_body_bytes"] == 131072
+    assert complete["report_page_next_offset"] is True
+    assert complete["report_page_sort_tiebreaker"] is True
+    assert complete["conditional_api_responses"] is True
+    assert complete["api_json_gzip"] is True
+    assert complete["head_api"] is True
+    assert complete["api_error_request_ids"] is True
+    assert complete["api_error_request_id_header"] == "X-Ireland-Geometry-Request-ID"
+    assert complete["api_request_logging"] is True
+    assert complete["api_request_log_field"] == "request_id"
+    assert complete["request_id_all_responses"] is True
+    assert complete["request_id_all_response_logging"] is True
+    assert complete["security_response_headers"] is True
+    assert complete["security_response_header_names"] == [
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ]
+    assert complete["api_request_timing"] is True
+    assert complete["api_request_timing_header"] == "Server-Timing"
+    assert complete["api_request_timing_metric"] == "ireland_geometry"
+    assert complete["api_request_timing_log_field"] == "duration_ms"
+    assert complete["report_export_json_post"] is True
+    assert complete["report_export_json_max_body_bytes"] == 131072
     assert complete["query_pagination"] is True
     assert complete["query_cursor"] is True
     assert complete["query_invalid_score_cursor"] is True
@@ -820,6 +1004,7 @@ def test_doctor_exposes_local_report_server_capability(tmp_path):
     assert complete["metadata_endpoint"] == "/api/metadata"
     assert complete["capabilities_api"] is True
     assert complete["capabilities_endpoint"] == "/api/capabilities"
+    assert complete["active_graph_capabilities"] is True
     assert complete["openapi_api"] is True
     assert complete["openapi_endpoint"] == "/api/openapi.json"
     assert complete["interpretation_api"] is True
@@ -835,13 +1020,18 @@ def test_doctor_exposes_point_to_point_route_query(tmp_path):
     root = tmp_path
     (root / "scripts").mkdir(parents=True)
     (root / "scripts" / "route_query.py").write_text(
-            "snap_distance_m estimated_duration_s parse_departure path_node_ids path_segments def _attach_path_constraints( conditional_rules transition_rules road_context\n"
+            "snap_distance_m estimated_duration_s parse_departure path_node_ids path_segments PortableRoadGraph def _attach_path_constraints( conditional_rules transition_rules road_context def _build_route_maneuvers( def query_route_matrix(\n"
+        "def query_route_comparison(): pass\n"
         "def route_geojson(): pass\n"
         "include_ferries ferry_schedule_n shortest_path_metrics public_holiday_contract ROUTE_OBJECTIVES validate_vehicle_weight_t validate_vehicle_rating_t validate_vehicle_height_m validate_vehicle_width_m validate_vehicle_length_m validate_vehicle_axleload_t validate_vehicle_class conditional_access_n conditional_access_direction_n conditional_access_weight_n conditional_access_multiclause_n maxweight_profiles maxheight_profiles maxwidth_profiles maxlength_profiles maxaxleload_profiles maxweight_hgv_profiles maxweightrating_hgv_profiles maxspeed_profiles maxspeed_conditional_profiles oneway_conditional_profiles allow_hgv_destination\n",
         encoding="utf-8",
     )
     (root / "scripts" / "road_routing.py").write_text(
         "def next_active_at(): pass\n",
+        encoding="utf-8",
+    )
+    (root / "scripts" / "route_compare.py").write_text(
+        "def main(): pass\n--profile parse_route_profile_spec query_route_comparison\n",
         encoding="utf-8",
     )
     capability = route_query_status(root)
@@ -859,6 +1049,15 @@ def test_doctor_exposes_point_to_point_route_query(tmp_path):
     assert capability["path_segment_transition_rules"] is True
     assert capability["supports_path_segment_way_context"] is True
     assert capability["path_segment_way_context"] is True
+    assert capability["supports_portable_path_segments"] is True
+    assert capability["portable_path_segments"] is True
+    assert capability["path_segment_sources"] == [
+        "sqlite_edges",
+        "portable_edges",
+        "not_available",
+    ]
+    assert capability["supports_path_maneuvers"] is True
+    assert capability["path_maneuvers"] is True
     assert capability["supports_geojson"] is True
     assert capability["supports_ferry_geometry"] is True
     assert capability["supports_ferry_schedules"] is True
@@ -866,6 +1065,13 @@ def test_doctor_exposes_point_to_point_route_query(tmp_path):
     assert capability["supports_ferry_durations"] is True
     assert capability["supports_public_holiday_calendars"] is True
     assert capability["supports_route_objectives"] is True
+    assert capability["supports_route_matrix"] is True
+    assert capability["route_matrix"] is True
+    assert capability["route_matrix_max_pairs"] == 25
+    assert capability["route_comparison"] is True
+    assert capability["route_comparison_min_profiles"] == 2
+    assert capability["route_comparison_max_profiles"] == 8
+    assert capability["route_comparison_cli"] is True
     assert capability["route_objectives"] == ["distance", "duration"]
     assert capability["supports_vehicle_weight_profiles"] is True
     assert capability["vehicle_weight_profiles"] is True
@@ -1115,6 +1321,50 @@ function routeSegmentText(route)
 path_segment_source
 transition_rules
 road_context
+maneuvers
+id="routeManeuvers"
+function renderRouteManeuvers(payload)
+focusRouteManeuver
+id="routeSegments"
+function renderRouteSegments(payload)
+routeSegmentChecksText
+function routeSegmentChecksHtml(segment)
+route-segment-check-list
+id="routeCopyLink"
+function restoreRouteState()
+function syncRouteState(fields)
+params.set('route','1')
+id="routeDownloadJson"
+id="routeDownloadGeojson"
+function downloadRouteResponse(format)
+function routeGeojsonPayload(payload)
+function runRoute()
+fetch('/api/route'
+method:'POST'
+Content-Type':'application/json
+id="routeCompareRun"
+id="routeCompareProfiles"
+function runRouteComparison()
+fetch('/api/route/compare'
+method:'POST'
+Content-Type':'application/json
+delta_from_baseline
+function selectRouteComparisonProfile(index)
+params.set('compare','1')
+id="routeMatrixRun"
+    id="routeMatrixOrigins"
+    id="routeMatrixDestinations"
+    function runRouteMatrix()
+    fetch('/api/route/matrix'
+    method:'POST'
+    Content-Type':'application/json
+function selectRouteMatrixPair(index)
+params.set('matrix','1')
+function reportRequestBody(params, extra={})
+function fetchServerPage()
+body:JSON.stringify(reportRequestBody(params,{initial:false}))
+function downloadFiltered(format)
+body:JSON.stringify(reportRequestBody(params,{format}))
 id="routeWeight"
 weight_t:$('routeWeight').value
 vehicle-weight
@@ -1151,6 +1401,24 @@ function applyRuntime(runtime)
     const BASE_INTERPRETATION = PACK.interpretation || {};
 INTERPRETATION={...BASE_INTERPRETATION};
 function renderRuntimeStatus()
+id="runtimeReloadNotice"
+id="runtimeReload"
+function runtimeDataIdentity(runtime)
+function renderRuntimeReloadNotice()
+runtimeReloadRequired
+location.reload()
+id="reportLoadError"
+id="reportRetry"
+function showReportError(error)
+function revealReportError()
+function hideReportError()
+function retryReportRequest()
+document.body.classList.remove('intro-open')
+reportRetry'
+function showInitialReportError(error)
+loadPack().catch(showInitialReportError)
+classList.add('is-dismissed')
+retry?.addEventListener('click',()=>location.reload()
 const runtimeChanged=applyRuntime(payload.runtime)
 applyRuntimeHeaders(response.headers)
 function refreshRuntime()
@@ -1172,7 +1440,16 @@ function renderMethod()
     assert capability["route_segment_explainability"] is True
     assert capability["route_transition_rule_provenance"] is True
     assert capability["route_way_context"] is True
+    assert capability["route_maneuvers"] is True
+    assert capability["route_maneuver_list"] is True
+    assert capability["route_segment_inspector"] is True
+    assert capability["route_shareable_state"] is True
+    assert capability["route_response_download"] is True
     assert capability["route_weight_profile"] is True
+    assert capability["route_comparison_dashboard"] is True
+    assert capability["route_matrix_dashboard"] is True
+    assert capability["report_page_json_dashboard"] is True
+    assert capability["report_export_json_dashboard"] is True
     assert capability["review_filter"] is True
     assert capability["review_queue_membership"] is True
     assert capability["accessibility"] is True
@@ -1181,11 +1458,25 @@ function renderMethod()
     assert capability["quality_audit"] is True
     assert capability["interpretation_panel"] is True
     assert capability["live_runtime_refresh"] is True
+    assert capability["runtime_reload_notice"] is True
+    assert capability["report_error_recovery"] is True
+    assert capability["lazy_initial_load_retry"] is True
 
     for name in ("report.html", "report_lazy.html"):
-        (output / name).write_text(report.replace("function renderRuntimeStatus()", ""), encoding="utf-8")
+        (output / name).write_text(
+            report.replace("function renderRuntimeStatus()", "")
+            .replace("function renderRuntimeReloadNotice()", "")
+            .replace("function showReportError(error)", "")
+            .replace("function revealReportError()", "")
+            .replace("document.body.classList.remove('intro-open')", "")
+            .replace("function showInitialReportError(error)", ""),
+            encoding="utf-8",
+        )
     stale = report_capability_status(tmp_path, output)
     assert stale["live_runtime_refresh"] is False
+    assert stale["runtime_reload_notice"] is False
+    assert stale["report_error_recovery"] is False
+    assert stale["lazy_initial_load_retry"] is False
     assert stale["status"] == "incomplete"
 
 

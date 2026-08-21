@@ -29,6 +29,9 @@ from scripts.negative_controls import main as negative_controls_main
 from scripts.niah import main as niah_main
 from scripts.query_data import main as query_data_main
 from scripts.road_routing import main as road_routing_main
+from scripts.road_routing import write_sqlite_graph
+from scripts.route_compare import main as route_compare_main
+from scripts.route_matrix import main as route_matrix_main
 from scripts.route_query import main as route_query_main
 from scripts.runtime import package_version
 from scripts.stage_cache import input_paths
@@ -43,6 +46,8 @@ ROOT = Path(__file__).resolve().parents[1]
         [sys.executable, str(ROOT / "scripts" / "doctor.py")],
         [sys.executable, str(ROOT / "scripts" / "query_data.py")],
         [sys.executable, str(ROOT / "scripts" / "route_query.py")],
+        [sys.executable, str(ROOT / "scripts" / "route_matrix.py")],
+        [sys.executable, str(ROOT / "scripts" / "route_compare.py")],
         [sys.executable, str(ROOT / "scripts" / "serve_report.py")],
         [sys.executable, str(ROOT / "scripts" / "bundle.py")],
         [sys.executable, str(ROOT / "scripts" / "schema_audit.py")],
@@ -60,6 +65,88 @@ def test_console_commands_report_package_version(command):
     )
     assert result.returncode == 0
     assert result.stdout.strip().endswith(package_version())
+
+
+def test_route_matrix_cli_emits_bounded_pair_summaries(tmp_path, capsys):
+    data = tmp_path / "data"
+    output = tmp_path / "output"
+    output.mkdir()
+    write_sqlite_graph(
+        data / "roads",
+        {
+            "a": (53.0, -8.0),
+            "b": (53.0, -8.001),
+            "c": (53.0, -8.002),
+        },
+        [
+            {"u": "a", "v": "b", "length_m": "10", "way_id": "way/a-b"},
+            {"u": "b", "v": "c", "length_m": "10", "way_id": "way/b-c"},
+        ],
+        source="fixture.pbf",
+    )
+    destination = output / "matrix.json"
+    route_matrix_main(
+        [
+            "--data-root",
+            str(data),
+            "--origin",
+            "53,-8",
+            "--origin",
+            "53,-8.001",
+            "--destination",
+            "53,-8.001",
+            "--destination",
+            "53,-8.002",
+            "--include-path",
+            "--out",
+            str(destination),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["contract"] == "ireland-geometry.route-matrix.v1"
+    assert payload["pair_n"] == 4
+    assert payload["reachable_n"] == 4
+    assert payload["pairs"][0]["route"]["path_way_ids"] == ["way/a-b"]
+    assert json.loads(destination.read_text(encoding="utf-8"))["pair_n"] == 4
+
+
+def test_route_compare_cli_emits_profile_deltas(tmp_path, capsys):
+    graph_path = tmp_path / "graph"
+    write_sqlite_graph(
+        graph_path,
+        {"a": (53.0, -8.0), "b": (53.0, -8.001), "c": (53.0, -8.002)},
+        [
+            {"u": "a", "v": "b", "length_m": "10", "way_id": "way/a-b"},
+            {"u": "b", "v": "c", "length_m": "10", "way_id": "way/b-c"},
+        ],
+        source="fixture.pbf",
+    )
+    output = tmp_path / "comparison.json"
+    route_compare_main(
+        [
+            "--road-graph",
+            str(graph_path),
+            "--start",
+            "53,-8",
+            "--goal",
+            "53,-8.002",
+            "--profile",
+            "general",
+            "--profile",
+            "hgv;vehicle_class=hgv;weight_t=7.5",
+            "--include-path",
+            "--out",
+            str(output),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["contract"] == "ireland-geometry.route-comparison.v1"
+    assert payload["baseline_profile"] == "general"
+    assert payload["profile_n"] == 2
+    assert payload["reachable_n"] == 2
+    assert payload["profiles"][1]["vehicle_class"] == "hgv"
+    assert payload["profiles"][1]["route"]["path_way_ids"] == ["way/a-b", "way/b-c"]
+    assert json.loads(output.read_text(encoding="utf-8"))["profile_n"] == 2
 
 
 def test_pipeline_help_exits_without_running_work():
@@ -446,6 +533,58 @@ def test_route_query_rejects_nested_data_symlink_before_graph_read(tmp_path):
                 "53.1",
                 "--goal-lon",
                 "-6.1",
+            ]
+        )
+
+
+def test_route_matrix_rejects_nested_data_symlink_before_graph_read(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    external = tmp_path / "external-roads"
+    external.mkdir()
+    link = data / "roads"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(SystemExit, match="data directory contains symlink"):
+        route_matrix_main(
+            [
+                "--data-root",
+                str(data),
+                "--origin",
+                "53.0,-6.0",
+                "--destination",
+                "53.1,-6.1",
+            ]
+        )
+
+
+def test_route_compare_rejects_nested_data_symlink_before_graph_read(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    external = tmp_path / "external-roads"
+    external.mkdir()
+    link = data / "roads"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(SystemExit, match="data directory contains symlink"):
+        route_compare_main(
+            [
+                "--data-root",
+                str(data),
+                "--start",
+                "53.0,-6.0",
+                "--goal",
+                "53.1,-6.1",
+                "--profile",
+                "general",
+                "--profile",
+                "hgv;vehicle_class=hgv",
             ]
         )
 

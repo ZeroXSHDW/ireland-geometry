@@ -81,7 +81,7 @@ except ImportError:
 
 
 MIN_PYTHON = (3, 10)
-DOCTOR_VERSION = 128
+DOCTOR_VERSION = 156
 REQUIRED_DEPENDENCIES = ("numpy", "shapely", "requests", "osmium")
 OPTIONAL_DEPENDENCIES = ("pyarrow", "duckdb", "rasterio", "laspy")
 STRICT_OUTPUT_NAMES = (
@@ -269,6 +269,8 @@ def output_safety_status(root: Path) -> dict[str, Any]:
         "pages_audit": (root / "scripts" / "pages_audit.py", "site_input.is_symlink()"),
         "release_check": (root / "scripts" / "release_check.py", "def _symlink_root_errors("),
         "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_output_file_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_output_file_path("),
     }
     guards = {
         name: module.is_file() and _file_contains(module, token)
@@ -295,6 +297,8 @@ def output_safety_status(root: Path) -> dict[str, Any]:
             "output.exists() and not output.is_dir()",
         ),
         "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_output_file_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_output_file_path("),
     }
     non_directory_guards = {
         name: module.is_file() and _file_contains(module, token)
@@ -303,6 +307,8 @@ def output_safety_status(root: Path) -> dict[str, Any]:
     file_output_modules = {
         "doctor": (root / "scripts" / "doctor.py", "project_output_file_path("),
         "route-query": (root / "scripts" / "route_query.py", "project_output_file_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_output_file_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_output_file_path("),
     }
     file_output_guards = {
         name: module.is_file() and _file_contains(module, token)
@@ -414,6 +420,8 @@ def data_safety_status(root: Path) -> dict[str, Any]:
         "roads": (root / "scripts" / "roads.py", "project_data_tree_path("),
         "spatial-covariates": (root / "scripts" / "spatial_covariates.py", "project_data_tree_path("),
         "route-query": (root / "scripts" / "route_query.py", "project_data_tree_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_data_tree_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_data_tree_path("),
         "verify": (root / "scripts" / "verify.py", "reject_symlink_tree("),
         "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_tree("),
     }
@@ -483,6 +491,8 @@ def data_safety_status(root: Path) -> dict[str, Any]:
             "project_data_tree_path(",
         ),
         "route-query": (root / "scripts" / "route_query.py", "project_data_tree_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_data_tree_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_data_tree_path("),
         "verify": (root / "scripts" / "verify.py", "reject_symlink_tree("),
         "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_tree("),
     }
@@ -517,6 +527,8 @@ def data_safety_status(root: Path) -> dict[str, Any]:
             "project_input_path(",
         ),
         "route-query": (root / "scripts" / "route_query.py", "project_input_path("),
+        "route-matrix": (root / "scripts" / "route_matrix.py", "project_input_path("),
+        "route-compare": (root / "scripts" / "route_compare.py", "project_input_path("),
         "verify": (root / "scripts" / "verify.py", "reject_symlink_path("),
         "report-server": (root / "scripts" / "serve_report.py", "reject_symlink_path("),
         "holdout": (root / "scripts" / "holdout.py", "project_input_path("),
@@ -769,20 +781,221 @@ def report_server_status(
 ) -> dict[str, Any]:
     """Describe the packaged local report server and its current data pack."""
     module = root / "scripts" / "serve_report.py"
+    report_module = root / "scripts" / "report.py"
     lazy_report = output / "report_lazy.html"
     data_pack = output / "report_data.json"
     server_available = module.is_file()
     route_api = server_available and _file_contains(module, "ROUTE_API_PATH")
+    route_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "ROUTE_JSON_MAX_BODY_BYTES",
+            "def _json_route_request(",
+            "self._write_route(json_body=payload)",
+            '"queryRouteJson"',
+            '"RouteRequest"',
+        )
+    )
+    route_matrix_api = server_available and all(
+        _file_contains(module, token)
+        for token in ("ROUTE_MATRIX_API_PATH", "_write_route_matrix", "query_route_matrix")
+    )
+    route_matrix_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "ROUTE_MATRIX_JSON_MAX_BODY_BYTES",
+            "def _json_matrix_points(",
+            "def _json_route_options(",
+            "self._write_route_matrix(json_body=payload)",
+            '"queryRouteMatrixJson"',
+            '"RouteMatrixRequest"',
+        )
+    )
+    route_comparison_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "ROUTE_COMPARISON_JSON_MAX_BODY_BYTES",
+            "def _json_comparison_request(",
+            "self._write_route_comparison(json_body=payload)",
+            '"compareRouteProfilesJson"',
+            '"RouteComparisonRequest"',
+        )
+    )
+    route_comparison_api = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "ROUTE_COMPARISON_API_PATH",
+            "_write_route_comparison",
+            "query_route_comparison",
+        )
+    )
     query_module = root / "scripts" / "query_data.py"
     query_api = (
         server_available
         and query_module.is_file()
         and _file_contains(module, "QUERY_API_PATH")
     )
+    query_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "QUERY_JSON_MAX_BODY_BYTES",
+            "def _json_query_request(",
+            "self._write_query(json_body=payload)",
+            '"queryAnalysisRowsJson"',
+            '"QueryRequest"',
+        )
+    )
+    report_page_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "REPORT_PAGE_JSON_MAX_BODY_BYTES",
+            "def _json_report_request(",
+            "self._write_report_page(json_body=payload)",
+            '"getReportPageJson"',
+            '"ReportPageRequest"',
+        )
+    )
+    report_page_next_offset = server_available and all(
+        (
+            _file_contains(module, token)
+            or _file_contains(report_module, token)
+        )
+        for token in ('"next_offset": offset + limit if offset + limit < len(matched) else None',)
+    ) and all(
+        _file_contains(module, token)
+        for token in ('"ReportPagePagination"', '"pagination_continuation": "next_offset"')
+    )
+    report_page_sort_tiebreaker = server_available and all(
+        (
+            _file_contains(module, token)
+            or _file_contains(report_module, token)
+        )
+        for token in (
+            'REPORT_PAGE_SORT_TIEBREAKER = "osm_id"',
+            "def sort_tiebreaker(",
+            "matched = sorted(matched, key=sort_tiebreaker)",
+        )
+    ) and all(
+        _file_contains(module, token)
+        for token in (
+            '"sort_tiebreaker": REPORT_PAGE_SORT_TIEBREAKER',
+            '"sort_tiebreaker": {"const": REPORT_PAGE_SORT_TIEBREAKER}',
+        )
+    )
+    conditional_api_responses = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "CONDITIONAL_ENDPOINTS = (",
+            '"conditional_endpoints": list(CONDITIONAL_ENDPOINTS)',
+            'self._write_json(payload, cache_control="no-cache")',
+            'self._write_json(result, cache_control="no-cache")',
+            "def _openapi_conditional_headers(",
+            "def _etag_matches(",
+        )
+    )
+    api_json_gzip = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "API_JSON_GZIP_MIN_BYTES = 1024",
+            "gzip.compress(body, compresslevel=6, mtime=0)",
+            '"api_json_gzip": True',
+            '"Content-Encoding"',
+        )
+    )
+    head_api = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "HEAD_ENDPOINTS = CONDITIONAL_ENDPOINTS",
+            "def do_HEAD(self)",
+            '"head_endpoints": list(HEAD_ENDPOINTS)',
+            "def _openapi_with_head_operations(",
+            "self._head_only",
+        )
+    )
+    api_error_request_ids = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            'API_ERROR_CONTRACT = "ireland-geometry.api-error.v1"',
+            'REQUEST_ID_HEADER = "X-Ireland-Geometry-Request-ID"',
+            "def send_error(",
+            "def _request_id(",
+            '"error_code"',
+            '"request_id"',
+            "self.send_header(REQUEST_ID_HEADER",
+        )
+    )
+    api_request_logging = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def log_message(",
+            "[request_id=",
+            "super().log_message(format, *args)",
+            '"api_request_logging": True',
+            '"api_request_log_field": "request_id"',
+        )
+    )
+    request_id_all_responses = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def end_headers(self)",
+            "self.send_header(REQUEST_ID_HEADER, self._request_id())",
+            "super().end_headers()",
+            '"request_id_all_responses": True',
+            '"request_id_all_response_logging": True',
+        )
+    )
+    security_response_headers = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "SECURITY_RESPONSE_HEADERS = {",
+            "def end_headers(self)",
+            '"X-Content-Type-Options": "nosniff"',
+            '"Referrer-Policy": "no-referrer"',
+            '"Permissions-Policy": "geolocation=(), camera=(), microphone=()"',
+            '"security_response_headers": dict(SECURITY_RESPONSE_HEADERS)',
+        )
+    )
+    api_request_timing = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "import time",
+            'REQUEST_TIMING_HEADER = "Server-Timing"',
+            'REQUEST_TIMING_METRIC = "ireland_geometry"',
+            'REQUEST_TIMING_LOG_FIELD = "duration_ms"',
+            "def _request_duration_ms(",
+            "Server processing time before response headers",
+            '"api_request_timing": True',
+            '"api_request_timing_log_field": REQUEST_TIMING_LOG_FIELD',
+        )
+    )
+    report_export_json_post = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def do_POST(self)",
+            "REPORT_EXPORT_JSON_MAX_BODY_BYTES",
+            "def _json_report_request(",
+            "self._write_report_export(json_body=payload)",
+            '"exportFilteredReportJson"',
+            '"ReportExportRequest"',
+        )
+    )
     metadata_api = server_available and _file_contains(module, "METADATA_API_PATH")
     capabilities_api = server_available and all(
         _file_contains(module, token)
         for token in ("CAPABILITIES_API_PATH", "_write_capabilities")
+    )
+    active_graph_capabilities = server_available and all(
+        _file_contains(module, token)
+        for token in (
+            "def _routing_graph_inventory(",
+            '"routing_graph": routing_graph',
+            '"active_graph_features": dict(routing_graph["features"])',
+        )
     )
     openapi_api = server_available and all(
         _file_contains(module, token)
@@ -909,7 +1122,25 @@ def report_server_status(
     contract_complete = (
         server_available
         and route_api
+        and route_json_post
+        and route_matrix_api
+        and route_matrix_json_post
+        and route_comparison_api
+        and route_comparison_json_post
         and query_api
+        and query_json_post
+        and report_page_json_post
+        and report_page_next_offset
+        and report_page_sort_tiebreaker
+        and conditional_api_responses
+        and api_json_gzip
+        and head_api
+        and api_error_request_ids
+        and api_request_logging
+        and request_id_all_responses
+        and security_response_headers
+        and api_request_timing
+        and report_export_json_post
         and query_pagination
         and query_cursor
         and query_invalid_score_cursor
@@ -919,6 +1150,7 @@ def report_server_status(
         and health_readiness
         and metadata_api
         and capabilities_api
+        and active_graph_capabilities
         and openapi_api
         and interpretation_api
         and conditional_data_pack
@@ -952,8 +1184,53 @@ def report_server_status(
         "explicit_project_root": explicit_project_root,
         "route_api": route_api,
         "route_endpoint": "/api/route",
+        "route_json_post": route_json_post,
+        "route_json_max_body_bytes": 128 * 1024 if route_json_post else None,
+        "route_matrix_api": route_matrix_api,
+        "route_matrix_endpoint": "/api/route/matrix",
+        "route_matrix_max_pairs": 25 if route_matrix_api else None,
+        "route_matrix_json_post": route_matrix_json_post,
+        "route_comparison_api": route_comparison_api,
+        "route_comparison_endpoint": "/api/route/compare",
+        "route_comparison_min_profiles": 2 if route_comparison_api else None,
+        "route_comparison_max_profiles": 8 if route_comparison_api else None,
+        "route_comparison_json_post": route_comparison_json_post,
         "query_api": query_api,
         "query_endpoint": "/api/query",
+        "query_json_post": query_json_post,
+        "query_json_max_body_bytes": 128 * 1024 if query_json_post else None,
+        "report_page_json_post": report_page_json_post,
+        "report_page_json_max_body_bytes": 128 * 1024 if report_page_json_post else None,
+        "report_page_next_offset": report_page_next_offset,
+        "report_page_sort_tiebreaker": report_page_sort_tiebreaker,
+        "conditional_api_responses": conditional_api_responses,
+        "api_json_gzip": api_json_gzip,
+        "head_api": head_api,
+        "api_error_contract": "ireland-geometry.api-error.v1"
+        if api_error_request_ids
+        else None,
+        "api_error_request_ids": api_error_request_ids,
+        "api_error_request_id_header": "X-Ireland-Geometry-Request-ID"
+        if api_error_request_ids
+        else None,
+        "api_request_logging": api_request_logging,
+        "api_request_log_field": "request_id" if api_request_logging else None,
+        "request_id_all_responses": request_id_all_responses,
+        "request_id_all_response_logging": request_id_all_responses,
+        "security_response_headers": security_response_headers,
+        "security_response_header_names": [
+            "X-Content-Type-Options",
+            "Referrer-Policy",
+            "Permissions-Policy",
+        ]
+        if security_response_headers
+        else [],
+        "api_request_timing": api_request_timing,
+        "api_request_timing_header": "Server-Timing" if api_request_timing else None,
+        "api_request_timing_metric": "ireland_geometry" if api_request_timing else None,
+        "api_request_timing_log_field": "duration_ms" if api_request_timing else None,
+        "report_export_json_post": report_export_json_post,
+        "report_export_json_max_body_bytes": 128 * 1024 if report_export_json_post else None,
         "query_pagination": query_pagination,
         "query_cursor": query_cursor,
         "query_invalid_score_cursor": query_invalid_score_cursor,
@@ -968,6 +1245,7 @@ def report_server_status(
         "metadata_available": (output / "manifest.json").is_file(),
         "capabilities_api": capabilities_api,
         "capabilities_endpoint": "/api/capabilities",
+        "active_graph_capabilities": active_graph_capabilities,
         "openapi_api": openapi_api,
         "openapi_endpoint": "/api/openapi.json",
         "interpretation_api": interpretation_api,
@@ -986,8 +1264,10 @@ def report_server_status(
 
 
 def route_query_status(root: Path) -> dict[str, Any]:
-    """Describe the standalone coordinate-based route query command."""
+    """Describe the standalone coordinate-based route query commands."""
     module = root / "scripts" / "route_query.py"
+    matrix_module = root / "scripts" / "route_matrix.py"
+    comparison_module = root / "scripts" / "route_compare.py"
     routing_module = root / "scripts" / "road_routing.py"
     tokens = {
         "supports_snap_metadata": "snap_distance_m",
@@ -999,12 +1279,16 @@ def route_query_status(root: Path) -> dict[str, Any]:
         "supports_path_segment_conditional_rules": "conditional_rules",
         "supports_path_segment_transition_rules": "transition_rules",
         "supports_path_segment_way_context": "road_context",
+        "supports_portable_path_segments": "PortableRoadGraph",
+        "supports_path_maneuvers": "def _build_route_maneuvers(",
         "supports_geojson": "def route_geojson(",
         "supports_ferry_geometry": "include_ferries",
         "supports_ferry_schedules": "ferry_schedule_n",
         "supports_ferry_durations": "shortest_path_metrics",
         "supports_public_holiday_calendars": "public_holiday_contract",
         "supports_route_objectives": "ROUTE_OBJECTIVES",
+        "supports_route_matrix": "def query_route_matrix(",
+        "supports_route_comparison": "def query_route_comparison(",
         "supports_vehicle_weight_profiles": "validate_vehicle_weight_t",
         "supports_vehicle_rating_profiles": "validate_vehicle_rating_t",
         "supports_vehicle_height_profiles": "validate_vehicle_height_m",
@@ -1033,6 +1317,14 @@ def route_query_status(root: Path) -> dict[str, Any]:
         "def next_active_at(",
     )
     ferry_schedules_modeled = features["supports_ferry_schedules"]
+    matrix_cli = matrix_module.is_file() and all(
+        _file_contains(matrix_module, token)
+        for token in ("def main(", "--origin", "--destination", "query_route_matrix")
+    )
+    comparison_cli = comparison_module.is_file() and all(
+        _file_contains(comparison_module, token)
+        for token in ("def main(", "--profile", "parse_route_profile_spec", "query_route_comparison")
+    )
     return {
         "label": "point-to-point route query",
         "module": str(module),
@@ -1067,6 +1359,22 @@ def route_query_status(root: Path) -> dict[str, Any]:
         "path_segment_conditional_rules": features["supports_path_segment_conditional_rules"],
         "path_segment_transition_rules": features["supports_path_segment_transition_rules"],
         "path_segment_way_context": features["supports_path_segment_way_context"],
+        "portable_path_segments": features["supports_portable_path_segments"],
+        "path_segment_sources": ["sqlite_edges", "portable_edges", "not_available"]
+        if features["supports_portable_path_segments"]
+        else [],
+        "path_maneuvers": features["supports_path_maneuvers"],
+        "route_matrix": features["supports_route_matrix"],
+        "route_matrix_max_pairs": 25 if features["supports_route_matrix"] else None,
+        "route_matrix_cli": matrix_cli,
+        "route_matrix_command": "ireland-geometry-route-matrix",
+        "route_matrix_module": str(matrix_module),
+        "route_comparison": features["supports_route_comparison"],
+        "route_comparison_min_profiles": 2 if features["supports_route_comparison"] else None,
+        "route_comparison_max_profiles": 8 if features["supports_route_comparison"] else None,
+        "route_comparison_cli": comparison_cli,
+        "route_comparison_command": "ireland-geometry-route-compare",
+        "route_comparison_module": str(comparison_module),
         "ferry_schedules_modeled": ferry_schedules_modeled,
         "ferry_waiting_modeled": features["supports_ferry_waiting"],
         "ferry_schedule_contract": "ireland-geometry.ferry-schedules.v1"
@@ -1348,6 +1656,51 @@ def report_capability_status(
         for path in (standalone, lazy)
         for token in ("road_context", "function routeSegmentText(route)")
     )
+    route_maneuvers = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in ("maneuvers", "function routeSegmentText(route)")
+    )
+    route_maneuver_list = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeManeuvers"',
+            "function renderRouteManeuvers(payload)",
+            "focusRouteManeuver",
+        )
+    )
+    route_segment_inspector = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeSegments"',
+            "function renderRouteSegments(payload)",
+            "routeSegmentChecksText",
+            "function routeSegmentChecksHtml(segment)",
+            "route-segment-check-list",
+        )
+    )
+    route_shareable_state = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeCopyLink"',
+            "function restoreRouteState()",
+            "function syncRouteState(fields)",
+            "params.set('route','1')",
+        )
+    )
+    route_response_download = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeDownloadJson"',
+            'id="routeDownloadGeojson"',
+            "function downloadRouteResponse(format)",
+            "function routeGeojsonPayload(payload)",
+        )
+    )
     route_weight_profile = all(
         _file_contains(path, token)
         for path in (standalone, lazy)
@@ -1357,6 +1710,61 @@ def report_capability_status(
             "vehicle-weight",
         )
     )
+    route_comparison_dashboard = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeCompareRun"',
+            'id="routeCompareProfiles"',
+            "function runRouteComparison()",
+            "fetch('/api/route/compare'",
+            "method:'POST'",
+            "Content-Type':'application/json",
+            "delta_from_baseline",
+            "function selectRouteComparisonProfile(index)",
+            "params.set('compare','1')",
+        )
+    )
+    route_matrix_dashboard = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="routeMatrixRun"',
+            'id="routeMatrixOrigins"',
+            'id="routeMatrixDestinations"',
+            "function runRouteMatrix()",
+            "fetch('/api/route/matrix'",
+            "method:'POST'",
+            "Content-Type':'application/json",
+            "function selectRouteMatrixPair(index)",
+            "params.set('matrix','1')",
+        )
+    )
+    report_page_json_dashboard = lazy.is_file() and all(
+        _file_contains(lazy, token)
+        for token in (
+            "function reportRequestBody(params, extra={})",
+            "function fetchServerPage()",
+            "body:JSON.stringify(reportRequestBody(params,{initial:false}))",
+            "method:'POST'",
+            "Content-Type':'application/json",
+        )
+    )
+    report_export_json_dashboard = lazy.is_file() and all(
+        _file_contains(lazy, token)
+        for token in (
+            "function reportRequestBody(params, extra={})",
+            "function downloadFiltered(format)",
+            "body:JSON.stringify(reportRequestBody(params,{format}))",
+            "method:'POST'",
+            "Content-Type':'application/json",
+        )
+    )
+    route_json_post = False
+    route_matrix_json_post = False
+    route_comparison_json_post = False
+    report_page_json_post = False
+    report_export_json_post = False
     review_link = all(_file_contains(path, 'href="review.html"') for path in (standalone, lazy))
     review_filter = all(_file_contains(path, 'id="reviewState"') for path in (standalone, lazy))
     review_queue_membership = all(
@@ -1405,6 +1813,42 @@ def report_capability_status(
             "function renderMethod()",
         )
     )
+    runtime_reload_notice = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="runtimeReloadNotice"',
+            'id="runtimeReload"',
+            "function runtimeDataIdentity(runtime)",
+            "function renderRuntimeReloadNotice()",
+            "runtimeReloadRequired",
+            "location.reload()",
+        )
+    )
+    report_error_recovery = all(
+        _file_contains(path, token)
+        for path in (standalone, lazy)
+        for token in (
+            'id="reportLoadError"',
+            'id="reportRetry"',
+            "function showReportError(error",
+            "function revealReportError()",
+            "function hideReportError()",
+            "function retryReportRequest()",
+            "document.body.classList.remove('intro-open')",
+            "reportRetry'",
+        )
+    )
+    lazy_initial_load_retry = lazy.is_file() and all(
+        _file_contains(lazy, token)
+        for token in (
+            "function showInitialReportError(error)",
+            "loadPack().catch(showInitialReportError)",
+            "document.body.classList.remove('intro-open')",
+            "classList.add('is-dismissed')",
+            "retry?.addEventListener('click',()=>location.reload()",
+        )
+    )
     accessibility = all(
         _file_contains(path, token)
         for path in (standalone, lazy)
@@ -1418,6 +1862,11 @@ def report_capability_status(
     )
     review_page = output / "review.html"
     server = report_server_status(root, output, data_root=data_root)
+    route_json_post = server["route_json_post"]
+    route_matrix_json_post = server["route_matrix_json_post"]
+    route_comparison_json_post = server["route_comparison_json_post"]
+    report_page_json_post = server["report_page_json_post"]
+    report_export_json_post = server["report_export_json_post"]
     return {
         "label": "dashboard reports",
         "standalone": standalone.is_file(),
@@ -1439,7 +1888,21 @@ def report_capability_status(
         "route_segment_explainability": route_segment_explainability,
         "route_transition_rule_provenance": route_transition_rule_provenance,
         "route_way_context": route_way_context,
+        "route_maneuvers": route_maneuvers,
+        "route_maneuver_list": route_maneuver_list,
+        "route_segment_inspector": route_segment_inspector,
+        "route_shareable_state": route_shareable_state,
+        "route_response_download": route_response_download,
         "route_weight_profile": route_weight_profile,
+        "route_comparison_dashboard": route_comparison_dashboard,
+        "route_matrix_dashboard": route_matrix_dashboard,
+        "report_page_json_dashboard": report_page_json_dashboard,
+        "report_export_json_dashboard": report_export_json_dashboard,
+        "route_json_post": route_json_post,
+        "route_matrix_json_post": route_matrix_json_post,
+        "route_comparison_json_post": route_comparison_json_post,
+        "report_page_json_post": report_page_json_post,
+        "report_export_json_post": report_export_json_post,
         "review_link": review_link,
         "review_filter": review_filter,
         "review_queue_membership": review_queue_membership,
@@ -1448,6 +1911,9 @@ def report_capability_status(
         "quality_audit": quality_audit,
         "interpretation_panel": interpretation_panel,
         "live_runtime_refresh": live_runtime_refresh,
+        "runtime_reload_notice": runtime_reload_notice,
+        "report_error_recovery": report_error_recovery,
+        "lazy_initial_load_retry": lazy_initial_load_retry,
         "accessibility": accessibility,
         "review_page": review_page.is_file(),
         "status": "available"
@@ -1464,7 +1930,16 @@ def report_capability_status(
         and route_segment_explainability
         and route_transition_rule_provenance
         and route_way_context
+        and route_maneuvers
+        and route_maneuver_list
+        and route_segment_inspector
+        and route_shareable_state
+        and route_response_download
         and route_weight_profile
+        and route_comparison_dashboard
+        and route_matrix_dashboard
+        and report_page_json_dashboard
+        and report_export_json_dashboard
         and review_filter
         and review_queue_membership
         and quality_panel
@@ -1472,6 +1947,9 @@ def report_capability_status(
         and quality_audit
         and interpretation_panel
         and live_runtime_refresh
+        and runtime_reload_notice
+        and report_error_recovery
+        and lazy_initial_load_retry
         and accessibility
         else "incomplete",
     }

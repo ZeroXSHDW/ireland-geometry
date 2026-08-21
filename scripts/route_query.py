@@ -35,15 +35,27 @@ one-way semantics.
 ``--vehicle-class hgv`` enforces static ``hgv=destination`` ways by default;
 ``--allow-hgv-destination`` explicitly opts into destination-delivery access
 and supported destination exceptions to HGV weight/rating limits.
-Path-enabled output preserves ordered SQLite way/segment IDs and per-segment
-distance, duration, ferry-wait, and ferry-status metrics; portable fallback
-graphs report that segment IDs are unavailable.
+Route responses expose ferry way/distance/edge metrics when ferry geometry is
+included; path-enabled output additionally preserves ordered SQLite or
+portable way/segment IDs and per-segment distance, duration, ferry-wait, and
+ferry-status metrics when the graph supplies way IDs. Portable CSV/JSON graphs
+also expose supplied basic
+road context; graphs without way IDs report that segment IDs are unavailable.
 SQLite-backed path segments also expose normalized static edge constraints,
 including their source key, value/unit, persistence status, and whether the
 active vehicle profile evaluated the constraint. They also expose conditional
 speed, one-way, and access rule records with entry-time active/applied state.
 They also expose nullable human-readable OSM way context such as name, ref,
 highway class, route type, and oneway state.
+Path-enabled SQLite responses additionally expose deterministic geometry-derived
+maneuvers, including turn bearings, road context, ferry transitions, and the
+distance/duration to the next maneuver.
+The reusable ``query_route_matrix`` helper evaluates a bounded Cartesian set of
+origins and destinations with the same route semantics and emits compact pair
+summaries, optionally retaining full path-enabled route responses.
+The reusable ``query_route_comparison`` helper evaluates a bounded set of
+named vehicle profiles over one trip and reports reachability and metric
+deltas from the first profile, optionally retaining each full route response.
 """
 
 from __future__ import annotations
@@ -62,6 +74,7 @@ try:
         ROAD_CONTEXT_FIELDS,
         ROUTE_OBJECTIVES,
         VEHICLE_CLASSES,
+        PortableRoadGraph,
         SQLiteRoadGraph,
         build_node_index,
         load_graph,
@@ -88,6 +101,7 @@ except ImportError:
         ROAD_CONTEXT_FIELDS,
         ROUTE_OBJECTIVES,
         VEHICLE_CLASSES,
+        PortableRoadGraph,
         SQLiteRoadGraph,
         build_node_index,
         load_graph,
@@ -111,6 +125,21 @@ except ImportError:
 
 
 ROUTE_CONTRACT = "ireland-geometry.route.v1"
+ROUTE_MATRIX_CONTRACT = "ireland-geometry.route-matrix.v1"
+ROUTE_MATRIX_MAX_PAIRS = 25
+ROUTE_COMPARISON_CONTRACT = "ireland-geometry.route-comparison.v1"
+ROUTE_COMPARISON_MIN_PROFILES = 2
+ROUTE_COMPARISON_MAX_PROFILES = 8
+ROUTE_PROFILE_FIELDS = (
+    "vehicle_weight_t",
+    "vehicle_rating_t",
+    "vehicle_height_m",
+    "vehicle_width_m",
+    "vehicle_length_m",
+    "vehicle_axleload_t",
+    "vehicle_class",
+    "allow_hgv_destination",
+)
 
 
 def validate_route_objective(value: str | None) -> str:
@@ -193,8 +222,114 @@ def validate_vehicle_axleload_t(value: object) -> float | None:
     return _validate_positive_profile(value, "axleload_t", "tonnes")
 
 
+def _profile_boolean(value: object, field: str) -> bool:
+    """Parse a strict boolean used by a route-profile specification."""
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{field} must be a boolean")
+
+
+def _normalize_route_profile(profile: dict[str, object]) -> dict[str, object]:
+    """Validate one named vehicle profile for a comparison request."""
+    if not isinstance(profile, dict):
+        raise TypeError("each route profile must be an object")
+    name = str(profile.get("name", "")).strip()
+    if not name:
+        raise ValueError("each route profile requires a non-empty name")
+    if len(name) > 64 or any(
+        not (character.isalnum() or character in "._-") for character in name
+    ):
+        raise ValueError(
+            "route profile names must be at most 64 characters and use only letters, "
+            "numbers, '.', '_' or '-'"
+        )
+    return {
+        "name": name,
+        "vehicle_weight_t": validate_vehicle_weight_t(
+            profile.get("vehicle_weight_t", profile.get("weight_t"))
+        ),
+        "vehicle_rating_t": validate_vehicle_rating_t(
+            profile.get("vehicle_rating_t", profile.get("rating_t"))
+        ),
+        "vehicle_height_m": validate_vehicle_height_m(
+            profile.get("vehicle_height_m", profile.get("height_m"))
+        ),
+        "vehicle_width_m": validate_vehicle_width_m(
+            profile.get("vehicle_width_m", profile.get("width_m"))
+        ),
+        "vehicle_length_m": validate_vehicle_length_m(
+            profile.get("vehicle_length_m", profile.get("length_m"))
+        ),
+        "vehicle_axleload_t": validate_vehicle_axleload_t(
+            profile.get("vehicle_axleload_t", profile.get("axleload_t"))
+        ),
+        "vehicle_class": validate_vehicle_class(profile.get("vehicle_class")),
+        "allow_hgv_destination": _profile_boolean(
+            profile.get("allow_hgv_destination", False),
+            "allow_hgv_destination",
+        ),
+    }
+
+
+def parse_route_profile_spec(value: str) -> dict[str, object]:
+    """Parse ``NAME;key=value`` syntax used by CLI and HTTP comparison clients."""
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("route profile specifications must not be empty")
+    parts = [part.strip() for part in raw.split(";")]
+    profile: dict[str, object] = {"name": parts[0]}
+    aliases = {
+        "weight_t": "vehicle_weight_t",
+        "rating_t": "vehicle_rating_t",
+        "height_m": "vehicle_height_m",
+        "width_m": "vehicle_width_m",
+        "length_m": "vehicle_length_m",
+        "axleload_t": "vehicle_axleload_t",
+    }
+    allowed = {*aliases, "vehicle_class", "allow_hgv_destination"}
+    seen: set[str] = set()
+    for assignment in parts[1:]:
+        if not assignment or "=" not in assignment:
+            raise ValueError(
+                "route profile options must use NAME;key=value syntax"
+            )
+        key, raw_value = (part.strip() for part in assignment.split("=", 1))
+        if key not in allowed:
+            raise ValueError(
+                f"unsupported route profile option {key!r}; expected one of: "
+                f"{', '.join(sorted(allowed))}"
+            )
+        if key in seen:
+            raise ValueError(f"route profile option {key!r} was supplied more than once")
+        seen.add(key)
+        profile[aliases.get(key, key)] = raw_value
+    return _normalize_route_profile(profile)
+
+
+def _validated_route_profiles(profiles: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Normalize a bounded list of uniquely named route profiles."""
+    if len(profiles) < ROUTE_COMPARISON_MIN_PROFILES:
+        raise ValueError(
+            f"at least {ROUTE_COMPARISON_MIN_PROFILES} route profiles are required"
+        )
+    if len(profiles) > ROUTE_COMPARISON_MAX_PROFILES:
+        raise ValueError(
+            f"route profile count must not exceed {ROUTE_COMPARISON_MAX_PROFILES}"
+        )
+    normalized = [_normalize_route_profile(profile) for profile in profiles]
+    names = [str(profile["name"]) for profile in normalized]
+    if len(set(names)) != len(names):
+        raise ValueError("route profile names must be unique")
+    return normalized
+
+
 Coordinates = dict[str, tuple[float, float]]
-Graph = Union[tuple[Coordinates, dict[str, list[tuple[str, float]]]], SQLiteRoadGraph]  # noqa: UP007 - Python 3.9 import compatibility
+Graph = Union[PortableRoadGraph, SQLiteRoadGraph]  # noqa: UP007 - Python 3.9 import compatibility
 
 
 def _point(lat: float, lon: float) -> dict[str, str]:
@@ -208,7 +343,7 @@ def _node_coordinates(graph: Graph, coordinates: Coordinates, node: str) -> tupl
             (node,),
         ).fetchone()
         return (float(row[0]), float(row[1])) if row else None
-    return coordinates.get(node)
+    return graph.coordinates.get(node)
 
 
 def _graph_summary(graph: Graph, coordinates: Coordinates) -> dict[str, Any]:
@@ -320,11 +455,12 @@ def _graph_summary(graph: Graph, coordinates: Coordinates) -> dict[str, Any]:
         }
     return {
         "backend": "portable",
-        "node_n": len(coordinates),
-        "edge_n": sum(len(edges) for edges in graph[1].values()),
-        "way_context": False,
-        "way_context_n": 0,
-        "ferry_edge_n": 0,
+        "node_n": graph.node_count,
+        "edge_n": graph.edge_count,
+        "way_context": graph.has_way_context,
+        "way_context_n": graph.way_context_n,
+        "path_segment_source": "portable_edges" if graph.has_way_ids else "not_available",
+        "ferry_edge_n": graph.ferry_edge_count,
         "ferry_public_holiday_schedule_n": 0,
         "public_holiday_n": 0,
         "public_holiday_contract": "not_provided",
@@ -428,8 +564,20 @@ def _method(
     allow_hgv_destination: bool,
 ) -> str:
     if not isinstance(graph, SQLiteRoadGraph):
-        method = f"Dijkstra on supplied road graph; nearest graph node snap; route objective={objective}"
-        if include_ferries:
+        method = f"Dijkstra on portable road graph; nearest graph node snap; route objective={objective}"
+        if graph.has_way_ids:
+            method += "; directed way IDs and road context retained"
+        else:
+            method += "; directed way metadata unavailable"
+        if graph.ferry_edge_count:
+            if include_ferries:
+                method += (
+                    "; ferry geometry included; ferry schedules, waits, and "
+                    "crossing durations unavailable in portable graph"
+                )
+            else:
+                method += "; ferry geometry available but excluded"
+        elif include_ferries:
             method += "; ferry geometry unavailable in portable graph"
         if vehicle_class != "general":
             method += "; vehicle-class profile unavailable in portable graph"
@@ -1564,6 +1712,205 @@ def _serialize_path_segments(
     return result
 
 
+def _portable_ferry_metrics(path_segments: list[dict[str, object]]) -> dict[str, object]:
+    """Summarize ferry geometry for a portable route path."""
+    ferry_segments = [
+        segment for segment in path_segments if bool(segment.get("ferry"))
+    ]
+    return {
+        "ferry_way_ids": sorted(
+            {
+                str(segment.get("way_id", ""))
+                for segment in ferry_segments
+                if str(segment.get("way_id", "")).strip()
+            }
+        ),
+        "ferry_distance_m": round(
+            sum(float(segment.get("distance_m", 0.0)) for segment in ferry_segments),
+            2,
+        ),
+        "ferry_crossing_s": 0.0,
+        "ferry_edge_n": len(ferry_segments),
+    }
+
+
+def _bearing_degrees(start: object, end: object) -> float | None:
+    """Return the initial WGS84 bearing from one ``[lon, lat]`` point to another."""
+    if not isinstance(start, (list, tuple)) or not isinstance(end, (list, tuple)):
+        return None
+    if len(start) < 2 or len(end) < 2:
+        return None
+    try:
+        start_lon = math.radians(float(start[0]))
+        start_lat = math.radians(float(start[1]))
+        end_lon = math.radians(float(end[0]))
+        end_lat = math.radians(float(end[1]))
+    except (TypeError, ValueError):
+        return None
+    if not all(
+        math.isfinite(value)
+        for value in (start_lon, start_lat, end_lon, end_lat)
+    ):
+        return None
+    delta_lon = end_lon - start_lon
+    y = math.sin(delta_lon) * math.cos(end_lat)
+    x = (
+        math.cos(start_lat) * math.sin(end_lat)
+        - math.sin(start_lat) * math.cos(end_lat) * math.cos(delta_lon)
+    )
+    if abs(x) < 1e-15 and abs(y) < 1e-15:
+        return None
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def _turn_angle_degrees(
+    before: float | None,
+    after: float | None,
+) -> float | None:
+    """Return a signed shortest turn angle; negative is left, positive is right."""
+    if before is None or after is None:
+        return None
+    angle = (after - before + 180.0) % 360.0 - 180.0
+    return round(angle, 1)
+
+
+def _maneuver_road_context(segment: dict[str, object] | None) -> dict[str, str | None]:
+    """Return the stable nullable road context attached to one route segment."""
+    context = _empty_road_context()
+    raw_context = segment.get("road_context") if isinstance(segment, dict) else None
+    if isinstance(raw_context, dict):
+        for field in ROAD_CONTEXT_FIELDS:
+            context[field] = _road_context_value(raw_context.get(field))
+    return context
+
+
+def _road_context_changed(
+    before: dict[str, str | None],
+    after: dict[str, str | None],
+) -> bool:
+    """Detect a meaningful mapped-road identity change between two segments."""
+    return any(
+        before.get(field) != after.get(field)
+        for field in ("name", "ref", "highway", "route")
+        if before.get(field) is not None or after.get(field) is not None
+    )
+
+
+def _maneuver_kind(
+    index: int,
+    segment_n: int,
+    previous: dict[str, object] | None,
+    current: dict[str, object] | None,
+    angle: float | None,
+    context_changed: bool,
+) -> str:
+    """Classify a route transition using geometry and ferry state."""
+    if index == 0:
+        return "start"
+    if index == segment_n:
+        return "arrive"
+    previous_ferry = bool(previous and previous.get("ferry"))
+    current_ferry = bool(current and current.get("ferry"))
+    if current_ferry and not previous_ferry:
+        return "ferry_boarding"
+    if previous_ferry and not current_ferry:
+        return "ferry_landing"
+    if angle is None:
+        return "change_way" if context_changed else "continue"
+    magnitude = abs(angle)
+    if magnitude >= 135.0:
+        return "u_turn"
+    if angle <= -45.0:
+        return "left"
+    if angle >= 45.0:
+        return "right"
+    if angle < -15.0:
+        return "slight_left"
+    if angle > 15.0:
+        return "slight_right"
+    return "change_way" if context_changed else "continue"
+
+
+def _build_route_maneuvers(
+    path_nodes: list[str],
+    path_coordinates: list[list[float]],
+    path_segments: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Build stable, geometry-derived maneuver records for a detailed route."""
+    segment_n = len(path_segments)
+    if not path_segments or len(path_nodes) != segment_n + 1:
+        return []
+    if len(path_coordinates) != segment_n + 1:
+        return []
+
+    bearings = [
+        _bearing_degrees(path_coordinates[index], path_coordinates[index + 1])
+        for index in range(segment_n)
+    ]
+    transition_indices = [0]
+    transition_details: dict[int, tuple[float | None, bool]] = {}
+    for index in range(1, segment_n):
+        previous = path_segments[index - 1]
+        current = path_segments[index]
+        previous_context = _maneuver_road_context(previous)
+        current_context = _maneuver_road_context(current)
+        context_changed = _road_context_changed(previous_context, current_context)
+        angle = _turn_angle_degrees(bearings[index - 1], bearings[index])
+        ferry_changed = bool(previous.get("ferry")) != bool(current.get("ferry"))
+        if ferry_changed or context_changed or (angle is not None and abs(angle) >= 15.0):
+            transition_indices.append(index)
+            transition_details[index] = (angle, context_changed)
+    transition_indices.append(segment_n)
+
+    maneuvers: list[dict[str, object]] = []
+    for sequence, index in enumerate(transition_indices):
+        previous = path_segments[index - 1] if index > 0 else None
+        current = path_segments[index] if index < segment_n else None
+        angle, context_changed = transition_details.get(index, (None, False))
+        next_index = transition_indices[sequence + 1] if sequence + 1 < len(transition_indices) else index
+        leg_segments = path_segments[index:next_index] if index < segment_n else []
+        distance_m = sum(float(segment.get("distance_m", 0.0)) for segment in leg_segments)
+        duration_s = sum(float(segment.get("duration_s", 0.0)) for segment in leg_segments)
+        wait_s = sum(float(segment.get("wait_s", 0.0)) for segment in leg_segments)
+        context_segment = current if current is not None else previous
+        incoming_bearing = bearings[index - 1] if index > 0 else None
+        outgoing_bearing = bearings[index] if index < segment_n else None
+        coordinate = path_coordinates[index]
+        maneuvers.append(
+            {
+                "sequence": sequence,
+                "kind": _maneuver_kind(
+                    index,
+                    segment_n,
+                    previous,
+                    current,
+                    angle,
+                    context_changed,
+                ),
+                "node_id": str(path_nodes[index]),
+                "coordinate": [float(coordinate[0]), float(coordinate[1])],
+                "from_way_id": (
+                    str(previous.get("way_id", "")) if previous is not None else None
+                ),
+                "to_way_id": (
+                    str(current.get("way_id", "")) if current is not None else None
+                ),
+                "road_context": _maneuver_road_context(context_segment),
+                "bearing_before_deg": (
+                    round(incoming_bearing, 1) if incoming_bearing is not None else None
+                ),
+                "bearing_after_deg": (
+                    round(outgoing_bearing, 1) if outgoing_bearing is not None else None
+                ),
+                "turn_angle_deg": angle,
+                "distance_m": round(max(0.0, distance_m), 2),
+                "duration_s": round(max(0.0, duration_s), 2),
+                "wait_s": round(max(0.0, wait_s), 2),
+            }
+        )
+    return maneuvers
+
+
 def route_geojson(result: dict[str, Any]) -> dict[str, Any]:
     """Convert a path-enabled route result to one GeoJSON feature."""
     coordinates = result.get("path_coordinates", [])
@@ -1586,6 +1933,8 @@ def route_geojson(result: dict[str, Any]) -> dict[str, Any]:
             "path_segment_total_duration_s",
             "path_segment_total_wait_s",
             "path_segment_source",
+            "maneuver_n",
+            "maneuvers",
         }
     }
     return {
@@ -1631,7 +1980,7 @@ def query_route(
         graph_coordinates: Coordinates | SQLiteRoadGraph = graph
         node_index = None
     else:
-        coordinates, _adjacency = graph
+        coordinates = graph.coordinates
         graph_coordinates = coordinates
         node_index = build_node_index(coordinates)
 
@@ -1709,16 +2058,29 @@ def query_route(
         result["path_segment_total_wait_s"] = 0.0
         result["path_way_ids"] = []
         result["path_segments"] = []
+        result["maneuver_n"] = 0
+        result["maneuvers"] = []
         result["path_segment_source"] = (
             "sqlite_edges"
             if isinstance(graph, SQLiteRoadGraph) and graph.has_way_ids
-            else "not_available"
+            else (
+                "portable_edges"
+                if isinstance(graph, PortableRoadGraph) and graph.has_way_ids
+                else "not_available"
+            )
         )
     if not start_node or not goal_node:
         result["status"] = "provided_but_unreachable"
         return result
 
-    adjacency = graph if isinstance(graph, SQLiteRoadGraph) else graph[1]
+    adjacency = graph
+    portable_metric_path = (
+        isinstance(graph, PortableRoadGraph)
+        and include_ferries
+        and graph.ferry_edge_count > 0
+        and not include_path
+    )
+    portable_metric_segments: list[dict[str, object]] = []
     if isinstance(graph, SQLiteRoadGraph):
         route_result = shortest_path_metrics(
             start_node,
@@ -1735,7 +2097,7 @@ def query_route(
             vehicle_class=vehicle_class,
             allow_hgv_destination=allow_hgv_destination,
             return_path=include_path,
-            return_path_details=include_path,
+            return_path_details=include_path or portable_metric_path,
             include_ferries=include_ferries,
             objective=objective,
         )
@@ -1755,7 +2117,7 @@ def query_route(
             vehicle_class=vehicle_class,
             allow_hgv_destination=allow_hgv_destination,
             return_path=include_path,
-            return_path_details=include_path,
+            return_path_details=include_path or portable_metric_path,
             include_ferries=include_ferries,
         )
     if route_result is None:
@@ -1779,7 +2141,7 @@ def query_route(
             result["path_segment_source"] = "not_available"
             path_way_ids = []
             path_segments = []
-        if result["path_segment_source"] != "not_available":
+        if result["path_segment_source"] == "sqlite_edges":
             _attach_path_constraints(
                 graph,
                 path_segments,
@@ -1811,9 +2173,22 @@ def query_route(
         )
         result["path_way_ids"] = path_way_ids
         result["path_segments"] = path_segments
+        if isinstance(graph, PortableRoadGraph):
+            result.update(_portable_ferry_metrics(path_segments))
+        maneuvers = _build_route_maneuvers(
+            path_nodes,
+            result["path_coordinates"],
+            path_segments,
+        )
+        result["maneuver_n"] = len(maneuvers)
+        result["maneuvers"] = maneuvers
     else:
         if isinstance(graph, SQLiteRoadGraph):
             route_distance, duration_s = route_result
+        elif portable_metric_path:
+            route_distance, _path_nodes, _path_way_ids, raw_segments = route_result
+            portable_metric_segments = _serialize_path_segments(raw_segments, speed_kmh)
+            duration_s = route_distance / (speed_kmh / 3.6)
         else:
             route_distance = route_result
             duration_s = route_distance / (speed_kmh / 3.6)
@@ -1828,9 +2203,270 @@ def query_route(
         result["ferry_distance_m"] = round(graph.last_ferry_distance_m, 2)
         result["ferry_crossing_s"] = round(graph.last_ferry_crossing_s, 2)
         result["ferry_edge_n"] = graph.last_ferry_edge_n
+    elif portable_metric_path:
+        result.update(_portable_ferry_metrics(portable_metric_segments))
     if departure:
         result["arrival"] = (departure + timedelta(seconds=duration_s)).isoformat()
     return result
+
+
+def query_route_matrix(
+    origins: list[tuple[float, float]],
+    destinations: list[tuple[float, float]],
+    graph: Graph,
+    *,
+    departure: datetime | None = None,
+    speed_kmh: float = 50.0,
+    include_path: bool = False,
+    include_ferries: bool = False,
+    objective: str = "distance",
+    vehicle_weight_t: float | None = None,
+    vehicle_rating_t: float | None = None,
+    vehicle_height_m: float | None = None,
+    vehicle_width_m: float | None = None,
+    vehicle_length_m: float | None = None,
+    vehicle_axleload_t: float | None = None,
+    vehicle_class: str = "general",
+    allow_hgv_destination: bool = False,
+) -> dict[str, Any]:
+    """Return bounded all-pairs route summaries for two WGS84 point lists.
+
+    The matrix deliberately keeps the point-to-point route contract as the
+    source of truth. Each pair receives the same snapping, conditional-rule,
+    ferry, and vehicle-profile semantics as :func:`query_route`; full route
+    responses are included only when ``include_path`` is requested.
+    """
+    if not origins:
+        raise ValueError("at least one origin is required")
+    if not destinations:
+        raise ValueError("at least one destination is required")
+    pair_n = len(origins) * len(destinations)
+    if pair_n > ROUTE_MATRIX_MAX_PAIRS:
+        raise ValueError(
+            f"origin × destination pair count must not exceed {ROUTE_MATRIX_MAX_PAIRS}"
+        )
+    objective = validate_route_objective(objective)
+    vehicle_weight_t = validate_vehicle_weight_t(vehicle_weight_t)
+    vehicle_rating_t = validate_vehicle_rating_t(vehicle_rating_t)
+    vehicle_height_m = validate_vehicle_height_m(vehicle_height_m)
+    vehicle_width_m = validate_vehicle_width_m(vehicle_width_m)
+    vehicle_length_m = validate_vehicle_length_m(vehicle_length_m)
+    vehicle_axleload_t = validate_vehicle_axleload_t(vehicle_axleload_t)
+    vehicle_class = validate_vehicle_class(vehicle_class)
+    try:
+        speed_kmh = float(speed_kmh)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("speed_kmh must be a finite positive number") from exc
+    if not math.isfinite(speed_kmh) or speed_kmh <= 0:
+        raise ValueError("speed_kmh must be a finite positive number")
+
+    origin_records = [
+        {"index": index, "lat": lat, "lon": lon}
+        for index, (lat, lon) in enumerate(origins)
+    ]
+    destination_records = [
+        {"index": index, "lat": lat, "lon": lon}
+        for index, (lat, lon) in enumerate(destinations)
+    ]
+    pairs: list[dict[str, Any]] = []
+    graph_summary: dict[str, Any] | None = None
+    reachable_n = 0
+    for origin_index, (origin_lat, origin_lon) in enumerate(origins):
+        for destination_index, (destination_lat, destination_lon) in enumerate(destinations):
+            route = query_route(
+                origin_lat,
+                origin_lon,
+                destination_lat,
+                destination_lon,
+                graph,
+                departure=departure,
+                speed_kmh=speed_kmh,
+                include_path=include_path,
+                include_ferries=include_ferries,
+                objective=objective,
+                vehicle_weight_t=vehicle_weight_t,
+                vehicle_rating_t=vehicle_rating_t,
+                vehicle_height_m=vehicle_height_m,
+                vehicle_width_m=vehicle_width_m,
+                vehicle_length_m=vehicle_length_m,
+                vehicle_axleload_t=vehicle_axleload_t,
+                vehicle_class=vehicle_class,
+                allow_hgv_destination=allow_hgv_destination,
+            )
+            if graph_summary is None:
+                graph_summary = route.get("graph")
+            if route["reachable"]:
+                reachable_n += 1
+            pair: dict[str, Any] = {
+                "origin_index": origin_index,
+                "destination_index": destination_index,
+                "status": route["status"],
+                "reachable": route["reachable"],
+                "start": route["start"],
+                "goal": route["goal"],
+                "route_distance_m": route["route_distance_m"],
+                "estimated_duration_s": route["estimated_duration_s"],
+                "ferry_wait_s": route["ferry_wait_s"],
+                "ferry_wait_n": route["ferry_wait_n"],
+                "ferry_distance_m": route["ferry_distance_m"],
+                "ferry_crossing_s": route["ferry_crossing_s"],
+                "ferry_edge_n": route["ferry_edge_n"],
+                "arrival": route["arrival"],
+                "route": route if include_path else None,
+            }
+            pairs.append(pair)
+    return {
+        "contract": ROUTE_MATRIX_CONTRACT,
+        "status": "provided",
+        "objective": objective,
+        "vehicle_weight_t": vehicle_weight_t,
+        "vehicle_rating_t": vehicle_rating_t,
+        "vehicle_height_m": vehicle_height_m,
+        "vehicle_width_m": vehicle_width_m,
+        "vehicle_length_m": vehicle_length_m,
+        "vehicle_axleload_t": vehicle_axleload_t,
+        "vehicle_class": vehicle_class,
+        "allow_hgv_destination": bool(allow_hgv_destination),
+        "departure": departure.isoformat() if departure else None,
+        "speed_kmh": speed_kmh,
+        "include_path": bool(include_path),
+        "include_ferries": bool(include_ferries),
+        "origin_n": len(origins),
+        "destination_n": len(destinations),
+        "pair_n": pair_n,
+        "reachable_n": reachable_n,
+        "unreachable_n": pair_n - reachable_n,
+        "origins": origin_records,
+        "destinations": destination_records,
+        "pairs": pairs,
+        "graph": graph_summary or {},
+    }
+
+
+def query_route_comparison(
+    start_lat: float,
+    start_lon: float,
+    goal_lat: float,
+    goal_lon: float,
+    graph: Graph,
+    profiles: list[dict[str, object]],
+    *,
+    departure: datetime | None = None,
+    speed_kmh: float = 50.0,
+    include_path: bool = False,
+    include_ferries: bool = False,
+    objective: str = "distance",
+) -> dict[str, Any]:
+    """Compare a bounded set of vehicle profiles over one origin/destination pair.
+
+    Each profile is routed independently through :func:`query_route`, preserving
+    the existing time-dependent restrictions and optional path evidence. The
+    first profile is the baseline for metric deltas; an unreachable baseline
+    leaves deltas null rather than implying a comparison between incomparable
+    routes.
+    """
+    objective = validate_route_objective(objective)
+    try:
+        speed_kmh = float(speed_kmh)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("speed_kmh must be a finite positive number") from exc
+    if not math.isfinite(speed_kmh) or speed_kmh <= 0:
+        raise ValueError("speed_kmh must be a finite positive number")
+    normalized_profiles = _validated_route_profiles(profiles)
+    route_results: list[dict[str, Any]] = []
+    graph_summary: dict[str, Any] | None = None
+    for profile in normalized_profiles:
+        route = query_route(
+            start_lat,
+            start_lon,
+            goal_lat,
+            goal_lon,
+            graph,
+            departure=departure,
+            speed_kmh=speed_kmh,
+            include_path=include_path,
+            include_ferries=include_ferries,
+            objective=objective,
+            **{
+                field: profile[field]
+                for field in ROUTE_PROFILE_FIELDS
+            },
+        )
+        if graph_summary is None:
+            graph_summary = route.get("graph")
+        route_results.append(route)
+
+    baseline = route_results[0]
+    baseline_reachable = bool(baseline.get("reachable"))
+    delta_fields = (
+        "route_distance_m",
+        "estimated_duration_s",
+        "ferry_wait_s",
+        "ferry_distance_m",
+        "ferry_crossing_s",
+    )
+    profile_rows: list[dict[str, Any]] = []
+    for profile, route in zip(normalized_profiles, route_results):
+        deltas: dict[str, float | None] = {}
+        for field in delta_fields:
+            current = route.get(field)
+            base = baseline.get(field)
+            if (
+                baseline_reachable
+                and route.get("reachable")
+                and isinstance(current, (int, float))
+                and isinstance(base, (int, float))
+            ):
+                deltas[field] = round(float(current) - float(base), 2)
+            else:
+                deltas[field] = None
+        row: dict[str, Any] = {
+            "name": profile["name"],
+            "vehicle_weight_t": profile["vehicle_weight_t"],
+            "vehicle_rating_t": profile["vehicle_rating_t"],
+            "vehicle_height_m": profile["vehicle_height_m"],
+            "vehicle_width_m": profile["vehicle_width_m"],
+            "vehicle_length_m": profile["vehicle_length_m"],
+            "vehicle_axleload_t": profile["vehicle_axleload_t"],
+            "vehicle_class": profile["vehicle_class"],
+            "allow_hgv_destination": profile["allow_hgv_destination"],
+            "status": route["status"],
+            "reachable": route["reachable"],
+            "start": route["start"],
+            "goal": route["goal"],
+            "route_distance_m": route["route_distance_m"],
+            "estimated_duration_s": route["estimated_duration_s"],
+            "ferry_wait_s": route["ferry_wait_s"],
+            "ferry_wait_n": route["ferry_wait_n"],
+            "ferry_distance_m": route["ferry_distance_m"],
+            "ferry_crossing_s": route["ferry_crossing_s"],
+            "ferry_edge_n": route["ferry_edge_n"],
+            "arrival": route["arrival"],
+            "delta_from_baseline": deltas,
+            "method": route["method"],
+            "route": route if include_path else None,
+        }
+        profile_rows.append(row)
+
+    reachable_n = sum(1 for route in route_results if route["reachable"])
+    return {
+        "contract": ROUTE_COMPARISON_CONTRACT,
+        "status": "provided",
+        "start": {"lat": start_lat, "lon": start_lon},
+        "goal": {"lat": goal_lat, "lon": goal_lon},
+        "objective": objective,
+        "departure": departure.isoformat() if departure else None,
+        "speed_kmh": speed_kmh,
+        "include_path": bool(include_path),
+        "include_ferries": bool(include_ferries),
+        "baseline_profile": normalized_profiles[0]["name"],
+        "baseline_reachable": baseline_reachable,
+        "profile_n": len(profile_rows),
+        "reachable_n": reachable_n,
+        "unreachable_n": len(profile_rows) - reachable_n,
+        "profiles": profile_rows,
+        "graph": graph_summary or {},
+    }
 
 
 def _validate_coordinate(parser: argparse.ArgumentParser, label: str, value: float, minimum: float, maximum: float) -> None:
@@ -1934,7 +2570,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--include-ferries",
         action="store_true",
-        help="include persisted ferry geometry, schedules, waits, and durations",
+        help=(
+            "include persisted ferry geometry; SQLite graphs may also apply "
+            "schedules, waits, and durations"
+        ),
     )
     args = parser.parse_args(argv)
     _validate_coordinate(parser, "--start-lat", args.start_lat, -90.0, 90.0)
