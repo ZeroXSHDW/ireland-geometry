@@ -316,6 +316,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="selectionCultureTrace"' in html
     assert 'id="selectionCultureRead"' in html
     assert 'data-culture-read="culture"' in html
+    assert "function focusAtlasSection(key)" in html
+    assert "Re-assert the destination once it is in view" in html
     assert "Filter this lens" in html
     assert "function renderSelectionCulturalTrace(row)" in html
     assert 'id="selectionFingerprint"' in html

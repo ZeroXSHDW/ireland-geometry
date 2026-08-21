@@ -3899,6 +3899,7 @@ const patternLabel = key => PATTERN_BY_KEY.get(key)?.label || String(key||'').re
 const patternNamesText = row => row.flags.map(patternLabel).join(', ');
 const CULTURE_LENS_LABELS = {named:'Ainm / named places',heritage:'Oidhreacht / heritage joins',pobal:'Pobal / shared life',civic:'Civic / public institutions'};
 const ATLAS_NAV_LABELS = {field:'The Irish field',maths:'Mathematical grammar',studio:'Design studio',culture:'Cultural lens',filters:'Explore targets',evidence:'Evidence and findings'};
+let atlasNavFocusTimer=null;
 const FIELD_SIGNAL_META = {
   golden_ratio: {
     title: 'Golden ratio / φ',
@@ -5132,7 +5133,7 @@ document.addEventListener('click',event=>{
   if(event.target.closest?.('#copyComparisonLink')) { copyComparisonLink(); return; }
   if(event.target.closest?.('#clearComparison')) { clearComparison(); return; }
   const cultureRead=event.target.closest?.('button[data-culture-read]');
-  if(cultureRead?.dataset.cultureRead) { setAtlasNavActive(cultureRead.dataset.cultureRead); $('culture')?.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  if(cultureRead?.dataset.cultureRead) { focusAtlasSection(cultureRead.dataset.cultureRead); return; }
   const selectionCulture=event.target.closest?.('button[data-selection-culture]');
   if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
   const contextFocus=event.target.closest?.('button[data-context-focus]');
@@ -5977,6 +5978,23 @@ function setAtlasNavActive(key) {
   });
   const status=$('atlasNavStatus');
   if(status) status.textContent=ATLAS_NAV_LABELS[key]||'Atlas';
+}
+function focusAtlasSection(key) {
+  const section=$(key);
+  if(!section) return;
+  if(atlasNavFocusTimer!==null) clearTimeout(atlasNavFocusTimer);
+  setAtlasNavActive(key);
+  section.scrollIntoView({behavior:'smooth',block:'start'});
+  // IntersectionObserver can report the previous section while a smooth scroll is settling.
+  // Re-assert the destination once it is in view so the status text follows the handoff.
+  const started=Date.now();
+  const reassert=()=>{
+    const rect=section.getBoundingClientRect();
+    if(rect.top>=-72 && rect.top<=144) { setAtlasNavActive(key); atlasNavFocusTimer=null; return; }
+    if(Date.now()-started<4200) { atlasNavFocusTimer=setTimeout(reassert,250); return; }
+    atlasNavFocusTimer=null;
+  };
+  atlasNavFocusTimer=setTimeout(reassert,250);
 }
 function initAtlasNav() {
   const panel=$('panel'), links=[...document.querySelectorAll('[data-nav-section]')];

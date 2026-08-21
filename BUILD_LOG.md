@@ -71,6 +71,17 @@ of historic intention or a substitute for Irish lived culture.
   or proves a cultural tradition. Added report assertions and verified both
   browser paths in the rebuilt standalone report with no console errors.
 
+## Cultural handoff navigation polish — 2026-08-21
+
+- Hardened the “Read the cultural field” transition so the sticky atlas
+  navigation reasserts `Culture / Cultural lens` after the nested panel’s
+  smooth scroll settles, even when the intersection observer briefly reports
+  the previous Explore section.
+- Retested the rebuilt standalone report: Manor Mill keeps its selected
+  dossier, the Culture chapter lands at the viewport threshold, the nav label
+  reads `Cultural lens`, and the separate heritage filter still returns to
+  Explore. No browser console errors were recorded.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

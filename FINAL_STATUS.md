@@ -36,6 +36,15 @@ cultural chapter. Standalone rendered browser checks passed with no console
 errors, and the copy keeps place context separate from claims of cultural
 origin or historic mathematical intent.
 
+## Cultural handoff navigation polish — 2026-08-21
+
+The Culture action now also keeps the sticky atlas navigation honest during
+the nested panel’s smooth-scroll animation. After the Culture chapter settles,
+the active state reads **Cultural lens** rather than retaining the previous
+Explore label; the separate **Filter this lens** action still returns to
+Explore with the heritage filter applied. The rebuilt standalone interaction
+check passed with no console errors.
+
 ## Field walk sequence rail — 2026-08-21
 
 The **Wander the field** chapter now has a compact sequence rail after a stop
