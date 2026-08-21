@@ -265,6 +265,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="mapLoading"' in html
     assert "function selectMapTarget" in html
     assert 'id="focusSelectionMap"' in html
+    assert 'class="selection-focus-bar"' in html
     assert "let selectionOutlineLayer = null;" in html
     assert "function clearSelectionMapOutline()" in html
     assert "function renderSelectionMapOutline(row)" in html

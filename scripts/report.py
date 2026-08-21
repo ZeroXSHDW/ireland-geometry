@@ -1673,6 +1673,12 @@ button:hover { border-color:var(--blue); color:var(--blue); }
 .selection-fact { min-width:0; padding:8px; border:1px solid rgba(207,192,156,.75); border-radius:8px; background:rgba(255,253,248,.7); }
 .selection-fact span { display:block; color:#897c67; font-size:9px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
 .selection-fact strong { display:block; margin-top:4px; overflow-wrap:anywhere; color:var(--deep); font-size:11px; line-height:1.3; }
+.selection-focus-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; padding:8px 10px; border:1px solid #c7d0c7; border-radius:8px; background:linear-gradient(135deg,#edf2eb 0%,#f7f0e3 100%); }
+.selection-focus-bar > div { min-width:0; }
+.selection-focus-bar span { display:block; color:#527b85; font-size:8px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.selection-focus-bar p { margin:4px 0 0; color:#69766e; font-size:9px; line-height:1.3; }
+.selection-focus-bar button { flex:0 0 auto; min-height:27px; padding:4px 8px; border:1px solid #4c765f; border-radius:7px; color:#fff8eb; background:#4c765f; font-size:10px; font-weight:800; }
+.selection-focus-bar button:hover, .selection-focus-bar button:focus-visible { border-color:var(--deep); background:var(--deep); }
 .selection-math { margin-top:8px; padding:9px 10px; border-left:3px solid var(--gold); background:rgba(255,253,248,.72); }
 .selection-math span { display:block; color:#897c67; font-size:9px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
 .selection-math strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
@@ -2636,6 +2642,8 @@ tr:hover td { background:#f1f6f1; }
   .toolbar { align-items:flex-start; flex-direction:column; }
   .toolbar-actions { width:100%; justify-content:flex-start; }
   .selection-card { margin:0 12px 10px; }
+  .selection-focus-bar { display:block; }
+  .selection-focus-bar button { width:100%; margin-top:8px; }
   .selection-evidence-head { display:block; }
   .selection-evidence-status { display:inline-block; margin-top:8px; }
   .selection-evidence-grid { grid-template-columns:1fr; }
@@ -3056,6 +3064,7 @@ tr:hover td { background:#f1f6f1; }
       <div class="selection-fact"><span>Geometry signals</span><strong id="selectionGeometry">—</strong></div>
       <div class="selection-fact"><span>Review state</span><strong id="selectionReview">—</strong></div>
     </div>
+    <div class="selection-focus-bar"><div><span>Map trace / source footprint</span><p>The selected outline follows this dossier on the Irish field map.</p></div><button id="focusSelectionMap" type="button">Show on map →</button></div>
     <div class="selection-math"><span>Measured geometry / snapshot descriptors</span><strong id="selectionMath">—</strong><small>Area, boundary, dimensions, compactness, radial variation, and Fourier terms describe the mapped footprint; they do not establish historical intent.</small><button id="selectionMathRead" class="selection-math-action" type="button" data-maths-read="maths">Trace this geometry through Maths →</button></div>
     <div id="selectionCultureTrace" class="selection-culture" aria-labelledby="selectionCultureTraceTitle" hidden>
       <div class="selection-culture-head"><div><span>Áit / cultural trace</span><strong id="selectionCultureTraceTitle">Place context beside the measurement.</strong><p id="selectionCultureTraceIntro">The selected footprint will be read through the place, heritage, shared-life, or civic context that the source row actually carries.</p></div></div>
@@ -3076,7 +3085,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="selection-fingerprint"><div class="selection-fingerprint-head"><span>Boundary fingerprint / mapped shape</span><strong id="selectionFingerprintLabel">Select a footprint to draw its boundary.</strong><p id="selectionFingerprintText">The atlas will normalize the mapped outline to show its measured proportions, axis, and centre without changing the source geometry.</p></div><div><canvas id="selectionFingerprint" class="selection-fingerprint-canvas" width="520" height="200" role="img" aria-label="Selected footprint boundary fingerprint">Mapped footprint fingerprint appears here when geometry is available.</canvas><small id="selectionFingerprintNote" class="selection-fingerprint-note">Geometry source status: waiting for selection.</small></div></div>
     <div class="selection-weave"><div class="selection-weave-head"><span>Cruth / derived field print</span><strong id="selectionWeaveLabel">Select a footprint to translate its signals.</strong><p id="selectionWeaveText">A contemporary visual study will combine the selected descriptors and screening flags into a repeatable field—not a historic ornament or a claim about cultural origin.</p></div><div><canvas id="selectionWeave" class="selection-weave-canvas" width="520" height="200" role="img" aria-label="Derived geometry field print">Derived field print appears here when geometry is available.</canvas><small id="selectionWeaveNote" class="selection-weave-note">Descriptor-led study: waiting for selection.</small></div></div>
     <div class="selection-passport" aria-label="Downloadable visual field passport"><div><span>Field passport / take the place with you</span><strong>One measured Irish footprint, one visual record.</strong><p>Download a self-contained SVG card with the place context, source trail, geometry descriptors, and an honest evidence boundary.</p></div><div class="selection-passport-actions"><button id="downloadSelectionPassport" type="button">Download SVG passport →</button><span id="selectionPassportStatus" class="selection-passport-status" role="status" aria-live="polite"></span></div></div>
-    <div class="selection-actions"><button id="focusSelectionMap" type="button">Show on map →</button><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
+    <div class="selection-actions"><a id="selectionOsm" href="#" target="_blank" rel="noopener">Open source geometry →</a><button id="copySelectionLink" type="button">Copy place link →</button><button id="carrySelectionToStudio" type="button" data-carry-studio="">Carry geometry to studio →</button><button id="addSelectionCompare" type="button" data-compare-target="">Add to comparison →</button><span id="selectionShareStatus" class="selection-share-status" role="status" aria-live="polite"></span></div>
   </section>
   <section id="comparisonTray" class="comparison-tray atlas-section" aria-labelledby="comparisonTitle" aria-live="polite" hidden>
     <div class="comparison-head"><div><span class="selection-kicker">Field comparison / two places</span><h2 id="comparisonTitle">Read two footprints together.</h2><p id="comparisonIntro">Add a selected target to begin a side-by-side comparison of place context, geometry and screening signals.</p></div><div class="comparison-head-actions"><button id="copyComparisonLink" class="comparison-copy" type="button" disabled>Copy comparison link →</button><button id="clearComparison" class="comparison-clear" type="button">Clear comparison</button><span id="comparisonShareStatus" class="comparison-share-status" role="status" aria-live="polite"></span></div></div>
