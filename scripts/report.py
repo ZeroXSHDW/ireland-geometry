@@ -5552,7 +5552,7 @@ function mapTargetAriaLabel(row) {
 }
 function revealSelectionCard(selection) {
   const panel=$('panel');
-  if(panel&&selection.offsetParent===panel) {
+  if(panel&&panel.contains(selection)) {
     panel.scrollTo({top:Math.max(0,selection.offsetTop-12),behavior:'smooth'});
   } else if(selection?.scrollIntoView) {
     selection.scrollIntoView({behavior:'smooth',block:'start'});

@@ -298,6 +298,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="selectionCard"' in html
     assert "selection-card-arrived" in html
     assert "function revealSelectionCard(selection)" in html
+    assert "panel.contains(selection)" in html
     assert "panel.scrollTo({top:Math.max(0,selection.offsetTop-12),behavior:'smooth'})" in html
     assert 'id="selectionHeritage"' in html
     assert 'id="selectionMath"' in html
