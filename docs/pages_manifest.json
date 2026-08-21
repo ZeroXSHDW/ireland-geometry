@@ -1,11 +1,11 @@
 {
   "contract": "ireland-geometry.pages-publish.v1",
   "version": 1,
-  "source_manifest_revision": "6c11ccb",
-  "source_manifest_generated_at": "2026-08-21T22:42:10+00:00",
-  "source_output_manifest_generated_at": "2026-08-21T22:43:16+00:00",
-  "source_manifest_sha256": "b09b3ea3c5c816879c481281698659ed6b4de4bfc531d9248731ed151aef30ba",
-  "source_verification_sha256": "cb5d5b7b352f02d4296ff61675fbb84a3d8434bbb6677edb501bf29b21c9e4f9",
+  "source_manifest_revision": "08987ba",
+  "source_manifest_generated_at": "2026-08-21T22:55:17+00:00",
+  "source_output_manifest_generated_at": "2026-08-21T22:57:04+00:00",
+  "source_manifest_sha256": "e5b24618565dfc9184daf51fcedeb52f659bcdd0aab33f6560a4ccffc1e08d15",
+  "source_verification_sha256": "f6b1ee4780f729bbdee98e51d277ae0b4afd4bedac7c2a61f14da677c2460dcd",
   "source_verification": {
     "passed": true,
     "manifest_cache_alignment": {
@@ -52,8 +52,8 @@
   },
   "files": {
     "index.html": {
-      "sha256": "2f0b96e5b368e1cb26c4f9d296f8ff065beb94ce730e0cfc3528958a396c7a34",
-      "bytes": 72044468
+      "sha256": "e64d39e8b8325c7b94e0a759b45970a66711f77b2d7821f821f3aecf9cd52316",
+      "bytes": 72044928
     },
     "review.html": {
       "sha256": "f6aebf5407f6b690911df16c05322f0037065a00a23e71e19c6a5728fcf23fc5",
