@@ -57,6 +57,26 @@ The visual layer remains explicitly non-inferential: mathematical screens are
 shown as prompts for inspection and contemporary design hypotheses, not proof
 of historic intention or a substitute for Irish lived culture.
 
+## Curated field walk / guided discovery — 2026-08-21
+
+- Added a reproducible `field_walk` pack layer that chooses four distinct,
+  data-derived waypoints: a proportion screen, an angular screen, a heritage
+  record, and a civic/shared-life footprint. The selection prefers named or
+  source-linked rows and never repeats a target.
+- Added a “Wander the field” rail to the opening chapter. Each card shows the
+  real record’s place context, score, signal shorthand, area, and aspect ratio,
+  then opens the same measured dossier used by the map and table.
+- Extended focus handling so a curated waypoint works in standalone, offline,
+  and lazy/server-backed modes, including shared `focus` links, a map focus
+  marker when the row is outside the current lazy page, passport download,
+  studio carry-over, and comparison handoff.
+- Kept the walk explicitly a starting sample rather than a ranking or cultural
+  canon; the dossier and card copy preserve the boundary between mapped
+  geometry, heritage evidence, lived context, and historic intention.
+- Added generator/UI regression coverage, rebuilt the full report, and passed
+  focused report tests, generated-JavaScript parsing, local HTTP interaction,
+  and both offline and lazy-mode waypoint checks.
+
 ## Field passport and accessible map constellation — 2026-08-21
 
 - Added a visual “Field passport” action to every selected footprint. The

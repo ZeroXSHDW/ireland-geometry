@@ -24,6 +24,21 @@ The new story layer preserves the project’s evidence boundary: geometry is a
 way to notice and ask better questions about Irish buildings and land, not a
 claim that a historical builder consciously used a named mathematical system.
 
+## Curated field walk / guided discovery — 2026-08-21
+
+The opening field chapter now includes a **Wander the field** rail with four
+reproducible waypoints selected from the current snapshot: proportion, angle,
+heritage memory, and civic/shared life. Each waypoint carries the real record’s
+place context and measured shape summary, then opens the existing dossier with
+its map position, source chain, mathematical descriptors, passport, comparison,
+and studio handoffs intact.
+
+The waypoints work in embedded/offline and lazy/server-backed modes. A lazy
+waypoint can place a temporary focus marker even when its record is outside the
+current page, and its `focus` URL can be restored through the same selection
+path. The walk is explicitly a starting sample—not a ranking, a claim of
+historic mathematical intent, or a substitute for local Irish knowledge.
+
 ## Field passport and accessible map constellation — 2026-08-21
 
 The selected-place dossier now offers a downloadable **Field passport**: a

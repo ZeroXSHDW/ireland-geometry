@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from scripts.report import (
+    build_field_walk,
     build_interpretation,
     build_lazy_report,
     build_pattern_catalog,
@@ -238,6 +239,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "const MATCHED =" in html
     assert "function renderAll()" in html
     assert "function renderOfflineMap()" in html
+    assert 'id="fieldWalkGrid"' in html
+    assert "const FIELD_WALK = PACK.field_walk || [];" in html
+    assert "function renderFieldWalk()" in html
+    assert "data-field-walk-id" in html
+    assert "function targetRowForId(id)" in html
     assert "Offline map fallback" in html
     assert "OFFLINE_REQUESTED" in html
     assert "function loadMapAssets()" in html
@@ -836,6 +842,32 @@ def test_pattern_catalog_lists_every_flag_and_filters_targets():
 
     matches = report_matching_targets({"targets": rows}, pattern="golden_angle")
     assert [row["osm_id"] for row in matches] == ["way/1"]
+
+
+def test_field_walk_selects_distinct_data_derived_waypoints():
+    def row(osm_id, *, score, group, name, ratio=False, angle=False, heritage=False):
+        return {
+            "osm_id": osm_id,
+            "score": score,
+            "group": group,
+            "name": name,
+            "has_golden_ratio": ratio,
+            "has_golden_angle": angle,
+            "niah": {"reg_no": "N1" if heritage else "", "name": name if heritage else ""},
+        }
+
+    waypoints = build_field_walk(
+        [
+            row("way/proportion", score=90, group="historic", name="Mill", ratio=True, heritage=True),
+            row("way/angle", score=80, group="worship", name="Church", angle=True),
+            row("way/memory", score=70, group="historic", name="Abbey", heritage=True),
+            row("way/civic", score=60, group="civic", name="Hall", heritage=True),
+        ]
+    )
+
+    assert [item["key"] for item in waypoints] == ["proportion", "angle", "memory", "civic"]
+    assert len({item["row"]["osm_id"] for item in waypoints}) == 4
+    assert [item["step"] for item in waypoints] == ["01", "02", "03", "04"]
 
 
 def test_report_sorting_uses_osm_id_as_a_deterministic_tie_breaker():
