@@ -6144,13 +6144,14 @@ function initAtlasNav() {
   if(!panel||!links.length) return;
   setAtlasNavActive('field');
   links.forEach(link=>link.addEventListener('click',()=>setAtlasNavActive(link.dataset.navSection)));
-  const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean);
+  const sections=links.map(link=>$(link.dataset.navSection)).filter(Boolean), selectionCard=$('selectionCard');
   if(typeof IntersectionObserver==='undefined') return;
   const observer=new IntersectionObserver(entries=>{
     const visible=entries.filter(entry=>entry.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio)[0];
-    if(visible) setAtlasNavActive(visible.target.id);
+    if(visible) setAtlasNavActive(visible.target===selectionCard?'filters':visible.target.id);
   },{root:panel,rootMargin:'-54px 0px -58% 0px',threshold:[0.01,0.2,0.5]});
   sections.forEach(section=>observer.observe(section));
+  if(selectionCard) observer.observe(selectionCard);
 }
 function initMapHud() {
   document.querySelectorAll('[data-map-layer]').forEach(button=>button.addEventListener('click',()=>setMapLayer(button.dataset.mapLayer)));
