@@ -62,6 +62,15 @@ tap or keyboard through **Land**, **Coordinate**, **Footprint**, **Maths**,
 relevant field anchor or chapter and the active step mirrors the atlas
 navigation. Phone-sized browser checks passed with no console errors.
 
+## Field-walk shape prints — 2026-08-21
+
+The four curated field-walk cards now show a small normalized print of each
+building footprint beside its score, area, aspect, and signal summary. The
+prints use the actual GeoJSON outline and report its vertex count; when source
+geometry is unavailable, the visual falls back to a clearly labelled aspect
+guide rather than fabricating a shape. Public rendered checks passed with no
+console errors.
+
 ## Field walk sequence rail — 2026-08-21
 
 The **Wander the field** chapter now has a compact sequence rail after a stop

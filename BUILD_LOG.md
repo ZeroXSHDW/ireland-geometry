@@ -102,6 +102,17 @@ of historic intention or a substitute for Irish lived culture.
   reachable, Maths and Footprint land in their intended panel positions, and
   no browser console errors are recorded.
 
+## Field-walk shape prints — 2026-08-21
+
+- Added a compact measured shape print to each curated waypoint. The card now
+  shows the actual GeoJSON outline, normalized with axes and centre marker,
+  before the visitor opens the dossier; the fallback is explicitly labelled a
+  descriptor guide and never invents a boundary.
+- Rebuilt and rendered all four current waypoints: Manor Mill, High Street
+  Presbyterian, St Mary’s Church, and Land Registry each expose a mapped
+  outline with its vertex count. Browser inspection passed with no console
+  errors.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field

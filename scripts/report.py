@@ -1460,6 +1460,9 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-walk-stop.is-active { border-color:#e1bd66; background:rgba(8,34,36,.58); box-shadow:0 0 0 2px rgba(225,189,102,.14); }
 .field-walk-stop-top { display:flex; align-items:center; justify-content:space-between; gap:6px; color:rgba(247,240,220,.48); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
 .field-walk-stop-top b { display:grid; flex:0 0 auto; width:25px; height:25px; place-items:center; border:1px solid rgba(225,189,102,.42); border-radius:50%; color:#e1bd66; font:700 14px/1 Georgia,serif; }
+.field-walk-shape { display:flex; align-items:center; justify-content:space-between; gap:7px; min-height:70px; margin-top:10px; padding:6px 7px; border:1px solid rgba(225,189,102,.2); background:rgba(225,189,102,.055); }
+.field-walk-shape svg { display:block; flex:1 1 auto; width:100%; height:62px; min-width:0; }
+.field-walk-shape span { flex:0 0 54px; color:rgba(247,240,220,.4); font:700 7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-align:right; text-transform:uppercase; }
 .field-walk-stop h4 { min-height:31px; margin:12px 0 0; color:#f7f0dc; font:700 16px/1.06 Georgia,serif; letter-spacing:-.035em; }
 .field-walk-stop p { min-height:56px; margin:7px 0 0; color:rgba(247,240,220,.56); font-size:9px; line-height:1.4; }
 .field-walk-record { min-width:0; margin-top:10px; padding-top:8px; border-top:1px solid rgba(247,240,220,.13); }
@@ -3945,6 +3948,20 @@ function moveFieldWalk(delta) {
   const id=String(FIELD_WALK[targetIndex]?.row?.osm_id||'');
   if(id) focusRow(id,{scroll:true,openPopup:true});
 }
+function fieldWalkShapeSvg(row) {
+  const width=150, height=72, pad=10, feature=GEOJSON_BY_ID.get(String(row?.osm_id||'')), ring=geometryOuterRing(feature), points=ring.filter(pair=>Array.isArray(pair)&&pair.length>=2&&Number.isFinite(Number(pair[0]))&&Number.isFinite(Number(pair[1]))).map(pair=>[Number(pair[0]),Number(pair[1])]);
+  let path='', source='descriptor guide', detail='aspect only';
+  if(points.length>=3) {
+    const xs=points.map(pair=>pair[0]), ys=points.map(pair=>pair[1]), minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys), rangeX=Math.max(1e-12,maxX-minX), rangeY=Math.max(1e-12,maxY-minY), scale=Math.min((width-pad*2)/rangeX,(height-pad*2)/rangeY), usedW=rangeX*scale, usedH=rangeY*scale, left=(width-usedW)/2, top=(height-usedH)/2;
+    path=points.map((pair,index)=>`${index?'L':'M'} ${(left+(pair[0]-minX)*scale).toFixed(1)} ${(top+(maxY-pair[1])*scale).toFixed(1)}`).join(' ')+' Z';
+    source='mapped outline'; detail=`${Math.max(0,points.length-1)} vertices`;
+  } else {
+    const aspect=Math.max(.3,Math.min(3.6,Number(row?.aspect_ratio)||1)), boxW=aspect>=1?Math.min(width*.72,38+aspect*20):Math.max(28,48*aspect), boxH=aspect>=1?Math.max(26,42/aspect):Math.min(52,42/aspect), left=(width-boxW)/2, top=(height-boxH)/2;
+    path=`M ${left.toFixed(1)} ${top.toFixed(1)} H ${(left+boxW).toFixed(1)} V ${(top+boxH).toFixed(1)} H ${left.toFixed(1)} Z`;
+  }
+  const cx=(width/2).toFixed(1), cy=(height/2).toFixed(1);
+  return {source,detail,svg:`<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><path d="M ${pad} ${cy} H ${width-pad} M ${cx} ${pad} V ${height-pad}" fill="none" stroke="#e1bd66" stroke-opacity=".22" stroke-width=".8" stroke-dasharray="3 4"/><path d="${path}" fill="#6d9b8f" fill-opacity=".42" stroke="#e1bd66" stroke-width="1.7"/><circle cx="${cx}" cy="${cy}" r="3" fill="#e1bd66" stroke="#103537" stroke-width="1"/></svg>`};
+}
 function renderFieldWalk() {
   const grid=$('fieldWalkGrid'), count=$('fieldWalkCount'), note=$('fieldWalkNote'), controls=$('fieldWalkControls'), previous=$('fieldWalkPrevious'), next=$('fieldWalkNext'), progress=$('fieldWalkProgress');
   if(!grid) return;
@@ -3957,7 +3974,8 @@ function renderFieldWalk() {
   }
   grid.innerHTML=FIELD_WALK.map(item=>{
     const row=item.row||{}, id=String(row.osm_id||''), active=selectedMarkerId===id, title=contextTitle(row), place=selectionPlaceText(row), signals=contextSignalText(row), source=row.niah?.reg_no?`NIAH ${row.niah.reg_no}`:`${spatialGroupLabel(row.group)} record`, label=`${item.title||'Field waypoint'} · ${title} · ${place}`;
-    return `<button class="field-walk-stop${active?' is-active':''}" type="button" data-field-walk-id="${esc(id)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="field-walk-stop-top"><span>${esc(item.step||'—')} / ${esc(item.eyebrow||'field waypoint')}</span><b aria-hidden="true">${esc(item.symbol||'·')}</b></span><h4>${esc(item.title||'Field waypoint')}</h4><p>${esc(item.description||'Open this measured place to read its source and geometry.')}</p><div class="field-walk-record"><strong>${esc(title)}</strong><small>${esc(place)} · ${esc(source)}</small></div><div class="field-walk-metrics"><span class="field-walk-metric"><small>score</small><b>${fmt(row.score)}</b></span><span class="field-walk-metric"><small>signals</small><b>${esc(signals)}</b></span><span class="field-walk-metric"><small>area</small><b>${fmt(row.area_m2,0)} m²</b></span><span class="field-walk-metric"><small>aspect</small><b>r ${fmt(row.aspect_ratio,2)}</b></span></div><span class="field-walk-action">${active?'Current dossier ✓':'Visit dossier →'}</span></button>`;
+    const shape=fieldWalkShapeSvg(row);
+    return `<button class="field-walk-stop${active?' is-active':''}" type="button" data-field-walk-id="${esc(id)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="field-walk-stop-top"><span>${esc(item.step||'—')} / ${esc(item.eyebrow||'field waypoint')}</span><b aria-hidden="true">${esc(item.symbol||'·')}</b></span><div class="field-walk-shape" role="img" aria-label="${esc(`${shape.source}; ${shape.detail}`)}">${shape.svg}<span aria-hidden="true">${esc(shape.source)}<br/>${esc(shape.detail)}</span></div><h4>${esc(item.title||'Field waypoint')}</h4><p>${esc(item.description||'Open this measured place to read its source and geometry.')}</p><div class="field-walk-record"><strong>${esc(title)}</strong><small>${esc(place)} · ${esc(source)}</small></div><div class="field-walk-metrics"><span class="field-walk-metric"><small>score</small><b>${fmt(row.score)}</b></span><span class="field-walk-metric"><small>signals</small><b>${esc(signals)}</b></span><span class="field-walk-metric"><small>area</small><b>${fmt(row.area_m2,0)} m²</b></span><span class="field-walk-metric"><small>aspect</small><b>r ${fmt(row.aspect_ratio,2)}</b></span></div><span class="field-walk-action">${active?'Current dossier ✓':'Visit dossier →'}</span></button>`;
   }).join('');
   const activeIndex=fieldWalkIndexForId(selectedMarkerId), activeItem=activeIndex>=0?FIELD_WALK[activeIndex]:null;
   if(controls) controls.hidden=activeIndex<0;
