@@ -1418,10 +1418,14 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-signals { position:relative; z-index:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:20px; }
 .field-sequence { position:relative; z-index:1; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; margin-top:22px; padding-top:16px; }
 .field-sequence::before { content:""; position:absolute; top:5px; right:4%; left:4%; height:1px; background:linear-gradient(90deg,#8ab89f,#e1bd66 46%,#bf5b45 83%,rgba(247,240,220,.2)); }
-.field-sequence-step { position:relative; min-width:0; padding:0 5px; color:rgba(247,240,220,.62); }
+.field-sequence-step { position:relative; display:block; width:100%; min-width:0; padding:0 5px; border:0; color:rgba(247,240,220,.62); background:transparent; font:inherit; text-align:left; cursor:pointer; }
 .field-sequence-step::before { content:""; position:absolute; top:-20px; left:8px; width:7px; height:7px; border:1px solid #e1bd66; border-radius:50%; background:#153f40; box-shadow:0 0 0 4px rgba(225,189,102,.1); }
+.field-sequence-step:hover, .field-sequence-step:focus-visible, .field-sequence-step.is-active { color:#f7f0dc; }
+.field-sequence-step:hover::before, .field-sequence-step:focus-visible::before, .field-sequence-step.is-active::before { background:#e1bd66; box-shadow:0 0 0 4px rgba(225,189,102,.2),0 0 18px rgba(225,189,102,.24); }
+.field-sequence-step:focus-visible { outline:2px solid #e1bd66; outline-offset:4px; }
 .field-sequence-step span { display:block; color:#e1bd66; font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .field-sequence-step strong { display:block; margin-top:5px; color:#f7f0dc; font:700 13px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.field-sequence-step.is-active strong { color:#e1bd66; }
 .field-sequence-step small { display:block; margin-top:4px; color:rgba(247,240,220,.46); font-size:9px; line-height:1.25; }
 .field-signal { display:block; width:100%; min-width:0; min-height:192px; padding:11px; border:1px solid rgba(247,240,220,.16); color:#f7f0dc; background:rgba(9,37,39,.28); text-align:left; font:inherit; cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
 .field-signal:hover, .field-signal:focus-visible { border-color:rgba(225,189,102,.72); background:rgba(9,37,39,.48); box-shadow:0 7px 18px rgba(4,20,23,.14); transform:translateY(-2px); }
@@ -2692,7 +2696,7 @@ tr:hover td { background:#f1f6f1; }
       </div>
       <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div class="coordinate-plot"><div class="coordinate-axis"><span>51° N</span><span>52°</span><span>53°</span><span>54°</span><span>55° N</span></div></div><p class="coordinate-note">A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.</p></div>
     </div>
-    <div class="field-sequence" aria-label="Atlas narrative sequence"><div class="field-sequence-step"><span>01</span><strong>Land</strong><small>shore · weather · ground</small></div><div class="field-sequence-step"><span>02</span><strong>Coordinate</strong><small>where the point belongs</small></div><div class="field-sequence-step"><span>03</span><strong>Footprint</strong><small>area · edge · scale</small></div><div class="field-sequence-step"><span>04</span><strong>Maths</strong><small>ratio · angle · symmetry</small></div><div class="field-sequence-step"><span>05</span><strong>Heritage</strong><small>record · name · time</small></div><div class="field-sequence-step"><span>06</span><strong>Culture</strong><small>Áit · Pobal · Oidhreacht</small></div><div class="field-sequence-step"><span>07</span><strong>Civic possibility</strong><small>the shared room ahead</small></div></div>
+    <div class="field-sequence" aria-label="Atlas narrative sequence"><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>01</span><strong>Land</strong><small>shore · weather · ground</small></button><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>02</span><strong>Coordinate</strong><small>where the point belongs</small></button><button class="field-sequence-step" type="button" data-sequence-target="fieldWalk" data-sequence-section="field"><span>03</span><strong>Footprint</strong><small>area · edge · scale</small></button><button class="field-sequence-step" type="button" data-sequence-target="maths" data-sequence-section="maths"><span>04</span><strong>Maths</strong><small>ratio · angle · symmetry</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>05</span><strong>Heritage</strong><small>record · name · time</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>06</span><strong>Culture</strong><small>Áit · Pobal · Oidhreacht</small></button><button class="field-sequence-step" type="button" data-sequence-target="studio" data-sequence-section="studio"><span>07</span><strong>Civic possibility</strong><small>the shared room ahead</small></button></div>
     <div id="fieldWalk" class="field-walk" aria-labelledby="fieldWalkTitle">
       <div class="field-walk-head"><div><span class="field-walk-kicker">Wander the field / four measured invitations</span><h3 id="fieldWalkTitle">No route required.<br/><em>Start where the signal catches you.</em></h3><p class="field-walk-intro">These waypoints are selected from the current research snapshot to give a first visit a human scale. Open one to bring its real footprint, map position, source chain and mathematical dossier into view.</p></div><div class="field-walk-count"><strong id="fieldWalkCount">—</strong><small>curated waypoints</small></div></div>
       <div id="fieldWalkGrid" class="field-walk-grid" aria-label="Curated field walk waypoints"></div>
@@ -5134,6 +5138,8 @@ document.addEventListener('click',event=>{
   if(removeCompare?.dataset.compareRemove) { removeComparisonTarget(removeCompare.dataset.compareRemove); return; }
   if(event.target.closest?.('#copyComparisonLink')) { copyComparisonLink(); return; }
   if(event.target.closest?.('#clearComparison')) { clearComparison(); return; }
+  const sequence=event.target.closest?.('button[data-sequence-target]');
+  if(sequence?.dataset.sequenceTarget) { focusAtlasTarget(sequence.dataset.sequenceTarget,sequence.dataset.sequenceSection||'field'); return; }
   const cultureRead=event.target.closest?.('button[data-culture-read]');
   if(cultureRead?.dataset.cultureRead) { focusAtlasSection(cultureRead.dataset.cultureRead); return; }
   const selectionCulture=event.target.closest?.('button[data-selection-culture]');
@@ -5978,26 +5984,32 @@ function setAtlasNavActive(key) {
     const active=link.dataset.navSection===key;
     link.setAttribute('aria-current',active?'page':'false');
   });
+  document.querySelectorAll('[data-sequence-section]').forEach(step=>{
+    const active=step.dataset.sequenceSection===key;
+    step.classList.toggle('is-active',active);
+    step.setAttribute('aria-current',active?'step':'false');
+  });
   const status=$('atlasNavStatus');
   if(status) status.textContent=ATLAS_NAV_LABELS[key]||'Atlas';
 }
-function focusAtlasSection(key) {
-  const section=$(key);
+function focusAtlasTarget(targetKey,navKey=targetKey) {
+  const section=$(targetKey);
   if(!section) return;
   if(atlasNavFocusTimer!==null) clearTimeout(atlasNavFocusTimer);
-  setAtlasNavActive(key);
+  setAtlasNavActive(navKey);
   section.scrollIntoView({behavior:'smooth',block:'start'});
   // IntersectionObserver can report the previous section while a smooth scroll is settling.
   // Re-assert the destination once it is in view so the status text follows the handoff.
   const started=Date.now();
   const reassert=()=>{
     const rect=section.getBoundingClientRect();
-    if(rect.top>=-72 && rect.top<=144) { setAtlasNavActive(key); atlasNavFocusTimer=null; return; }
+    if(rect.top>=-72 && rect.top<=144) { setAtlasNavActive(navKey); atlasNavFocusTimer=null; return; }
     if(Date.now()-started<4200) { atlasNavFocusTimer=setTimeout(reassert,250); return; }
     atlasNavFocusTimer=null;
   };
   atlasNavFocusTimer=setTimeout(reassert,250);
 }
+function focusAtlasSection(key) { focusAtlasTarget(key,key); }
 function initAtlasNav() {
   const panel=$('panel'), links=[...document.querySelectorAll('[data-nav-section]')];
   if(!panel||!links.length) return;

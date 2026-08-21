@@ -54,6 +54,14 @@ cards, and measurement ledger—before the Maths chapter begins. The rendered
 standalone check confirms the field chapter keeps its natural height and the
 active navigation state remains **The Irish field**.
 
+## Interactive narrative rail — 2026-08-21
+
+The visual seven-part sequence is now a working narrative rail. Visitors can
+tap or keyboard through **Land**, **Coordinate**, **Footprint**, **Maths**,
+**Heritage**, **Culture**, and **Civic possibility**; each step moves to the
+relevant field anchor or chapter and the active step mirrors the atlas
+navigation. Phone-sized browser checks passed with no console errors.
+
 ## Field walk sequence rail — 2026-08-21
 
 The **Wander the field** chapter now has a compact sequence rail after a stop

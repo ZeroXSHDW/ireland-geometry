@@ -92,6 +92,16 @@ of historic intention or a substitute for Irish lived culture.
   the full `The Irish field` chapter with the four curated waypoints reachable
   in the first scroll sequence, while Maths begins after the field chapter.
 
+## Interactive narrative rail — 2026-08-21
+
+- Turned the seven-part Land → Coordinate → Footprint → Maths → Heritage →
+  Culture → Civic possibility rail into real keyboard-friendly buttons. Each
+  step now moves to its relevant chapter or field-walk anchor and carries the
+  active chapter state alongside the sticky atlas navigation.
+- Verified the rail at the phone-sized breakpoint: all seven controls remain
+  reachable, Maths and Footprint land in their intended panel positions, and
+  no browser console errors are recorded.
+
 ## Field walk sequence rail — 2026-08-21
 
 - Added a keyboard-friendly previous/next rail beneath the four curated field
