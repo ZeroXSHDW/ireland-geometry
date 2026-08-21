@@ -1466,6 +1466,12 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-walk-metric small { color:rgba(247,240,220,.42); font:7px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
 .field-walk-metric b { margin-top:3px; color:#e1bd66; font:700 10px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .field-walk-action { display:block; margin-top:auto; padding-top:12px; color:#e1bd66; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.field-walk-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:11px; padding-top:10px; border-top:1px solid rgba(225,189,102,.18); }
+.field-walk-controls[hidden] { display:none; }
+.field-walk-nav { min-width:116px; padding:7px 9px; border:1px solid rgba(225,189,102,.3); border-radius:0; color:#e1bd66; background:rgba(8,34,36,.24); font:700 8px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.field-walk-nav:hover, .field-walk-nav:focus-visible { border-color:#e1bd66; color:#fff6df; background:rgba(8,34,36,.56); }
+.field-walk-nav:disabled { cursor:not-allowed; opacity:.35; }
+.field-walk-progress { flex:1 1 auto; min-width:0; color:rgba(247,240,220,.5); font:700 8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
 .field-walk-note { margin:10px 0 0; color:rgba(247,240,220,.42); font-size:9px; line-height:1.4; }
 .measure-ledger { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; margin-top:8px; border:1px solid rgba(225,189,102,.2); background:rgba(225,189,102,.2); }
 .measure-ledger article { min-width:0; min-height:78px; padding:10px; background:rgba(8,34,36,.3); }
@@ -2511,6 +2517,9 @@ tr:hover td { background:#f1f6f1; }
   .field-walk-head { display:block; }
   .field-walk-count { display:inline-block; margin-top:10px; text-align:left; }
   .field-walk-grid { grid-template-columns:1fr; }
+  .field-walk-controls { align-items:stretch; flex-wrap:wrap; }
+  .field-walk-nav { flex:1 1 calc(50% - 4px); }
+  .field-walk-progress { order:-1; flex-basis:100%; }
   .field-signal-detail { grid-template-columns:1fr; }
   .maths-section { padding:18px; }
   .maths-head { display:block; }
@@ -2666,6 +2675,7 @@ tr:hover td { background:#f1f6f1; }
     <div id="fieldWalk" class="field-walk" aria-labelledby="fieldWalkTitle">
       <div class="field-walk-head"><div><span class="field-walk-kicker">Wander the field / four measured invitations</span><h3 id="fieldWalkTitle">No route required.<br/><em>Start where the signal catches you.</em></h3><p class="field-walk-intro">These waypoints are selected from the current research snapshot to give a first visit a human scale. Open one to bring its real footprint, map position, source chain and mathematical dossier into view.</p></div><div class="field-walk-count"><strong id="fieldWalkCount">—</strong><small>curated waypoints</small></div></div>
       <div id="fieldWalkGrid" class="field-walk-grid" aria-label="Curated field walk waypoints"></div>
+      <div id="fieldWalkControls" class="field-walk-controls" aria-live="polite" hidden><button id="fieldWalkPrevious" class="field-walk-nav" type="button" data-field-walk-nav="previous" aria-label="Go to the previous field walk stop">← Previous stop</button><span id="fieldWalkProgress" class="field-walk-progress">Choose a stop to begin</span><button id="fieldWalkNext" class="field-walk-nav" type="button" data-field-walk-nav="next" aria-label="Go to the next field walk stop">Next stop →</button></div>
       <p id="fieldWalkNote" class="field-walk-note">The walk is a reproducible starting sample, not a ranking of Irish buildings or evidence of historic mathematical intention.</p>
     </div>
     <div class="field-signals" aria-label="Measured mathematical signals"><button class="field-signal" type="button" data-field-signal="golden_ratio" aria-controls="patterns"><div class="field-signal-top"><span>φ / proportion</span><b id="fieldRatioCount">—</b></div><strong>Golden ratio screens</strong><p id="fieldRatioText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldRatioMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="golden_angle" aria-controls="patterns"><div class="field-signal-top"><span>θ / rotation</span><b id="fieldAngleCount">—</b></div><strong>Golden-angle screens</strong><p id="fieldAngleText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldAngleMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="reflective_symmetry" aria-controls="patterns"><div class="field-signal-top"><span>↔ / symmetry</span><b id="fieldSymmetryCount">—</b></div><strong>Reflective symmetry</strong><p id="fieldSymmetryText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldSymmetryMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button><button class="field-signal" type="button" data-field-signal="orthogonal" aria-controls="patterns"><div class="field-signal-top"><span>□ / order</span><b id="fieldOrthogonalCount">—</b></div><strong>Orthogonal traces</strong><p id="fieldOrthogonalText">Loading measured footprint signals.</p><div class="field-meter"><i id="fieldOrthogonalMeter"></i></div><span class="field-signal-action">Trace this signal →</span></button></div>
@@ -3892,12 +3902,24 @@ function fieldSignalCount(key) {
   if(catalogue && Number.isFinite(Number(catalogue.count))) return Number(catalogue.count);
   return DATA.filter(row=>rowHasSignal(row,key)).length;
 }
+function fieldWalkIndexForId(id) {
+  return FIELD_WALK.findIndex(item=>String(item?.row?.osm_id||'')===String(id||''));
+}
+function moveFieldWalk(delta) {
+  if(!FIELD_WALK.length) return;
+  const current=fieldWalkIndexForId(selectedMarkerId);
+  const targetIndex=current<0 ? (delta>0?0:FIELD_WALK.length-1) : current+delta;
+  if(targetIndex<0||targetIndex>=FIELD_WALK.length) return;
+  const id=String(FIELD_WALK[targetIndex]?.row?.osm_id||'');
+  if(id) focusRow(id,{scroll:true,openPopup:true});
+}
 function renderFieldWalk() {
-  const grid=$('fieldWalkGrid'), count=$('fieldWalkCount'), note=$('fieldWalkNote');
+  const grid=$('fieldWalkGrid'), count=$('fieldWalkCount'), note=$('fieldWalkNote'), controls=$('fieldWalkControls'), previous=$('fieldWalkPrevious'), next=$('fieldWalkNext'), progress=$('fieldWalkProgress');
   if(!grid) return;
   if(count) count.textContent=FIELD_WALK.length.toLocaleString();
   if(!FIELD_WALK.length) {
     grid.innerHTML='<p class="footnote">No curated waypoints are available in this report pack; use the signal cards or map to begin.</p>';
+    if(controls) controls.hidden=true;
     if(note) note.textContent='The walk needs at least one named target in the current snapshot. The measured catalogue remains available below.';
     return;
   }
@@ -3905,9 +3927,13 @@ function renderFieldWalk() {
     const row=item.row||{}, id=String(row.osm_id||''), active=selectedMarkerId===id, title=contextTitle(row), place=selectionPlaceText(row), signals=contextSignalText(row), source=row.niah?.reg_no?`NIAH ${row.niah.reg_no}`:`${spatialGroupLabel(row.group)} record`, label=`${item.title||'Field waypoint'} · ${title} · ${place}`;
     return `<button class="field-walk-stop${active?' is-active':''}" type="button" data-field-walk-id="${esc(id)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="field-walk-stop-top"><span>${esc(item.step||'—')} / ${esc(item.eyebrow||'field waypoint')}</span><b aria-hidden="true">${esc(item.symbol||'·')}</b></span><h4>${esc(item.title||'Field waypoint')}</h4><p>${esc(item.description||'Open this measured place to read its source and geometry.')}</p><div class="field-walk-record"><strong>${esc(title)}</strong><small>${esc(place)} · ${esc(source)}</small></div><div class="field-walk-metrics"><span class="field-walk-metric"><small>score</small><b>${fmt(row.score)}</b></span><span class="field-walk-metric"><small>signals</small><b>${esc(signals)}</b></span><span class="field-walk-metric"><small>area</small><b>${fmt(row.area_m2,0)} m²</b></span><span class="field-walk-metric"><small>aspect</small><b>r ${fmt(row.aspect_ratio,2)}</b></span></div><span class="field-walk-action">${active?'Current dossier ✓':'Visit dossier →'}</span></button>`;
   }).join('');
-  const activeItem=FIELD_WALK.find(item=>String(item?.row?.osm_id||'')===String(selectedMarkerId||''));
+  const activeIndex=fieldWalkIndexForId(selectedMarkerId), activeItem=activeIndex>=0?FIELD_WALK[activeIndex]:null;
+  if(controls) controls.hidden=activeIndex<0;
+  if(previous) { previous.disabled=activeIndex<=0; previous.title=activeIndex>0?`Previous: ${FIELD_WALK[activeIndex-1].title||'field stop'}`:'This is the first stop'; }
+  if(next) { next.disabled=activeIndex<0||activeIndex>=FIELD_WALK.length-1; next.title=activeIndex>=0&&activeIndex< FIELD_WALK.length-1?`Next: ${FIELD_WALK[activeIndex+1].title||'field stop'}`:'This is the final stop'; }
+  if(progress) progress.textContent=activeItem?`Stop ${String(activeIndex+1).padStart(2,'0')} / ${String(FIELD_WALK.length).padStart(2,'0')} · ${activeItem.title||'field waypoint'}`:'Choose a stop to begin';
   if(note) note.textContent=activeItem
-    ? `Current stop: ${activeItem.title}. The dossier keeps measured geometry, heritage context and review boundaries separate; choose another waypoint to continue the walk.`
+    ? `Current stop: ${activeItem.title}. The dossier keeps measured geometry, heritage context and review boundaries separate; use the sequence rail to continue the walk.`
     : 'The walk is a reproducible starting sample, not a ranking of Irish buildings or evidence of historic mathematical intention.';
 }
 function renderFieldAtlas() {
@@ -5038,6 +5064,8 @@ function clearAllFilters() {
   $('score').value='0'; $('scoreValue').textContent='0'; sortKey='score'; sortDesc=true; applyFilters();
 }
 document.addEventListener('click',event=>{
+  const walkNav=event.target.closest?.('button[data-field-walk-nav]');
+  if(walkNav?.dataset.fieldWalkNav) { moveFieldWalk(walkNav.dataset.fieldWalkNav==='next'?1:-1); return; }
   const walk=event.target.closest?.('button[data-field-walk-id]');
   if(walk?.dataset.fieldWalkId) { focusRow(walk.dataset.fieldWalkId,{scroll:true,openPopup:true}); return; }
   const quick=event.target.closest?.('button.quick-view');

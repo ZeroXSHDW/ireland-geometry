@@ -57,6 +57,18 @@ The visual layer remains explicitly non-inferential: mathematical screens are
 shown as prompts for inspection and contemporary design hypotheses, not proof
 of historic intention or a substitute for Irish lived culture.
 
+## Field walk sequence rail — 2026-08-21
+
+- Added a keyboard-friendly previous/next rail beneath the four curated field
+  walk cards. It appears once a waypoint is open, reports the current stop, and
+  disables at the first and final stops.
+- Kept sequence navigation on the same `focusRow` path as cards, map markers,
+  shared focus links, passports, comparisons, and studio handoffs so the
+  dossier, map marker, active card, and URL focus remain synchronized.
+- Added responsive controls and regression assertions, then verified the
+  sequence in standalone offline and lazy/server-backed browser flows with no
+  console errors.
+
 ## Curated field walk / guided discovery — 2026-08-21
 
 - Added a reproducible `field_walk` pack layer that chooses four distinct,

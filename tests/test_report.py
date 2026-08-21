@@ -243,6 +243,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "const FIELD_WALK = PACK.field_walk || [];" in html
     assert "function renderFieldWalk()" in html
     assert "data-field-walk-id" in html
+    assert 'id="fieldWalkControls"' in html
+    assert 'data-field-walk-nav="previous"' in html
+    assert 'data-field-walk-nav="next"' in html
+    assert "function moveFieldWalk(delta)" in html
+    assert "fieldWalkIndexForId" in html
     assert "function targetRowForId(id)" in html
     assert "Offline map fallback" in html
     assert "OFFLINE_REQUESTED" in html

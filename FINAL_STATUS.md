@@ -24,6 +24,16 @@ The new story layer preserves the project’s evidence boundary: geometry is a
 way to notice and ask better questions about Irish buildings and land, not a
 claim that a historical builder consciously used a named mathematical system.
 
+## Field walk sequence rail — 2026-08-21
+
+The **Wander the field** chapter now has a compact sequence rail after a stop
+is opened. Visitors can move through the four measured invitations with
+previous/next controls, see `Stop 01 / 04`-style progress, and keep the active
+dossier, map focus, card state, and `focus` URL aligned. The controls are
+responsive and keyboard-friendly, and disable cleanly at the ends of the
+sequence. Standalone offline and lazy/server-backed browser checks passed with
+no console errors.
+
 ## Curated field walk / guided discovery — 2026-08-21
 
 The opening field chapter now includes a **Wander the field** rail with four
