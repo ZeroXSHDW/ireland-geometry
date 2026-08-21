@@ -5524,7 +5524,11 @@ function selectionEvidenceStatusKind(value) {
   return 'check';
 }
 function selectionEvidenceStatusLabel(kind) {
-  return kind==='available'?'present':kind==='missing'?'not provided':'check';
+  return kind==='available'?'present':kind==='missing'?'not provided':'review';
+}
+function evidenceReadableLabel(value) {
+  const text=String(value||'').trim().replaceAll('_',' ');
+  return text ? text.charAt(0).toUpperCase()+text.slice(1) : '';
 }
 function renderSelectionEvidence(row) {
   const grid=$('selectionEvidenceGrid'), status=$('selectionEvidenceStatus'), intro=$('selectionEvidenceIntro'), note=$('selectionEvidenceNote');
@@ -5537,12 +5541,12 @@ function renderSelectionEvidence(row) {
   const cards=[
     {label:'01 / source geometry',kind:geometryAvailable?'available':'check',title:'OpenStreetMap footprint',value:row.osm_id||'OSM id not reported',detail:geometryDetail,links:row.osm_url||row.osm_id?[{href:row.osm_url||osmHref(row.osm_id),label:'Open source geometry'}]:[]},
     {label:'02 / heritage inventory',kind:niahAvailable?'available':'missing',title:'NIAH record',value:niahAvailable?[niah.name||'NIAH-linked record',niah.reg_no].filter(Boolean).join(' · '):'No NIAH join in this snapshot',detail:niahDetail,links:niahAvailable?[{href:'https://www.buildingsofireland.ie/niah-data-download/',label:'NIAH data source'}]:[]},
-    {label:'03 / historical evidence',kind:historyKind,title:'History and attribution',value:history.architect||history.status||'Historical evidence not provided',detail:historyDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open review record'}]:[]},
-    {label:'04 / review + edits',kind:reviewKind,title:'Review and map history',value:review.in_queue?`${review.label||'not reviewed'} · queue`:`${review.label||'not queued'} · review scope`,detail:reviewDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open expert queue'}]:[]}
+    {label:'03 / historical evidence',kind:historyKind,title:'History and attribution',value:history.architect||evidenceReadableLabel(history.status)||'Historical evidence not provided',detail:historyDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open review record'}]:[]},
+    {label:'04 / review + edits',kind:reviewKind,title:'Review and map history',value:review.in_queue?`${evidenceReadableLabel(review.label)||'Not reviewed'} · queue`:`${evidenceReadableLabel(review.label)||'Not queued'} · review scope`,detail:reviewDetail,links:review.in_queue?[{href:reviewHref(row),label:'Open expert queue'}]:[]}
   ];
   grid.innerHTML=cards.map(card=>{const links=card.links.map(link=>`<a href="${esc(link.href)}" target="_blank" rel="noopener">${esc(link.label)} →</a>`).join(''); return `<article class="selection-evidence-step ${card.kind}"><div class="selection-evidence-top"><span>${esc(card.label)}</span><b>${esc(selectionEvidenceStatusLabel(card.kind))}</b></div><h4>${esc(card.title)}</h4><strong>${esc(card.value)}</strong><p>${esc(card.detail)}</p><div class="selection-evidence-links">${links||'<small>No direct link in this pack</small>'}</div></article>`;}).join('');
-  const present=cards.filter(card=>card.kind==='available').length, gaps=cards.filter(card=>card.kind==='missing').length;
-  if(status) status.textContent=`${present}/${cards.length} source lanes present · ${gaps} explicit gaps`;
+  const present=cards.filter(card=>card.kind==='available').length, checks=cards.filter(card=>card.kind==='check').length, gaps=cards.filter(card=>card.kind==='missing').length, summary=[`${present}/${cards.length} source lanes present`,checks?`${checks} need review`:null,gaps?`${gaps} not provided`:null].filter(Boolean).join(' · ');
+  if(status) status.textContent=summary;
   if(intro) intro.textContent=`${row.osm_id||'Selected footprint'} · the chain separates mapped geometry, heritage join, historical evidence, and review scope.`;
   if(note) note.textContent=`Geometry status: ${geometryAvailable?'valid source geometry':'geometry needs checking'} · NIAH: ${niahAvailable?'joined':'not joined'} · history: ${history.status||'not provided'} · mapping history: ${mapping.status||'not provided'}. Missing layers remain visible rather than being inferred from mathematical resemblance.`;
 }

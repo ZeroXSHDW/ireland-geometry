@@ -444,6 +444,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="selectionEvidenceStatus"' in html
     assert "function renderSelectionEvidence(row)" in html
     assert "function selectionEvidenceStatusKind(value)" in html
+    assert "function evidenceReadableLabel(value)" in html
+    assert "return kind==='available'?'present':kind==='missing'?'not provided':'review';" in html
+    assert "${checks} need review" in html
     assert 'class="selection-context"' in html
     assert 'id="selectionContextPlot"' in html
     assert 'id="selectionContextList"' in html
