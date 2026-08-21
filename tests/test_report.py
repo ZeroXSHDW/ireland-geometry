@@ -271,6 +271,10 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="countyChips"' in html
     assert 'id="countyFieldNote"' in html
     assert "function renderCultureAtlas" in html
+    assert 'id="cultureReadingContext"' in html
+    assert 'id="cultureReadingContextTitle"' in html
+    assert 'id="cultureReadingReturn"' in html
+    assert "function renderCultureReadingContext()" in html
     assert "function renderCountyFieldNote()" in html
     assert 'id="heritageTimeline"' in html
     assert 'id="heritageTimelineHeading"' in html
@@ -328,6 +332,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="selectionCultureTrace"' in html
     assert 'id="selectionCultureRead"' in html
     assert 'data-culture-read="culture"' in html
+    assert "const returnToDossier=event.target.closest?.('#cultureReadingReturn');" in html
     assert "function focusAtlasSection(key)" in html
     assert "Re-assert the destination once it is in view" in html
     assert "Filter this lens" in html

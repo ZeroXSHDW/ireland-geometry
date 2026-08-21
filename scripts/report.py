@@ -2119,6 +2119,14 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .culture-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 .culture-head h2 { max-width:560px; margin:0; color:var(--deep); font:700 clamp(26px,3vw,38px)/1.02 Georgia,serif; letter-spacing:-.05em; }
 .culture-head p { max-width:650px; margin:11px 0 0; color:#5d6d66; font-size:12px; line-height:1.6; }
+.culture-reading-context { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:12px; padding:11px 13px; border:1px solid #b9cdbd; border-radius:12px; background:linear-gradient(135deg,#e6efe7 0%,#f5eddd 100%); }
+.culture-reading-context[hidden] { display:none; }
+.culture-reading-context > div { min-width:0; }
+.culture-reading-context span { display:block; color:#527b85; font-size:8px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.culture-reading-context strong { display:block; margin-top:5px; overflow-wrap:anywhere; color:var(--deep); font:700 17px/1.05 Georgia,serif; letter-spacing:-.035em; }
+.culture-reading-context p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.culture-reading-context button { flex:0 0 auto; min-height:29px; padding:5px 9px; border:1px solid #4c765f; border-radius:7px; color:#fff8eb; background:#4c765f; font-size:10px; font-weight:800; }
+.culture-reading-context button:hover, .culture-reading-context button:focus-visible { border-color:var(--deep); background:var(--deep); }
 .culture-mark { flex:0 0 142px; display:flex; flex-direction:column; align-items:center; justify-content:center; width:142px; height:142px; border:1px solid #c3b58f; border-radius:50%; color:#f8f2e6; background:var(--deep); box-shadow:0 8px 24px rgba(16,53,55,.13); transform:rotate(5deg); }
 .culture-mark span { color:#e1c276; font-size:9px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
 .culture-mark b { margin-top:5px; color:#f7f0dc; font:700 31px/1 Georgia,serif; letter-spacing:-.07em; }
@@ -2568,6 +2576,8 @@ tr:hover td { background:#f1f6f1; }
   .studio-reference-head { display:block; }
   .studio-reference-clear { margin-top:9px; }
   .culture-head { display:block; }
+  .culture-reading-context { display:block; }
+  .culture-reading-context button { margin-top:9px; }
   .culture-mark { display:none; }
   .culture-grid { grid-template-columns:1fr; }
   .culture-card { min-height:0; }
@@ -2851,6 +2861,14 @@ tr:hover td { background:#f1f6f1; }
         <p>Read the atlas through names, inherited fabric, shared life and county difference. These lenses use the current OSM, NIAH and spatial-context data; they do not claim that one geometry explains Irish culture.</p>
       </div>
       <div class="culture-mark" aria-hidden="true"><span>Cruth</span><b>Áit</b><small>shape → place</small></div>
+    </div>
+    <div id="cultureReadingContext" class="culture-reading-context" aria-live="polite" hidden>
+      <div>
+        <span>Reading from the dossier / selected place</span>
+        <strong id="cultureReadingContextTitle">—</strong>
+        <p id="cultureReadingContextText">The cultural field stays attached to the measured footprint that opened it.</p>
+      </div>
+      <button id="cultureReadingReturn" type="button">Return to building dossier →</button>
     </div>
     <div class="culture-grid" aria-label="Data-derived Irish cultural lenses">
       <article class="culture-card">
@@ -5044,6 +5062,20 @@ function renderCultureAtlas() {
     const active=button.dataset.cultureFocus===$('cultureLens')?.value;
     button.setAttribute('aria-pressed',String(active));
   });
+  renderCultureReadingContext();
+}
+
+function renderCultureReadingContext() {
+  const panel=$('cultureReadingContext');
+  if(!panel) return;
+  const id=selectedMarkerId||offlineSelection, row=targetRowForId(id);
+  if(!row) { panel.hidden=true; return; }
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  const lens=culturalLensForRow(row), niah=row.niah||{}, type=String(niah.type||'').trim();
+  const context=[selectionPlaceText(row),lens?CULTURE_LENS_LABELS[lens]:'Áit / place context',type?heritageTypeLabel(type):''].filter(Boolean).join(' · ');
+  set('cultureReadingContextTitle',contextTitle(row));
+  set('cultureReadingContextText',`${context}. Read the source-linked context beside the mapped footprint; it is not a claim about historic intent.`);
+  panel.hidden=false;
 }
 
 function renderSummary() {
@@ -5176,6 +5208,12 @@ document.addEventListener('click',event=>{
   if(sequence?.dataset.sequenceTarget) { focusAtlasTarget(sequence.dataset.sequenceTarget,sequence.dataset.sequenceSection||'field'); return; }
   const cultureRead=event.target.closest?.('button[data-culture-read]');
   if(cultureRead?.dataset.cultureRead) { focusAtlasSection(cultureRead.dataset.cultureRead); return; }
+  const returnToDossier=event.target.closest?.('#cultureReadingReturn');
+  if(returnToDossier) {
+    const selection=$('selectionCard');
+    if(selection&&!selection.hidden) { setAtlasNavActive('filters'); revealSelectionCard(selection); }
+    return;
+  }
   const selectionCulture=event.target.closest?.('button[data-selection-culture]');
   if(selectionCulture?.dataset.selectionCulture) { setCultureFilter(selectionCulture.dataset.selectionCulture); return; }
   const contextFocus=event.target.closest?.('button[data-context-focus]');
@@ -5644,6 +5682,7 @@ function renderSelectionCard(id) {
   set($('selectionGeometry'),selectionGeometryText(row));
   set($('selectionMath'),selectionMathText(row));
   renderSelectionCulturalTrace(row);
+  renderCultureReadingContext();
   renderSelectionEvidence(row);
   renderSelectionContext(row);
   drawSelectionFingerprint(row);
@@ -5676,7 +5715,7 @@ function clearSelection() {
   selectedMarkerId=null; offlineSelection=null;
   syncFocusState('');
   if(map?.closePopup) map.closePopup();
-  hideSelectionCard(); renderFieldWalk(); renderTable();
+  hideSelectionCard(); renderCultureReadingContext(); renderFieldWalk(); renderTable();
   if(offlineMap) renderOfflineMap();
 }
 async function copySelectionLink() {
