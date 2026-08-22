@@ -5324,7 +5324,7 @@ function renderPlaceNameField() {
   const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote'), readout=$('placeNameReadout'), readoutStatus=$('placeNameReadoutStatus'), readoutTitle=$('placeNameReadoutTitle'), readoutText=$('placeNameReadoutText'), rowsValue=$('placeNameRows'), heritageValue=$('placeNameHeritage'), signalsValue=$('placeNameSignals'), formValue=$('placeNameForm'), groupsValue=$('placeNameGroups'), share=$('copyPlaceNameLink'), shareStatus=$('placeNameShareStatus');
   if(!chips) return;
   const set=(element,value)=>{ if(element) element.textContent=value; }, counts=new Map();
-  if(share) { share.hidden=true; share.disabled=true; share.dataset.placeName=''; }
+  if(share) { share.hidden=true; share.disabled=true; share.dataset.placeNameLink=''; }
   if(shareStatus) shareStatus.textContent='';
   DATA.forEach(row=>{
     if(row.spatial?.settlement_class!=='named_place') return;
@@ -5347,7 +5347,7 @@ function renderPlaceNameField() {
     const [name]=selected, rows=DATA.filter(row=>row.spatial?.settlement_class==='named_place'&&String(row.spatial?.settlement_name||row.address_city||'').trim().toLowerCase()===name.toLowerCase()), niah=rows.filter(row=>Boolean(row.niah?.reg_no)).length, ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, medianRatio=medianValue(rows.map(row=>row.aspect_ratio)), medianCircularity=medianValue(rows.map(row=>row.circularity)), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'not reported', groupCounts=new Map();
     rows.forEach(row=>{ const label=spatialGroupLabel(row.group); groupCounts.set(label,(groupCounts.get(label)||0)+1); });
     const groups=[...groupCounts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,2).map(([label,count])=>`${label} ${count.toLocaleString()}`).join(' · ')||'not reported';
-    if(share) { share.hidden=false; share.disabled=false; share.dataset.placeName=name; }
+    if(share) { share.hidden=false; share.disabled=false; share.dataset.placeNameLink=name; }
     set(readoutStatus,`${name} · source context`); set(readoutTitle,`${name} / named-place field`); set(readoutText,`${rows.length.toLocaleString()} named-place rows in the ${scope}; median measured form ${form}; ${niah.toLocaleString()} NIAH joins; ${groups}. These are source-linked screen counts, not an etymological reading.`); set(rowsValue,rows.length.toLocaleString()); set(heritageValue,niah.toLocaleString()); set(signalsValue,`${ratio.toLocaleString()} φ · ${angle.toLocaleString()} θ`); set(formValue,form); set(groupsValue,groups); if(readout) readout.setAttribute('aria-label',`${name} named-place field: ${rows.length.toLocaleString()} rows, median measured form ${form}, ${niah.toLocaleString()} NIAH joins, ${ratio.toLocaleString()} golden-ratio screens, ${angle.toLocaleString()} golden-angle screens, groups ${groups}`);
   } else {
     set(readoutStatus,`${entries.length.toLocaleString()} named contexts`); set(readoutTitle,'Choose a name to read its measured field.'); set(readoutText,`The most represented named contexts are shown from the ${scope}. Select one to keep place coverage, measured form, and geometry screens together.`); set(rowsValue,'—'); set(heritageValue,'—'); set(signalsValue,'—'); set(formValue,'—'); set(groupsValue,'—'); if(readout) readout.setAttribute('aria-label',`${entries.length.toLocaleString()} named settlement contexts are available; choose one to read its measured field`);
@@ -5362,7 +5362,7 @@ function setPlaceName(name) {
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 async function copyPlaceNameLink() {
-  const status=$('placeNameShareStatus'), name=String($('copyPlaceNameLink')?.dataset.placeName||$('query')?.value||'').trim();
+  const status=$('placeNameShareStatus'), name=String($('copyPlaceNameLink')?.dataset.placeNameLink||$('query')?.value||'').trim();
   if(!name) { if(status) status.textContent='Choose a named place before copying its link.'; return; }
   syncViewState();
   const url=location.href;
