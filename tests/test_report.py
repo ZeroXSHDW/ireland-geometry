@@ -515,6 +515,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function selectFieldSignal(key)" in html
     assert "function initFieldAtlas()" in html
     assert "function coordinateLabel(value,positive,negative)" in html
+    assert "function renderFieldCoordinate(row)" in html
+    assert 'id="coordinatePlot"' in html
+    assert 'id="coordinatePlotReadout"' in html
+    assert 'id="coordinateNote"' in html
+    assert "--coordinate-x" in html
+    assert "Selected coordinate" in html
     assert "function updateMapStamp()" in html
     assert 'id="mapStamp"' in html
     assert 'id="mapConstellationScope"' in html

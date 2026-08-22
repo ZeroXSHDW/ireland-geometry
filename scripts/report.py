@@ -1417,7 +1417,10 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-coordinate-top small { color:rgba(247,240,220,.48); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; }
 .coordinate-plot { position:relative; height:104px; margin-top:14px; border-top:1px solid rgba(225,189,102,.38); border-bottom:1px solid rgba(225,189,102,.22); background:repeating-linear-gradient(90deg,transparent 0,transparent calc(25% - 1px),rgba(225,189,102,.16) 25%,transparent calc(25% + 1px)); }
 .coordinate-plot::before { content:""; position:absolute; top:50%; left:4%; width:90%; height:1px; background:linear-gradient(90deg,transparent,#8ab89f 17%,#e1bd66 48%,#bf5b45 83%,transparent); transform:rotate(-8deg); transform-origin:center; }
-.coordinate-plot::after { content:""; position:absolute; top:14%; left:59%; width:7px; height:7px; border:2px solid #e1bd66; border-radius:50%; box-shadow:0 0 0 5px rgba(225,189,102,.1),0 0 30px rgba(225,189,102,.38); }
+.coordinate-plot::after { content:""; position:absolute; top:var(--coordinate-y,14%); left:var(--coordinate-x,59%); width:7px; height:7px; border:2px solid #e1bd66; border-radius:50%; box-shadow:0 0 0 5px rgba(225,189,102,.1),0 0 30px rgba(225,189,102,.38); transform:translate(-50%,-50%); transition:top .45s ease,left .45s ease,box-shadow .45s ease; }
+.coordinate-plot.is-focused::after { box-shadow:0 0 0 7px rgba(225,189,102,.14),0 0 34px rgba(225,189,102,.5); }
+.coordinate-plot-readout { position:absolute; top:8px; right:8px; max-width:68%; overflow:hidden; color:rgba(247,240,220,.55); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; text-align:right; text-overflow:ellipsis; text-transform:uppercase; white-space:nowrap; }
+.coordinate-plot.is-focused .coordinate-plot-readout { color:#f5d887; }
 .coordinate-axis { position:absolute; display:flex; justify-content:space-between; right:0; bottom:5px; left:0; color:rgba(247,240,220,.45); font:9px ui-monospace,SFMono-Regular,Menlo,monospace; }
 .coordinate-note { margin-top:10px; color:rgba(247,240,220,.5); font-size:9px; line-height:1.35; }
 .field-signals { position:relative; z-index:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:20px; }
@@ -2740,7 +2743,7 @@ tr:hover td { background:#f1f6f1; }
         <p>Coordinates give us the first precision: a footprint belongs somewhere, in a county, beside a road, under a particular light. The mathematics here is a lens for noticing—ratios, angles, symmetry, circles—not a story that replaces memory, craft, ecology or lived culture.</p>
         <div class="field-principles" aria-label="Field principles"><span>ainm / name</span><span>oidhreacht / heritage</span><span>cruth / form</span><span>pobal / shared life</span></div>
       </div>
-      <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div class="coordinate-plot"><div class="coordinate-axis"><span>51° N</span><span>52°</span><span>53°</span><span>54°</span><span>55° N</span></div></div><p class="coordinate-note">A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.</p></div>
+      <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div id="coordinatePlot" class="coordinate-plot" aria-label="Ireland field coordinate marker"><span id="coordinatePlotReadout" class="coordinate-plot-readout">Ireland field centre</span><div class="coordinate-axis"><span>51° N</span><span>52°</span><span>53°</span><span>54°</span><span>55° N</span></div></div><p id="coordinateNote" class="coordinate-note">A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.</p></div>
     </div>
     <div class="field-sequence" aria-label="Atlas narrative sequence"><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>01</span><strong>Land</strong><small>shore · weather · ground</small></button><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>02</span><strong>Coordinate</strong><small>where the point belongs</small></button><button class="field-sequence-step" type="button" data-sequence-target="fieldWalk" data-sequence-section="field"><span>03</span><strong>Footprint</strong><small>area · edge · scale</small></button><button class="field-sequence-step" type="button" data-sequence-target="maths" data-sequence-section="maths"><span>04</span><strong>Maths</strong><small>ratio · angle · symmetry</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>05</span><strong>Heritage</strong><small>record · name · time</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>06</span><strong>Culture</strong><small>Áit · Pobal · Oidhreacht</small></button><button class="field-sequence-step" type="button" data-sequence-target="studio" data-sequence-section="studio"><span>07</span><strong>Civic possibility</strong><small>the shared room ahead</small></button></div>
     <div id="fieldWalk" class="field-walk" aria-labelledby="fieldWalkTitle">
@@ -4058,6 +4061,28 @@ function renderFieldWalk() {
     ? `Current stop: ${activeItem.title}. The dossier keeps measured geometry, heritage context and review boundaries separate; use the sequence rail to continue the walk.`
     : 'The walk is a reproducible starting sample, not a ranking of Irish buildings or evidence of historic mathematical intention.';
 }
+function renderFieldCoordinate(row) {
+  const plot=$('coordinatePlot'), readout=$('coordinatePlotReadout'), note=$('coordinateNote');
+  if(!plot) return;
+  const lat=Number(row?.lat), lon=Number(row?.lon), focused=Number.isFinite(lat)&&Number.isFinite(lon);
+  const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
+  if(focused) {
+    const x=clamp((lon+10.7)/5.4*100,6,94), y=100-clamp((lat-51.3)/4.2*100,6,94), coordinate=`${coordinateLabel(lat,'N','S')} / ${coordinateLabel(lon,'E','W')}`;
+    plot.style.setProperty('--coordinate-x',`${x.toFixed(2)}%`);
+    plot.style.setProperty('--coordinate-y',`${y.toFixed(2)}%`);
+    plot.classList.add('is-focused');
+    if(readout) readout.textContent=`${contextTitle(row)} · ${coordinate}`;
+    if(note) note.textContent=`Selected footprint · ${coordinate}. The live map carries the same point into source imagery; the descriptor remains situated in county, road and place context.`;
+    plot.setAttribute('aria-label',`Selected coordinate ${coordinate}`);
+    return;
+  }
+  plot.style.setProperty('--coordinate-x','59%');
+  plot.style.setProperty('--coordinate-y','14%');
+  plot.classList.remove('is-focused');
+  if(readout) readout.textContent='Ireland field centre';
+  if(note) note.textContent='A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.';
+  plot.setAttribute('aria-label','Ireland field coordinate marker');
+}
 function renderFieldAtlas() {
   const total=Math.max(1,Number(SUMMARY.targets||DATA.length||0));
   const activePattern=$('pattern')?.value||'';
@@ -4075,6 +4100,7 @@ function renderFieldAtlas() {
   set('introTargetCount',Number(SUMMARY.targets||DATA.length||0).toLocaleString());
   set('introNiahCount',Number(SUMMARY.niah_matches||0).toLocaleString());
   set('introSignalCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
+  renderFieldCoordinate(targetRowForId(selectedMarkerId||offlineSelection));
   setSignal('golden_ratio','fieldRatioCount','fieldRatioText','fieldRatioMeter','proportion');
   setSignal('golden_angle','fieldAngleCount','fieldAngleText','fieldAngleMeter','rotation');
   setSignal('reflective_symmetry','fieldSymmetryCount','fieldSymmetryText','fieldSymmetryMeter','symmetry');
@@ -5800,7 +5826,7 @@ function clearSelection() {
   selectedMarkerId=null; offlineSelection=null; offlineMapFocus=false;
   syncFocusState('');
   if(map?.closePopup) map.closePopup();
-  hideSelectionCard(); renderCultureReadingContext(); renderMathsReadingContext(); renderFieldWalk(); renderTable();
+  hideSelectionCard(); renderFieldCoordinate(null); renderCultureReadingContext(); renderMathsReadingContext(); renderFieldWalk(); renderTable();
   if(offlineMap) renderOfflineMap();
 }
 async function copySelectionLink() {
@@ -5922,6 +5948,7 @@ function selectMapTarget(id,{scroll=false}={}) {
   renderFieldWalk();
   setMarkerSelected(markerById.get(id),true);
   renderSelectionMapOutline(targetRowForId(id));
+  renderFieldCoordinate(targetRowForId(id));
   renderSelectionCard(id);
   setAtlasNavActive('filters');
   document.querySelectorAll('#tbody tr[data-id]').forEach(row=>{
