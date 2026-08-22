@@ -2553,6 +2553,11 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .place-name-readout-metric b, .place-name-readout-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .place-name-readout-metric b { color:var(--deep); font:700 11px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .place-name-readout-metric small { margin-top:3px; color:#897c68; font-size:7px; letter-spacing:.05em; text-transform:uppercase; }
+.place-name-readout-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.place-name-readout-actions button { min-height:27px; padding:5px 8px; border:1px solid #4c765f; border-radius:7px; color:#fff8eb; background:#4c765f; font-size:9px; font-weight:800; }
+.place-name-readout-actions button:hover, .place-name-readout-actions button:focus-visible { border-color:var(--deep); background:var(--deep); }
+.place-name-readout-actions button[hidden] { display:none; }
+.place-name-share-status { color:#69766e; font-size:8px; line-height:1.3; }
 .place-name-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:9px; line-height:1.4; }
 .culture-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:10px; line-height:1.45; }
 .diagram-kicker { fill:#857962; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
@@ -3122,7 +3127,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="place-name-field" aria-labelledby="placeNameHeading">
       <div class="place-name-head"><div><span class="culture-mosaic-label">Ainm / named-place field</span><h3 id="placeNameHeading">Names anchor the geometry.</h3><p>These are the named settlement contexts carried by the report data. Choose one to bring its label into Explore and read the buildings beside their measured form, heritage joins, and source trail.</p></div><div id="placeNameStat" class="place-name-stat" aria-live="polite"><strong>—</strong><small>named contexts in the current field</small></div></div>
       <div id="placeNameChips" class="place-name-chips" aria-label="Named settlement contexts"></div>
-      <div id="placeNameReadout" class="place-name-readout" aria-live="polite"><span id="placeNameReadoutStatus">Named-place field</span><strong id="placeNameReadoutTitle">Choose a name to read its measured field.</strong><p id="placeNameReadoutText">The selected settlement context will keep its source coverage and geometry screens visible together.</p><div class="place-name-readout-metrics" aria-label="Selected named-place measurements"><span class="place-name-readout-metric"><b id="placeNameRows">—</b><small>visible rows</small></span><span class="place-name-readout-metric"><b id="placeNameHeritage">—</b><small>NIAH joins</small></span><span class="place-name-readout-metric"><b id="placeNameSignals">—</b><small>φ / θ screens</small></span><span class="place-name-readout-metric"><b id="placeNameForm">—</b><small>median r / C</small></span><span class="place-name-readout-metric"><b id="placeNameGroups">—</b><small>group mix</small></span></div></div>
+      <div id="placeNameReadout" class="place-name-readout" aria-live="polite"><span id="placeNameReadoutStatus">Named-place field</span><strong id="placeNameReadoutTitle">Choose a name to read its measured field.</strong><p id="placeNameReadoutText">The selected settlement context will keep its source coverage and geometry screens visible together.</p><div class="place-name-readout-metrics" aria-label="Selected named-place measurements"><span class="place-name-readout-metric"><b id="placeNameRows">—</b><small>visible rows</small></span><span class="place-name-readout-metric"><b id="placeNameHeritage">—</b><small>NIAH joins</small></span><span class="place-name-readout-metric"><b id="placeNameSignals">—</b><small>φ / θ screens</small></span><span class="place-name-readout-metric"><b id="placeNameForm">—</b><small>median r / C</small></span><span class="place-name-readout-metric"><b id="placeNameGroups">—</b><small>group mix</small></span></div><div class="place-name-readout-actions"><button id="copyPlaceNameLink" type="button" hidden>Copy named-place link →</button><span id="placeNameShareStatus" class="place-name-share-status" role="status" aria-live="polite"></span></div></div>
       <p id="placeNameNote" class="place-name-note">Place labels are context cues from the report’s settlement field; they are not an etymological dictionary or a substitute for local knowledge.</p>
     </div>
     <p class="culture-caveat">The Irish labels are language cues, not a claim that the dashboard can stand in for lived culture. Follow the evidence from place name to source record, then bring local knowledge into the design conversation.</p>
@@ -5316,9 +5321,11 @@ function setLandGroup(group) {
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function renderPlaceNameField() {
-  const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote'), readout=$('placeNameReadout'), readoutStatus=$('placeNameReadoutStatus'), readoutTitle=$('placeNameReadoutTitle'), readoutText=$('placeNameReadoutText'), rowsValue=$('placeNameRows'), heritageValue=$('placeNameHeritage'), signalsValue=$('placeNameSignals'), formValue=$('placeNameForm'), groupsValue=$('placeNameGroups');
+  const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote'), readout=$('placeNameReadout'), readoutStatus=$('placeNameReadoutStatus'), readoutTitle=$('placeNameReadoutTitle'), readoutText=$('placeNameReadoutText'), rowsValue=$('placeNameRows'), heritageValue=$('placeNameHeritage'), signalsValue=$('placeNameSignals'), formValue=$('placeNameForm'), groupsValue=$('placeNameGroups'), share=$('copyPlaceNameLink'), shareStatus=$('placeNameShareStatus');
   if(!chips) return;
   const set=(element,value)=>{ if(element) element.textContent=value; }, counts=new Map();
+  if(share) { share.hidden=true; share.disabled=true; share.dataset.placeName=''; }
+  if(shareStatus) shareStatus.textContent='';
   DATA.forEach(row=>{
     if(row.spatial?.settlement_class!=='named_place') return;
     const name=String(row.spatial?.settlement_name||row.address_city||'').trim();
@@ -5340,6 +5347,7 @@ function renderPlaceNameField() {
     const [name]=selected, rows=DATA.filter(row=>row.spatial?.settlement_class==='named_place'&&String(row.spatial?.settlement_name||row.address_city||'').trim().toLowerCase()===name.toLowerCase()), niah=rows.filter(row=>Boolean(row.niah?.reg_no)).length, ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, medianRatio=medianValue(rows.map(row=>row.aspect_ratio)), medianCircularity=medianValue(rows.map(row=>row.circularity)), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'not reported', groupCounts=new Map();
     rows.forEach(row=>{ const label=spatialGroupLabel(row.group); groupCounts.set(label,(groupCounts.get(label)||0)+1); });
     const groups=[...groupCounts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,2).map(([label,count])=>`${label} ${count.toLocaleString()}`).join(' · ')||'not reported';
+    if(share) { share.hidden=false; share.disabled=false; share.dataset.placeName=name; }
     set(readoutStatus,`${name} · source context`); set(readoutTitle,`${name} / named-place field`); set(readoutText,`${rows.length.toLocaleString()} named-place rows in the ${scope}; median measured form ${form}; ${niah.toLocaleString()} NIAH joins; ${groups}. These are source-linked screen counts, not an etymological reading.`); set(rowsValue,rows.length.toLocaleString()); set(heritageValue,niah.toLocaleString()); set(signalsValue,`${ratio.toLocaleString()} φ · ${angle.toLocaleString()} θ`); set(formValue,form); set(groupsValue,groups); if(readout) readout.setAttribute('aria-label',`${name} named-place field: ${rows.length.toLocaleString()} rows, median measured form ${form}, ${niah.toLocaleString()} NIAH joins, ${ratio.toLocaleString()} golden-ratio screens, ${angle.toLocaleString()} golden-angle screens, groups ${groups}`);
   } else {
     set(readoutStatus,`${entries.length.toLocaleString()} named contexts`); set(readoutTitle,'Choose a name to read its measured field.'); set(readoutText,`The most represented named contexts are shown from the ${scope}. Select one to keep place coverage, measured form, and geometry screens together.`); set(rowsValue,'—'); set(heritageValue,'—'); set(signalsValue,'—'); set(formValue,'—'); set(groupsValue,'—'); if(readout) readout.setAttribute('aria-label',`${entries.length.toLocaleString()} named settlement contexts are available; choose one to read its measured field`);
@@ -5352,6 +5360,19 @@ function setPlaceName(name) {
   input.value=input.value.trim().toLowerCase()===String(name).toLowerCase()?'':String(name);
   applyFilters();
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function copyPlaceNameLink() {
+  const status=$('placeNameShareStatus'), name=String($('copyPlaceNameLink')?.dataset.placeName||$('query')?.value||'').trim();
+  if(!name) { if(status) status.textContent='Choose a named place before copying its link.'; return; }
+  syncViewState();
+  const url=location.href;
+  try {
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(url);
+    if(status) status.textContent=`${name} link copied · query and visible maths are encoded.`;
+  } catch(error) {
+    if(status) status.textContent='Named-place state saved in the address bar · copy the URL manually.';
+  }
 }
 function setMakerQuery(name) {
   const input=$('query');
@@ -5540,6 +5561,7 @@ document.addEventListener('click',event=>{
   if(maker?.dataset.makerName) { setMakerQuery(maker.dataset.makerName); return; }
   const placeName=event.target.closest?.('button[data-place-name]');
   if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
+  if(event.target.closest?.('#copyPlaceNameLink')) { copyPlaceNameLink(); return; }
   const carry=event.target.closest?.('#carrySelectionToStudio');
   if(carry?.dataset.carryStudio) { carrySelectionToStudio(carry.dataset.carryStudio); return; }
   const carryJourney=event.target.closest?.('#fieldJourneyCarry');
