@@ -503,6 +503,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="fieldJourneyTrack"' in html
     assert 'id="fieldJourneyReadoutTitle"' in html
     assert 'id="fieldJourneyTotal"' in html
+    assert 'id="fieldJourneyCarry"' in html
+    assert "function carryJourneyToStudio()" in html
+    assert "Active leg carried to the studio" in html
     assert "function renderFieldJourney()" in html
     assert "straight-line coordinate reading" in html
     assert 'data-sequence-section="culture"' in html

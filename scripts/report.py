@@ -1540,6 +1540,11 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-journey-readout > span { color:#e1bd66; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
 .field-journey-readout strong { display:block; margin-top:7px; overflow-wrap:anywhere; color:#f7f0dc; font:700 14px/1.08 Georgia,serif; letter-spacing:-.03em; }
 .field-journey-readout p { margin:5px 0 0; color:rgba(247,240,220,.55); font-size:8px; line-height:1.4; }
+.field-journey-actions { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:8px; }
+.field-journey-actions button { min-height:26px; padding:4px 8px; border:1px solid rgba(225,189,102,.45); border-radius:6px; color:#173f40; background:#e1bd66; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; text-transform:uppercase; }
+.field-journey-actions button:hover, .field-journey-actions button:focus-visible { border-color:#fff4d6; color:#fff4d6; background:#315c57; }
+.field-journey-actions button[hidden] { display:none; }
+.field-journey-action-status { color:rgba(247,240,220,.45); font-size:8px; line-height:1.3; }
 .field-journey-track { display:flex; align-items:stretch; gap:5px; margin-top:13px; padding:1px 0 5px; overflow-x:auto; scrollbar-color:#c6a85d rgba(247,240,220,.12); }
 .field-journey-node { display:flex; flex:1 1 0; flex-direction:column; min-width:116px; padding:8px; border:1px solid rgba(247,240,220,.18); color:#f7f0dc; background:rgba(8,34,36,.3); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
 .field-journey-node:hover, .field-journey-node:focus-visible { border-color:#e1bd66; background:rgba(8,34,36,.54); box-shadow:0 6px 16px rgba(4,20,23,.16); transform:translateY(-2px); }
@@ -2824,7 +2829,7 @@ tr:hover td { background:#f1f6f1; }
       <div id="fieldJourney" class="field-journey" aria-labelledby="fieldJourneyHeading">
         <div class="field-journey-head">
           <div><span class="field-walk-kicker">Slí / journey field</span><h4 id="fieldJourneyHeading">Not a route.<br/><em>A line of attention.</em></h4><p>The curated stops are threaded by their source coordinates. Read the straight-line span, the next leg and its bearing as a geographic rhythm—not as a walking route or a historical itinerary.</p></div>
-          <div class="field-journey-readout" aria-live="polite"><span id="fieldJourneyStatus">Coordinate journey</span><strong id="fieldJourneyReadoutTitle">Choose a field stop to set your position.</strong><p id="fieldJourneyReadoutText">The journey field will connect the curated stops when the report pack loads.</p></div>
+          <div class="field-journey-readout" aria-live="polite"><span id="fieldJourneyStatus">Coordinate journey</span><strong id="fieldJourneyReadoutTitle">Choose a field stop to set your position.</strong><p id="fieldJourneyReadoutText">The journey field will connect the curated stops when the report pack loads.</p><div class="field-journey-actions"><button id="fieldJourneyCarry" type="button" hidden>Carry active leg to studio →</button><span id="fieldJourneyActionStatus" class="field-journey-action-status" role="status" aria-live="polite"></span></div></div>
         </div>
         <div id="fieldJourneyTrack" class="field-journey-track" role="list" aria-label="Straight-line journey between curated field stops"></div>
         <div class="field-journey-metrics" aria-label="Journey geometry measurements"><span class="field-journey-metric"><b id="fieldJourneyTotal">—</b><small>first → last span</small></span><span class="field-journey-metric"><b id="fieldJourneyLeg">—</b><small>active leg</small></span><span class="field-journey-metric"><b id="fieldJourneyBearing">—</b><small id="fieldJourneyBearingLabel">first → last bearing</small></span></div>
@@ -4163,9 +4168,11 @@ function fieldWalkIndexForId(id) {
   return FIELD_WALK.findIndex(item=>String(item?.row?.osm_id||'')===String(id||''));
 }
 function renderFieldJourney() {
-  const track=$('fieldJourneyTrack'), status=$('fieldJourneyStatus'), title=$('fieldJourneyReadoutTitle'), text=$('fieldJourneyReadoutText'), totalValue=$('fieldJourneyTotal'), legValue=$('fieldJourneyLeg'), bearingValue=$('fieldJourneyBearing'), bearingLabel=$('fieldJourneyBearingLabel'), note=$('fieldJourneyNote');
+  const track=$('fieldJourneyTrack'), status=$('fieldJourneyStatus'), title=$('fieldJourneyReadoutTitle'), text=$('fieldJourneyReadoutText'), totalValue=$('fieldJourneyTotal'), legValue=$('fieldJourneyLeg'), bearingValue=$('fieldJourneyBearing'), bearingLabel=$('fieldJourneyBearingLabel'), carry=$('fieldJourneyCarry'), actionStatus=$('fieldJourneyActionStatus'), note=$('fieldJourneyNote');
   if(!track) return;
   const items=FIELD_WALK.filter(item=>item?.row?.osm_id), rows=items.map(item=>item.row||{}), selectedIndex=fieldWalkIndexForId(selectedMarkerId), distanceText=value=>Number.isFinite(Number(value))?contextDistanceLabel(value):'n/a', bearingText=value=>Number.isFinite(Number(value))?`${fmt(value,0)}°`:'n/a';
+  if(carry) { carry.hidden=true; carry.disabled=true; carry.dataset.carryJourney=''; }
+  if(actionStatus) actionStatus.textContent='';
   if(!rows.length) {
     track.innerHTML='<span class="footnote">No coordinate-linked stops are available in this report pack.</span>';
     if(status) status.textContent='Coordinate journey unavailable';
@@ -4199,8 +4206,23 @@ function renderFieldJourney() {
     if(status) status.textContent=`Stop ${String(selectedIndex+1).padStart(2,'0')} / ${String(rows.length).padStart(2,'0')} · ${currentItem.title||'field waypoint'}`;
     if(title) title.textContent=`${currentTitle}${currentPlace&&currentPlace!=='Context not reported'?` · ${currentPlace}`:''}`;
     if(text) text.textContent=next?`Next: ${contextTitle(next)} · ${distanceText(activeLeg)} straight-line · bearing ${bearingText(activeBearing)} from this coordinate.`:previous?`Final stop · from ${contextTitle(previous)} · ${distanceText(activeLeg)} straight-line · bearing ${bearingText(activeBearing)}.`:'The first stop sets the coordinate origin for the journey field.';
+    if(carry&&(next||previous)) { carry.hidden=false; carry.disabled=false; carry.dataset.carryJourney='active'; }
   }
   if(note) note.textContent=`${rows.length} curated source rows · ${distanceText(totalDistance)} first-to-last span. Distances use source coordinates; no walking route, road itinerary, or historic journey is inferred.`;
+}
+function carryJourneyToStudio() {
+  const selectedIndex=fieldWalkIndexForId(selectedMarkerId), rows=FIELD_WALK.filter(item=>item?.row?.osm_id).map(item=>item.row||{}), status=$('fieldJourneyActionStatus');
+  if(selectedIndex<0||selectedIndex>=rows.length) { if(status) status.textContent='Choose a journey stop before carrying its active leg.'; return; }
+  const current=rows[selectedIndex], next=rows[selectedIndex+1], previous=rows[selectedIndex-1], from=next?current:previous, to=next||current;
+  if(!from||!to||String(from.osm_id||'')===String(to.osm_id||'')) { if(status) status.textContent='The active leg needs two coordinate-linked stops.'; return; }
+  studioPairData=[from,to];
+  studioPairIds=[String(from.osm_id||''),String(to.osm_id||'')];
+  syncStudioState(true); renderStudioPairReference(); renderStudio(); setAtlasNavActive('studio');
+  if(status) status.textContent='Active leg carried to the studio · controls remain editable.';
+  window.setTimeout(()=>{
+    $('studio')?.scrollIntoView({behavior:'smooth',block:'start'});
+    revealPanelTarget($('studioPairReference'));
+  },120);
 }
 function moveFieldWalk(delta) {
   if(!FIELD_WALK.length) return;
@@ -5494,6 +5516,8 @@ document.addEventListener('click',event=>{
   if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
   const carry=event.target.closest?.('#carrySelectionToStudio');
   if(carry?.dataset.carryStudio) { carrySelectionToStudio(carry.dataset.carryStudio); return; }
+  const carryJourney=event.target.closest?.('#fieldJourneyCarry');
+  if(carryJourney?.dataset.carryJourney) { carryJourneyToStudio(); return; }
   const addCompare=event.target.closest?.('#addSelectionCompare');
   if(addCompare?.dataset.compareTarget) { addComparisonTarget(addCompare.dataset.compareTarget); return; }
   const removeCompare=event.target.closest?.('button[data-compare-remove]');
