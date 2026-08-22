@@ -538,6 +538,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="fieldShapeArea"' in html
     assert 'id="fieldShapeAspect"' in html
     assert "function renderFieldShape(row)" in html
+    assert 'id="fieldRoots"' in html
+    assert 'id="fieldRootsPlace"' in html
+    assert 'id="fieldRootsHeritage"' in html
+    assert 'id="fieldRootsGroup"' in html
+    assert "function renderFieldRoots(row)" in html
     assert "--coordinate-x" in html
     assert "Selected coordinate" in html
     assert "function updateMapStamp()" in html
