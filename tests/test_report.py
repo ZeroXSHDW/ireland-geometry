@@ -313,6 +313,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="placeNameHeading"' in html
     assert 'id="placeNameChips"' in html
     assert 'id="placeNameStat"' in html
+    assert 'id="placeNameReadout"' in html
+    assert 'id="placeNameRows"' in html
+    assert 'id="placeNameSignals"' in html
     assert "function renderHeritageTimeline()" in html
     assert "function setHeritageEra(key)" in html
     assert "function renderLandField()" in html

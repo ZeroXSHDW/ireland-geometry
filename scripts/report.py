@@ -2543,6 +2543,15 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .place-name-chip small { color:#897c68; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .place-name-chip:hover, .place-name-chip[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .place-name-chip:hover small, .place-name-chip[aria-pressed="true"] small { color:#e1c276; }
+.place-name-readout { margin-top:10px; padding:10px 11px; border:1px solid #d8c29b; background:linear-gradient(135deg,#f1eadb 0%,#e8efe8 100%); }
+.place-name-readout > span { color:#6c806e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.place-name-readout strong { display:block; margin-top:6px; color:var(--deep); font:700 15px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.place-name-readout p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.place-name-readout-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:9px; }
+.place-name-readout-metric { min-width:0; padding:6px 7px; border:1px solid #d8dcca; background:rgba(255,253,248,.68); }
+.place-name-readout-metric b, .place-name-readout-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.place-name-readout-metric b { color:var(--deep); font:700 11px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.place-name-readout-metric small { margin-top:3px; color:#897c68; font-size:7px; letter-spacing:.05em; text-transform:uppercase; }
 .place-name-note { margin:11px 0 0; padding:8px 9px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:9px; line-height:1.4; }
 .culture-caveat { margin:12px 0 0; padding:9px 10px; border-left:3px solid var(--gold); color:#6d6254; background:rgba(248,242,230,.75); font-size:10px; line-height:1.45; }
 .diagram-kicker { fill:#857962; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
@@ -2697,6 +2706,7 @@ tr:hover td { background:#f1f6f1; }
   .place-braid-readout { margin-top:10px; }
   .place-braid-grid { grid-template-columns:1fr; }
   .place-name-field { padding:13px; }
+  .place-name-readout-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .county-pulse-head { display:block; }
   .county-pulse-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .makers-head { display:block; }
@@ -3111,6 +3121,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="place-name-field" aria-labelledby="placeNameHeading">
       <div class="place-name-head"><div><span class="culture-mosaic-label">Ainm / named-place field</span><h3 id="placeNameHeading">Names anchor the geometry.</h3><p>These are the named settlement contexts carried by the report data. Choose one to bring its label into Explore and read the buildings beside their measured form, heritage joins, and source trail.</p></div><div id="placeNameStat" class="place-name-stat" aria-live="polite"><strong>—</strong><small>named contexts in the current field</small></div></div>
       <div id="placeNameChips" class="place-name-chips" aria-label="Named settlement contexts"></div>
+      <div id="placeNameReadout" class="place-name-readout" aria-live="polite"><span id="placeNameReadoutStatus">Named-place field</span><strong id="placeNameReadoutTitle">Choose a name to read its measured field.</strong><p id="placeNameReadoutText">The selected settlement context will keep its source coverage and geometry screens visible together.</p><div class="place-name-readout-metrics" aria-label="Selected named-place measurements"><span class="place-name-readout-metric"><b id="placeNameRows">—</b><small>visible rows</small></span><span class="place-name-readout-metric"><b id="placeNameHeritage">—</b><small>NIAH joins</small></span><span class="place-name-readout-metric"><b id="placeNameSignals">—</b><small>φ / θ screens</small></span><span class="place-name-readout-metric"><b id="placeNameGroups">—</b><small>group mix</small></span></div></div>
       <p id="placeNameNote" class="place-name-note">Place labels are context cues from the report’s settlement field; they are not an etymological dictionary or a substitute for local knowledge.</p>
     </div>
     <p class="culture-caveat">The Irish labels are language cues, not a claim that the dashboard can stand in for lived culture. Follow the evidence from place name to source record, then bring local knowledge into the design conversation.</p>
@@ -5300,9 +5311,9 @@ function setLandGroup(group) {
   $('filters')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function renderPlaceNameField() {
-  const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote');
+  const chips=$('placeNameChips'), stat=$('placeNameStat'), note=$('placeNameNote'), readout=$('placeNameReadout'), readoutStatus=$('placeNameReadoutStatus'), readoutTitle=$('placeNameReadoutTitle'), readoutText=$('placeNameReadoutText'), rowsValue=$('placeNameRows'), heritageValue=$('placeNameHeritage'), signalsValue=$('placeNameSignals'), groupsValue=$('placeNameGroups');
   if(!chips) return;
-  const counts=new Map();
+  const set=(element,value)=>{ if(element) element.textContent=value; }, counts=new Map();
   DATA.forEach(row=>{
     if(row.spatial?.settlement_class!=='named_place') return;
     const name=String(row.spatial?.settlement_name||row.address_city||'').trim();
@@ -5314,10 +5325,20 @@ function renderPlaceNameField() {
   if(!entries.length) {
     chips.innerHTML='<span class="footnote">No named settlement contexts are available in this report view.</span>';
     if(note) note.textContent='The current report view has no named-place rows. Clear filters or use the embedded snapshot to widen the field.';
+    set(readoutStatus,'Named-place field unavailable'); set(readoutTitle,'No named context is reported.'); set(readoutText,'The current report view carries no named settlement rows.'); set(rowsValue,'—'); set(heritageValue,'—'); set(signalsValue,'—'); set(groupsValue,'—');
+    if(readout) readout.setAttribute('aria-label','No named settlement context is available in this report view');
     return;
   }
   chips.innerHTML=entries.slice(0,18).map(([name,count])=>`<button class="place-name-chip" type="button" data-place-name="${esc(name)}" aria-pressed="${query===name.toLowerCase()}"><span>${esc(name)}</span><small>${count.toLocaleString()}</small></button>`).join('');
-  const status=SUMMARY.source_status?.settlements||'not_reported';
+  const selected=entries.find(([name])=>name.toLowerCase()===query), status=SUMMARY.source_status?.settlements||'not_reported';
+  if(selected) {
+    const [name]=selected, rows=DATA.filter(row=>row.spatial?.settlement_class==='named_place'&&String(row.spatial?.settlement_name||row.address_city||'').trim().toLowerCase()===name.toLowerCase()), niah=rows.filter(row=>Boolean(row.niah?.reg_no)).length, ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, groupCounts=new Map();
+    rows.forEach(row=>{ const label=spatialGroupLabel(row.group); groupCounts.set(label,(groupCounts.get(label)||0)+1); });
+    const groups=[...groupCounts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,2).map(([label,count])=>`${label} ${count.toLocaleString()}`).join(' · ')||'not reported';
+    set(readoutStatus,`${name} · source context`); set(readoutTitle,`${name} / named-place field`); set(readoutText,`${rows.length.toLocaleString()} named-place rows in the ${scope}; ${niah.toLocaleString()} NIAH joins; ${groups}. These are source-linked screen counts, not an etymological reading.`); set(rowsValue,rows.length.toLocaleString()); set(heritageValue,niah.toLocaleString()); set(signalsValue,`${ratio.toLocaleString()} φ · ${angle.toLocaleString()} θ`); set(groupsValue,groups); if(readout) readout.setAttribute('aria-label',`${name} named-place field: ${rows.length.toLocaleString()} rows, ${niah.toLocaleString()} NIAH joins, ${ratio.toLocaleString()} golden-ratio screens, ${angle.toLocaleString()} golden-angle screens, groups ${groups}`);
+  } else {
+    set(readoutStatus,`${entries.length.toLocaleString()} named contexts`); set(readoutTitle,'Choose a name to read its measured field.'); set(readoutText,`The most represented named contexts are shown from the ${scope}. Select one to keep place coverage and geometry screens together.`); set(rowsValue,'—'); set(heritageValue,'—'); set(signalsValue,'—'); set(groupsValue,'—'); if(readout) readout.setAttribute('aria-label',`${entries.length.toLocaleString()} named settlement contexts are available; choose one to read its measured field`);
+  }
   if(note) note.textContent=`Showing the most represented named contexts in the ${scope}. Settlement source status: ${landStatusLabel(status)}. Selecting a name sets the existing text query; the label is a context cue, not an etymological reading.`;
 }
 function setPlaceName(name) {
