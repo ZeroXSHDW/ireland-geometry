@@ -325,9 +325,13 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'class="spectrum-lens-controls"' in html
     assert 'data-spectrum-lens="named"' in html
     assert "function setSpectrumLens(key)" in html
-    assert "FIELD ATLAS V3" in html
-    assert 'id="heroSnapshot">V3' in html
+    assert "FIELD ATLAS V4" in html
+    assert 'id="heroSnapshot">V4' in html
     assert 'class="spectrum-notation"' in html
+    assert 'class="culture-coordinate-field"' in html
+    assert 'id="cultureCoordinatePlot"' in html
+    assert "function renderCultureCoordinateField()" in html
+    assert "data-coordinate-id" in html
     assert 'class="county-pulse-form"' in html
     assert "const medianValue = values =>" in html
     assert "function renderHeritageTimeline()" in html
@@ -505,7 +509,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function renderMathsIndex()" in html
     assert "function renderMathsReadingContext()" in html
     assert "function selectMathCard(key)" in html
-    assert "Cruth — Ireland Field Atlas V3" in html
+    assert "Cruth — Ireland Field Atlas V4" in html
     assert 'id="siteIntro"' in html
     assert 'class="intro-proof"' in html
     assert 'id="introTargetCount"' in html

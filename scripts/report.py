@@ -1325,7 +1325,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Field Atlas V3</title>
+<title>Cruth — Ireland Field Atlas V4</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
@@ -2284,6 +2284,32 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .spectrum-lens-controls button { min-height:26px; padding:4px 8px; border:1px solid rgba(247,240,220,.2); border-radius:999px; color:rgba(247,240,220,.7); background:rgba(7,29,32,.22); font-size:8px; font-weight:750; }
 .spectrum-lens-controls button:hover, .spectrum-lens-controls button:focus-visible, .spectrum-lens-controls button[aria-pressed="true"] { border-color:#e1c276; color:#173f40; background:#e1c276; }
 .spectrum-note { margin:11px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
+.culture-coordinate-field { margin-top:10px; padding:15px; border:1px solid #bdcfc3; border-radius:15px; color:var(--deep); background:linear-gradient(135deg,#e8efea 0%,#f4ead8 58%,#e4ece7 100%); box-shadow:0 8px 22px rgba(31,63,59,.07); }
+.culture-coordinate-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
+.culture-coordinate-field .culture-mosaic-label { color:#527b85; }
+.culture-coordinate-field h3 { max-width:560px; margin:7px 0 0; color:var(--deep); font:700 24px/1.04 Georgia,serif; letter-spacing:-.045em; }
+.culture-coordinate-head p { max-width:620px; margin:8px 0 0; color:#69766e; font-size:10px; line-height:1.5; }
+.culture-coordinate-readout { min-height:104px; padding:11px 12px; border:1px solid #b9cdbd; background:rgba(248,242,230,.76); }
+.culture-coordinate-readout > span { color:#527b85; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.culture-coordinate-readout strong { display:block; margin-top:8px; color:var(--deep); font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.culture-coordinate-readout p { margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.4; }
+.culture-coordinate-readout-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:9px; }
+.culture-coordinate-readout-metric { min-width:0; padding:6px; border:1px solid #d4ded3; background:rgba(255,252,244,.6); }
+.culture-coordinate-readout-metric b, .culture-coordinate-readout-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.culture-coordinate-readout-metric b { color:#315c57; font:700 11px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.culture-coordinate-readout-metric small { margin-top:3px; color:#897c68; font:7px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.culture-coordinate-plot-wrap { margin-top:13px; padding:8px 8px 5px; overflow-x:auto; border:1px solid #cbd8cc; background:rgba(248,242,230,.45); scrollbar-color:#71977b rgba(73,104,94,.12); }
+.culture-coordinate-plot { display:block; width:100%; min-width:560px; height:auto; }
+.culture-coordinate-grid-line { stroke:rgba(73,104,94,.15); stroke-width:1; }
+.culture-coordinate-axis { stroke:rgba(73,104,94,.46); stroke-width:1; }
+.culture-coordinate-axis-label { fill:#6c806e; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; }
+.culture-coordinate-north { fill:#527b85; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; }
+.culture-coordinate-dot { cursor:pointer; stroke:#fffaf0; stroke-width:.65; transition:opacity .14s ease,stroke-width .14s ease,r .14s ease; }
+.culture-coordinate-dot:hover, .culture-coordinate-dot:focus { opacity:1; stroke:#315c57; stroke-width:1.8; outline:none; }
+.culture-coordinate-legend { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.culture-coordinate-legend-chip { display:inline-flex; align-items:center; gap:5px; color:#69766e; font-size:8px; }
+.culture-coordinate-legend-chip i { width:7px; height:7px; border-radius:50%; }
+.culture-coordinate-note { margin:11px 0 0; color:#6d786f; font-size:9px; line-height:1.45; }
 .culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
 .culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
 .culture-timeline .culture-mosaic-label { color:#e1c276; }
@@ -2747,6 +2773,7 @@ tr:hover td { background:#f1f6f1; }
   .spectrum-field h3 { max-width:none; }
   .spectrum-notation { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .culture-grid { grid-template-columns:1fr; }
+  .culture-coordinate-head { grid-template-columns:1fr; }
   .culture-card { min-height:0; }
   .heritage-type-grid { grid-template-columns:1fr; }
   .place-braid-head { display:block; }
@@ -2820,7 +2847,7 @@ tr:hover td { background:#f1f6f1; }
 <section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
   <div class="intro-shell">
     <div class="intro-main">
-      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V3</span><span>Land · line · memory</span></div>
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V4</span><span>Land · line · memory</span></div>
       <div class="intro-kicker">An Irish geometry of place</div>
       <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
       <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
@@ -2863,7 +2890,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
     <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
     <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
-    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V3</strong><span>field atlas release</span></div></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V4</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
     <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
@@ -3064,6 +3091,12 @@ tr:hover td { background:#f1f6f1; }
       <div id="spectrumLegend" class="spectrum-legend" aria-label="Building group colours"></div>
       <div class="spectrum-notation" aria-label="Mathematical notation key"><button type="button" data-maths-read="maths" aria-label="Read aspect ratio r in the maths section"><b>r</b><small>L / W · proportion</small></button><button type="button" data-maths-read="maths" aria-label="Read circularity C in the maths section"><b>C</b><small>4πA / P² · compactness</small></button><button type="button" data-maths-read="maths" aria-label="Read golden ratio phi in the maths section"><b>φ</b><small>1.618… · ratio screen</small></button><button type="button" data-maths-read="maths" aria-label="Read golden angle theta in the maths section"><b>θ</b><small>137.5° · angle screen</small></button></div>
       <p id="spectrumNote" class="spectrum-note">The constellation will appear when the report pack loads. r is a footprint aspect ratio and C is 4πA/P²; both are mapped descriptors, not evidence of design intent.</p>
+    </div>
+    <div class="culture-coordinate-field" aria-labelledby="cultureCoordinateHeading">
+      <div class="culture-coordinate-head"><div><span class="culture-mosaic-label">Tír / coordinate field</span><h3 id="cultureCoordinateHeading">The same signal returns to Irish ground.</h3><p>Move from the geometry cloud back to latitude and longitude. Each point is a source-linked footprint in the active cultural lens; colour preserves building-group context and the coordinate grid keeps the island’s extent visible without inventing a coastline.</p></div><div class="culture-coordinate-readout" aria-live="polite"><span id="cultureCoordinateStatus">Coordinate field / r × C</span><strong id="cultureCoordinateReadoutTitle">Select a point to return to place.</strong><p id="cultureCoordinateReadoutText">This compact field keeps the active lens attached to the measured coordinates behind the constellation.</p><div class="culture-coordinate-readout-metrics"><span class="culture-coordinate-readout-metric"><b id="cultureCoordinateCount">—</b><small>plotted / visible</small></span><span class="culture-coordinate-readout-metric"><b id="cultureCoordinateSignals">—</b><small>φ / θ screens</small></span><span class="culture-coordinate-readout-metric"><b id="cultureCoordinateContext">—</b><small>named / heritage</small></span></div></div></div>
+      <div class="culture-coordinate-plot-wrap"><svg id="cultureCoordinatePlot" class="culture-coordinate-plot" viewBox="0 0 760 320" role="img" aria-label="Irish coordinate field of measured building footprints by longitude and latitude"></svg></div>
+      <div id="cultureCoordinateLegend" class="culture-coordinate-legend" aria-label="Building group colours in the coordinate field"></div>
+      <p id="cultureCoordinateNote" class="culture-coordinate-note">The coordinate field will appear when the report pack loads. It is an offline geographic screen, not a coastline, settlement-quality map, or proof of cultural meaning.</p>
     </div>
     <div class="culture-grid" aria-label="Data-derived Irish cultural lenses">
       <article class="culture-card">
@@ -5466,6 +5499,28 @@ function renderGeometrySpectrum() {
   plot.onpointerover=readPoint;
   plot.onfocusin=readPoint;
 }
+function renderCultureCoordinateField() {
+  const plot=$('cultureCoordinatePlot'), legend=$('cultureCoordinateLegend'), countValue=$('cultureCoordinateCount'), signalsValue=$('cultureCoordinateSignals'), contextValue=$('cultureCoordinateContext'), status=$('cultureCoordinateStatus'), title=$('cultureCoordinateReadoutTitle'), text=$('cultureCoordinateReadoutText'), note=$('cultureCoordinateNote');
+  if(!plot) return;
+  const set=(element,value)=>{ if(element) element.textContent=value; };
+  const scope=SERVER_MODE?'current lazy page':'full embedded snapshot', lens=String($('cultureLens')?.value||''), lensLabel=lens?(CULTURE_LENS_LABELS[lens]||lens):'all visible rows', sourceRows=Array.isArray(filtered)?filtered:DATA, rows=sourceRows.filter(row=>row&&row.osm_id&&Number.isFinite(Number(row.lat))&&Number.isFinite(Number(row.lon)));
+  if(!rows.length) {
+    plot.innerHTML='<text class="culture-coordinate-axis-label" x="24" y="42">No coordinate-linked rows are available in this view.</text>';
+    plot.setAttribute('aria-label','No coordinate-linked rows are available in this report view');
+    if(legend) legend.innerHTML='';
+    set(countValue,'0'); set(signalsValue,'—'); set(contextValue,'—'); set(status,`Coordinate field unavailable / ${lensLabel}`); set(title,'The coordinate field is not reported.'); set(text,`The ${lensLabel} in the ${scope} carries no rows with both latitude and longitude.`); set(note,`No coordinate field can be drawn for ${lensLabel} from the ${scope}. Clear filters or widen the report view to restore the geographic screen.`);
+    return;
+  }
+  const latMin=51.3, latMax=55.5, lonMin=-10.7, lonMax=-5.3, width=760, height=320, left=54, right=24, top=20, bottom=42, plotWidth=width-left-right, plotHeight=height-top-bottom, clamp=value=>Math.max(0,Math.min(1,value)), x=value=>left+clamp((Number(value)-lonMin)/(lonMax-lonMin))*plotWidth, y=value=>top+(1-clamp((Number(value)-latMin)/(latMax-latMin)))*plotHeight, xTicks=[-10,-9,-8,-7,-6], yTicks=[52,53,54,55], xGrid=xTicks.map(value=>`<line class="culture-coordinate-grid-line" x1="${x(value).toFixed(1)}" y1="${top}" x2="${x(value).toFixed(1)}" y2="${(top+plotHeight).toFixed(1)}"/><text class="culture-coordinate-axis-label" x="${x(value).toFixed(1)}" y="${height-20}" text-anchor="middle">${Math.abs(value)}° W</text>`).join(''), yGrid=yTicks.map(value=>`<line class="culture-coordinate-grid-line" x1="${left}" y1="${y(value).toFixed(1)}" x2="${(left+plotWidth).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="culture-coordinate-axis-label" x="${left-9}" y="${(y(value)+3).toFixed(1)}" text-anchor="end">${value}° N</text>`).join(''), maxPoints=420, stride=Math.max(1,Math.ceil(rows.length/maxPoints)), points=rows.filter((row,index)=>index%stride===0).slice(0,maxPoints), ratioSignals=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angleSignals=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, namedRows=rows.filter(row=>culturalLensMatches(row,'named')).length, heritageRows=rows.filter(row=>culturalLensMatches(row,'heritage')).length;
+  const pointMarkup=points.map(row=>{ const id=String(row.osm_id), titleText=contextTitle(row), place=contextPlaceText(row), signal=contextSignalText(row), lat=Number(row.lat), lon=Number(row.lon), signalCount=[rowHasSignal(row,'golden_ratio'),rowHasSignal(row,'golden_angle'),rowHasSignal(row,'reflective_symmetry'),rowHasSignal(row,'orthogonal')].filter(Boolean).length, score=Number(row.score), radius=(2.3+Math.min(1.8,Number.isFinite(score)?Math.max(0,score)/100*1.8:0)).toFixed(2), opacity=(.52+signalCount*.1).toFixed(2), label=`${titleText} · ${place} · ${coordinateLabel(lat,'N','S')} / ${coordinateLabel(lon,'E','W')} · ${signal}`; return `<circle class="culture-coordinate-dot" cx="${x(lon).toFixed(1)}" cy="${y(lat).toFixed(1)}" r="${radius}" fill="${spectrumGroupColor(row.group)}" opacity="${Math.min(1,Number(opacity)).toFixed(2)}" data-coordinate-id="${esc(id)}" tabindex="0" role="button" aria-label="${esc(label)}"><title>${esc(label)}</title></circle>`; }).join('');
+  plot.innerHTML=`<rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="rgba(255,252,244,.28)"/><g aria-hidden="true">${xGrid}${yGrid}<line class="culture-coordinate-axis" x1="${left}" y1="${top+plotHeight}" x2="${left+plotWidth}" y2="${top+plotHeight}"/><line class="culture-coordinate-axis" x1="${left}" y1="${top}" x2="${left}" y2="${top+plotHeight}"/><text class="culture-coordinate-north" x="${left+plotWidth-2}" y="${top+12}" text-anchor="end">N ↑</text></g><g>${pointMarkup}</g><text class="culture-coordinate-axis-label" x="${left+plotWidth/2}" y="${height-4}" text-anchor="middle">longitude / west → east</text><text class="culture-coordinate-axis-label" transform="translate(12 ${top+plotHeight/2}) rotate(-90)" text-anchor="middle">latitude / south → north</text>`;
+  plot.setAttribute('aria-label',`Irish coordinate field for ${points.length.toLocaleString()} sampled rows from ${rows.length.toLocaleString()} visible rows; longitude ${lonMin}° W to ${Math.abs(lonMax)}° W, latitude ${latMin}° N to ${latMax}° N.`);
+  set(countValue,`${points.length.toLocaleString()} / ${rows.length.toLocaleString()}`); set(signalsValue,`${ratioSignals.toLocaleString()} φ · ${angleSignals.toLocaleString()} θ`); set(contextValue,`${namedRows.toLocaleString()} / ${heritageRows.toLocaleString()}`); set(status,`Coordinate field / ${lensLabel} · ${scope}`); set(title,'Select a point to return to place.'); set(text,`Lens: ${lensLabel}. ${rows.length.toLocaleString()} visible coordinate rows; the field samples ${points.length.toLocaleString()} deterministically so the island stays readable. Click or focus a point to open its source-linked dossier.`); set(note,`Showing ${points.length.toLocaleString()} of ${rows.length.toLocaleString()} coordinate rows from the ${scope}; longitude runs west → east and latitude south → north. This is an offline geographic screen, not a coastline, settlement-quality map, or proof of cultural meaning.`);
+  if(legend) { const groups=new Map(); rows.forEach(row=>{ const key=String(row.group||'other'); groups.set(key,(groups.get(key)||0)+1); }); legend.innerHTML=[...groups.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).map(([group,count])=>`<span class="culture-coordinate-legend-chip"><i style="background:${spectrumGroupColor(group)}"></i>${esc(spatialGroupLabel(group))} ${count.toLocaleString()}</span>`).join(''); }
+  const readPoint=event=>{ const dot=event.target.closest?.('circle[data-coordinate-id]'); if(!dot) return; const row=targetRowForId(dot.dataset.coordinateId); if(!row) return; const titleText=contextTitle(row), place=contextPlaceText(row), signal=contextSignalText(row); set(status,`Point / ${titleText}`); set(title,`${titleText}${place?` · ${place}`:''}`); set(text,`${coordinateLabel(row.lat,'N','S')} / ${coordinateLabel(row.lon,'E','W')} · ${signal} · ${spatialGroupLabel(row.group)}. Focus the point to open its source-linked building dossier.`); };
+  plot.onpointerover=readPoint;
+  plot.onfocusin=readPoint;
+}
 function setSpectrumLens(key) {
   const select=$('cultureLens');
   if(!select) return;
@@ -5524,6 +5579,7 @@ function renderCultureAtlas() {
   renderLandField();
   renderPlaceNameField();
   renderGeometrySpectrum();
+  renderCultureCoordinateField();
   document.querySelectorAll('.culture-focus').forEach(button=>{
     const active=button.dataset.cultureFocus===$('cultureLens')?.value;
     button.setAttribute('aria-pressed',String(active));
@@ -5666,6 +5722,8 @@ document.addEventListener('click',event=>{
   if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
   const spectrumLens=event.target.closest?.('button[data-spectrum-lens]');
   if(spectrumLens) { setSpectrumLens(spectrumLens.dataset.spectrumLens||''); return; }
+  const coordinate=event.target.closest?.('circle[data-coordinate-id]');
+  if(coordinate?.dataset.coordinateId) { focusRow(coordinate.dataset.coordinateId,{scroll:true,openPopup:true}); return; }
   const spectrum=event.target.closest?.('circle[data-spectrum-id]');
   if(spectrum?.dataset.spectrumId) { focusRow(spectrum.dataset.spectrumId,{scroll:true,openPopup:true}); return; }
   if(event.target.closest?.('#copyPlaceNameLink')) { copyPlaceNameLink(); return; }
