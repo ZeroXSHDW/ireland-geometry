@@ -31,10 +31,10 @@ from shapely.geometry import Point
 from shapely.strtree import STRtree
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_output_tree_path
     from stats import apply_holm
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import atomic_write_csv, project_output_tree_path
     from scripts.stats import apply_holm
 
 
@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int, default=20260816)
     parser.add_argument("--mc", type=int, default=300)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     analysis_path = out / "analysis_results.csv"
     if not analysis_path.exists():
         raise SystemExit(f"Missing {analysis_path}. Run analyze.py first.")

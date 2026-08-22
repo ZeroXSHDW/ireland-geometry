@@ -32,9 +32,23 @@ import zipfile
 from pathlib import Path
 
 try:
-    from .runtime import atomic_write_bytes, atomic_write_text, project_path
+    from .runtime import (
+        atomic_write_stream,
+        atomic_write_text,
+        project_data_path,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 except ImportError:
-    from runtime import atomic_write_bytes, atomic_write_text, project_path
+    from runtime import (
+        atomic_write_stream,
+        atomic_write_text,
+        project_data_path,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data" / "niah"
@@ -146,7 +160,10 @@ def main() -> None:
     args = ap.parse_args()
 
     global DATA
-    DATA = project_path(args.data_root, "data") / "niah"
+    DATA = reject_symlink_root(
+        project_data_path(args.data_root) / "niah",
+        label="NIAH data directory",
+    )
     DATA.mkdir(parents=True, exist_ok=True)
     requests_module = None
 
@@ -154,6 +171,10 @@ def main() -> None:
     for region, url in REGIONS.items():
         zp = DATA / f"{region}.zip"
         if zp.exists() and (not args.refresh or args.no_network):
+            try:
+                reject_symlink_path(zp, label=f"NIAH {region} archive")
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
             print(f"[niah] using cached {zp.name}", flush=True)
             continue
         if args.no_network:
@@ -161,27 +182,52 @@ def main() -> None:
         print(f"[niah] downloading {region} ...", flush=True)
         if requests_module is None:
             import requests as requests_module
-        r = requests_module.get(url, timeout=120)
-        r.raise_for_status()
-        atomic_write_bytes(zp, r.content)
-        print(f"[niah]   saved {len(r.content) / 1e6:.1f} MB", flush=True)
+        r = requests_module.get(url, timeout=120, stream=True)
+        try:
+            r.raise_for_status()
+            bytes_written = atomic_write_stream(
+                zp,
+                r.iter_content(chunk_size=1024 * 1024),
+            )
+        finally:
+            r.close()
+        print(f"[niah]   saved {bytes_written / 1e6:.1f} MB", flush=True)
 
     # ---- extract ----------------------------------------------------------
     for region in REGIONS:
         zp = DATA / f"{region}.zip"
-        out_dir = DATA / region
+        try:
+            reject_symlink_path(zp, label=f"NIAH {region} archive")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        try:
+            out_dir = reject_symlink_root(
+                DATA / region,
+                label=f"NIAH {region} extraction directory",
+            )
+            out_dir = reject_symlink_tree(
+                out_dir,
+                label=f"NIAH {region} extraction directory",
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         if out_dir.exists() and not args.refresh:
             continue
         out_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zp) as z:
             for member in z.namelist():
                 if member.lower().endswith(".csv"):
-                    atomic_write_bytes(out_dir / Path(member).name, z.read(member))
+                    with z.open(member) as source:
+                        atomic_write_stream(out_dir / Path(member).name, source)
         print(f"[niah] extracted {region}", flush=True)
 
     # ---- parse -------------------------------------------------------------
     records = []
     for csv_path in sorted(glob.glob(str(DATA / "*" / "*.csv"))):
+        try:
+            reject_symlink_path(csv_path, label="NIAH extracted CSV")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         region = Path(csv_path).parent.name
         with open(csv_path, encoding=ENCODING, newline="") as fh:
             for i, r in enumerate(csv.DictReader(fh)):

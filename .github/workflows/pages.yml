@@ -1,0 +1,51 @@
+name: Deploy GitHub Pages
+
+on:
+  workflow_run:
+    workflows:
+      - Ireland geometry checks
+    types:
+      - completed
+    branches:
+      - main
+      - agent/publish-github-pages
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validated site revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Set up Python for site audit
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit embedded dashboard and review queue
+        run: python scripts/pages_audit.py --json
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

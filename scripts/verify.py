@@ -21,6 +21,7 @@ import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 try:
     from runtime import (
@@ -28,11 +29,16 @@ try:
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
+        default_project_root,
         git_dirty,
         git_revision,
         output_counts,
+        path_metadata_sha256,
         path_modified_at,
-        project_path,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+        resolve_manifest_source_path,
         sha256_file,
         sha256_path,
         utc_now,
@@ -43,11 +49,16 @@ except ImportError:
         SOURCE_FRESHNESS_CONTRACT,
         atomic_write_json,
         default_analysis_plan_path,
+        default_project_root,
         git_dirty,
         git_revision,
         output_counts,
+        path_metadata_sha256,
         path_modified_at,
-        project_path,
+        reject_symlink_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+        resolve_manifest_source_path,
         sha256_file,
         sha256_path,
         utc_now,
@@ -69,6 +80,9 @@ try:
     from columnar import COLUMNAR_CONTRACT, audit_backend
 except ImportError:
     from scripts.columnar import COLUMNAR_CONTRACT, audit_backend
+
+
+MANIFEST_CACHE_CONTRACT = "ireland-geometry.manifest-cache.v1"
 
 
 ANALYSIS_REQUIRED = {
@@ -713,33 +727,26 @@ def _resolve_manifest_artifact_path(artifact: dict, out_dir: Path) -> Path:
     return legacy
 
 
-def _resolve_manifest_source_path(source: dict, manifest: dict, data_root: Path, out_dir: Path) -> Path:
-    """Resolve a source from its portable reference, preferring a matching hash."""
-    raw = Path(str(source.get("path", "")))
-    legacy = raw if raw.is_absolute() else out_dir.parent / raw
-    if legacy.exists():
-        return legacy
-    relative = source.get("relative_path")
-    if not isinstance(relative, str) or not relative.strip():
-        return legacy
-    if source.get("path_base") != "project_root":
-        return legacy
-    bases: list[Path] = []
-    project_root = manifest.get("project_root")
-    if isinstance(project_root, str) and project_root.strip():
-        bases.append(Path(project_root).expanduser())
-    bases.extend((data_root.parent, out_dir.parent))
-    fallback: Path | None = None
-    for base in bases:
-        candidate = (base / relative).resolve()
-        if not candidate.exists():
-            continue
-        if fallback is None:
-            fallback = candidate
-        expected_hash = source.get("sha256")
-        if expected_hash and sha256_path(candidate) == expected_hash:
-            return candidate
-    return fallback or legacy
+def _resolve_manifest_source_path(
+    source: dict,
+    manifest: dict,
+    data_root: Path,
+    out_dir: Path,
+    project_root: Path | None = None,
+) -> Path | None:
+    """Resolve a source through the shared relocation-safe runtime contract."""
+    active_project_root = (
+        Path(project_root).expanduser().resolve()
+        if project_root is not None
+        else Path(out_dir).expanduser().resolve().parent
+    )
+    return resolve_manifest_source_path(
+        source,
+        manifest,
+        project_root=active_project_root,
+        data_root=data_root,
+        out_dir=out_dir,
+    )
 
 
 def check_manifest_path_contract(manifest: dict, out_dir: Path, errors: list[str]) -> None:
@@ -805,6 +812,9 @@ def check_manifest_contract(manifest: dict, out_dir: Path, errors: list[str]) ->
         if resolved in listed:
             errors.append(f"manifest lists an artifact more than once: {path}")
         listed.add(resolved)
+        if path.is_symlink():
+            errors.append(f"manifest artifact is a symlink: {path}")
+            continue
         if path.name == "verification.json" or path.name in MANIFEST_EXCLUDED_OUTPUTS:
             continue
         if not path.exists():
@@ -818,13 +828,19 @@ def check_manifest_contract(manifest: dict, out_dir: Path, errors: list[str]) ->
         if expected_rows is not None and artifact.get("rows") != expected_rows:
             errors.append(f"manifest artifact row count mismatch: {path}")
 
-    actual = {
-        path.resolve()
-        for path in out_dir.iterdir()
-        if path.is_file()
-        and path.name not in {"manifest.json", "verification.json"}
-        and path.name not in MANIFEST_EXCLUDED_OUTPUTS
-    }
+    actual: set[Path] = set()
+    if out_dir.is_dir():
+        for path in out_dir.rglob("*"):
+            if path.is_symlink():
+                errors.append(f"output contains a symlink: {path}")
+                continue
+            if not path.is_file():
+                continue
+            if path.name in {"manifest.json", "verification.json"}:
+                continue
+            if path.name in MANIFEST_EXCLUDED_OUTPUTS:
+                continue
+            actual.add(path.resolve())
     for path in sorted(actual - listed):
         errors.append(f"manifest does not list output artifact: {path}")
 
@@ -896,6 +912,8 @@ def check_manifest_freshness_contract(
     out_dir: Path,
     errors: list[str],
     warnings: list[str],
+    *,
+    project_root: Path | None = None,
 ) -> None:
     """Validate the versioned source-age record and its alignment with inputs."""
     record = manifest.get("source_freshness")
@@ -962,9 +980,15 @@ def check_manifest_freshness_contract(
     for index, source in enumerate(manifest_sources, 1):
         if not isinstance(source, dict):
             continue
-        source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
+        source_path = _resolve_manifest_source_path(
+            source,
+            manifest,
+            data_root,
+            out_dir,
+            project_root=project_root,
+        )
         modified_at = source.get("modified_at")
-        if source_path.exists() and modified_at is None:
+        if source_path is not None and source_path.exists() and modified_at is None:
             errors.append(f"manifest source {index} is missing modified_at: {source_path}")
         if modified_at is None:
             continue
@@ -990,8 +1014,14 @@ def check_manifest_freshness_contract(
                     "manifest source modified_at does not match source_freshness: "
                     f"{source.get('path')}"
                 )
-            source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
-            if source_path.exists():
+            source_path = _resolve_manifest_source_path(
+                source,
+                manifest,
+                data_root,
+                out_dir,
+                project_root=project_root,
+            )
+            if source_path is not None and source_path.exists():
                 actual_modified = path_modified_at(source_path)
                 if actual_modified is not None and actual_modified != freshness.get("modified_at"):
                     errors.append(
@@ -1006,6 +1036,219 @@ def check_manifest_freshness_contract(
                 "manifest source_freshness contains a source not present in sources: "
                 f"{identity[-1]}"
             )
+
+
+def _command_option(command: object, option: str) -> tuple[bool, str | None]:
+    """Return whether a command contains an option and its following value."""
+    if not isinstance(command, list):
+        return False, None
+    for index, token in enumerate(command):
+        if str(token) != option:
+            continue
+        if index + 1 >= len(command):
+            return True, None
+        return True, str(command[index + 1])
+    return False, None
+
+
+def _manifest_parameter_root(manifest: dict, out_dir: Path) -> Path:
+    """Resolve the current project root, falling back after a project move."""
+    raw_root = manifest.get("project_root")
+    root = (
+        Path(raw_root).expanduser()
+        if isinstance(raw_root, str) and raw_root.strip()
+        else out_dir.parent
+    )
+    return root if root.is_dir() else out_dir.parent
+
+
+def _manifest_parameter_path(manifest: dict, value: object, out_dir: Path) -> Path:
+    """Resolve a manifest path parameter using its recorded project root."""
+    root = _manifest_parameter_root(manifest, out_dir)
+    candidate = Path(str(value)).expanduser()
+    return (candidate if candidate.is_absolute() else root / candidate).resolve()
+
+
+def check_manifest_cache_contract(
+    manifest: dict,
+    stage_cache: dict[str, Any] | None,
+    out_dir: Path,
+    errors: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Prove that manifest parameters agree with cached stage commands.
+
+    Diagnostic-only pipeline runs intentionally preserve the previous build
+    parameters while recording their own ``last_invocation``.  This contract
+    compares only the preserved build context with the commands that produced
+    cache fingerprints, so harmless diagnostic overrides do not create false
+    failures while a changed analytical parameter cannot pass unnoticed.
+    """
+    result: dict[str, Any] = {
+        "contract": MANIFEST_CACHE_CONTRACT,
+        "status": "not_provided",
+        "checked_stages": [],
+        "unavailable_stages": [],
+        "check_count": 0,
+        "mismatches": [],
+    }
+    parameters = manifest.get("parameters")
+    if not isinstance(parameters, dict):
+        warnings.append("manifest/cache alignment is unavailable: manifest parameters are missing")
+        return result
+    stages = stage_cache.get("stages") if isinstance(stage_cache, dict) else None
+    if not isinstance(stages, dict):
+        warnings.append("manifest/cache alignment is unavailable: stage cache records are missing")
+        return result
+
+    raw_plan_parameter = parameters.get("analysis_plan")
+    if isinstance(raw_plan_parameter, str) and raw_plan_parameter.strip():
+        plan_path = _manifest_parameter_path(manifest, raw_plan_parameter, out_dir)
+    else:
+        plan_path = default_analysis_plan_path(
+            _manifest_parameter_root(manifest, out_dir),
+            package_root=Path(__file__).resolve().parent.parent,
+        ).resolve()
+    specs: dict[str, tuple[tuple[str, str, str], ...]] = {
+        "fetch": (
+            ("flag", "refresh", "--refresh"),
+            ("flag", "no_network", "--no-download"),
+        ),
+        "fetch-niah": (
+            ("flag", "refresh", "--refresh"),
+            ("flag", "no_network", "--no-network"),
+        ),
+        "analyze": (("path", "analysis_plan", "--plan"),),
+        "spatial-covariates": (
+            ("path", "boundaries", "--boundaries"),
+            ("path", "settlements", "--settlements"),
+        ),
+        "osm-history": (("path", "osm_history", "--history"),),
+        "building-parts": (("path", "lidar", "--lidar"),),
+        "historical": (("path", "historical_references", "--references"),),
+        "review": (("path", "review_labels", "--labels"),),
+        "point-pattern": (
+            ("int", "seed", "--seed"),
+            ("int", "mc", "--mc"),
+        ),
+        "spatial-stats": (
+            ("int", "seed", "--seed"),
+            ("int", "mc", "--mc"),
+        ),
+        "spatial-bootstrap": (
+            ("int", "seed", "--seed"),
+            ("int", "bootstrap_iterations", "--iterations"),
+        ),
+        "road-proximity": (("int", "seed", "--seed"),),
+        "road-routing": (
+            ("int", "routing_max_pairs", "--max-pairs"),
+            ("float", "routing_speed_kmh", "--speed-kmh"),
+            ("float", "routing_weight_t", "--weight-t"),
+            ("text", "routing_departure", "--departure"),
+            ("text", "routing_vehicle_class", "--vehicle-class"),
+            ("path", "road_graph", "--road-graph"),
+            ("flag", "road_from_pbf", "--from-pbf"),
+            ("int", "routing_max_ways", "--max-ways"),
+            ("flag", "routing_include_restricted", "--include-restricted"),
+            ("flag", "routing_include_ferries", "--include-ferries"),
+        ),
+        "holdout": (
+            ("int", "seed", "--seed"),
+            ("path", "analysis_plan", "--plan"),
+            ("float", "holdout_fraction", "--fraction"),
+        ),
+    }
+
+    error_start = len(errors)
+
+    def mismatch(stage: str, parameter: str, expected: object, actual: object) -> None:
+        expected_value = str(expected) if isinstance(expected, Path) else expected
+        item = {
+            "stage": stage,
+            "parameter": parameter,
+            "expected": expected_value,
+            "actual": actual,
+        }
+        result["mismatches"].append(item)
+        errors.append(
+            "manifest/cache alignment mismatch for "
+            f"{stage}.{parameter}: expected {expected_value!r}, cached command has {actual!r}"
+        )
+
+    def compare(stage: str, kind: str, parameter: str, option: str, command: list[Any]) -> None:
+        if parameter not in parameters:
+            return
+        if parameter == "routing_max_ways" and not parameters.get("road_from_pbf"):
+            return
+        expected = plan_path if parameter == "analysis_plan" else parameters.get(parameter)
+        present, raw = _command_option(command, option)
+        result["check_count"] += 1
+        if kind == "flag":
+            if not isinstance(expected, bool):
+                errors.append(f"manifest parameter {parameter} must be boolean")
+                return
+            if present != expected:
+                mismatch(stage, parameter, expected, present)
+            return
+        if expected is None:
+            if present:
+                mismatch(stage, parameter, None, raw)
+            return
+        if not present or raw is None:
+            mismatch(stage, parameter, expected, None)
+            return
+        try:
+            if kind == "int":
+                actual: object = int(raw)
+                equal = actual == expected and not isinstance(expected, bool)
+            elif kind == "float":
+                actual = float(raw)
+                equal = (
+                    isinstance(expected, (int, float))
+                    and not isinstance(expected, bool)
+                    and math.isfinite(float(expected))
+                    and math.isfinite(float(actual))
+                    and abs(float(actual) - float(expected)) <= 1e-9
+                )
+            elif kind == "path":
+                actual = str(Path(raw).expanduser().resolve())
+                equal = Path(actual) == (
+                    expected
+                    if isinstance(expected, Path)
+                    else _manifest_parameter_path(manifest, expected, out_dir)
+                )
+            else:
+                actual = raw
+                equal = actual == str(expected)
+        except (TypeError, ValueError, OSError):
+            actual = raw
+            equal = False
+        if not equal:
+            mismatch(stage, parameter, expected, actual)
+
+    for stage, stage_specs in specs.items():
+        record = stages.get(stage)
+        if not isinstance(record, dict):
+            result["unavailable_stages"].append(stage)
+            continue
+        fingerprint_inputs = record.get("fingerprint_inputs")
+        command = fingerprint_inputs.get("command") if isinstance(fingerprint_inputs, dict) else None
+        if not isinstance(command, list):
+            errors.append(f"manifest/cache alignment cannot inspect command for stage {stage}")
+            continue
+        result["checked_stages"].append(stage)
+        for kind, parameter, option in stage_specs:
+            compare(stage, kind, parameter, option, command)
+
+    for stage in result["unavailable_stages"]:
+        warnings.append(f"manifest/cache alignment could not inspect missing stage record: {stage}")
+    if len(errors) > error_start:
+        result["status"] = "fail"
+    elif result["check_count"] and result["unavailable_stages"]:
+        result["status"] = "partial"
+    elif result["check_count"]:
+        result["status"] = "pass"
+    return result
 
 
 def _close_enough(actual: float, expected: float, tolerance: float = 1e-3) -> bool:
@@ -1233,9 +1476,27 @@ def check_holdout_contract(
         errors.append("holdout_results.csv is missing its no-target diagnostic")
 
 
-def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = None) -> dict:
+def verify_outputs(
+    data_root: Path,
+    out_dir: Path,
+    manifest_path: Path | None = None,
+    *,
+    project_root: Path | None = None,
+) -> dict:
+    data_root = reject_symlink_root(data_root, label="data directory")
+    data_root = reject_symlink_tree(data_root, label="data directory")
+    out_dir = reject_symlink_root(out_dir)
+    out_dir = reject_symlink_tree(out_dir, label="output directory")
+    if manifest_path is not None:
+        manifest_path = reject_symlink_path(manifest_path, label="manifest file")
     errors: list[str] = []
     warnings: list[str] = []
+    stage_cache_payload: dict[str, Any] | None = None
+    active_project_root = (
+        Path(project_root).expanduser().resolve()
+        if project_root is not None
+        else Path(out_dir).expanduser().resolve().parent
+    )
 
     combined = data_root / "combined.json"
     if require_file(combined, errors):
@@ -1441,6 +1702,8 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
     if require_file(cache_path, errors):
         try:
             stage_cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(stage_cache, dict):
+                stage_cache_payload = stage_cache
             if (
                 stage_cache.get("cache_version") != CACHE_VERSION
                 or not isinstance(stage_cache.get("runtime"), dict)
@@ -1665,7 +1928,7 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
             for key in ("manifest_version", "generated_at", "git_revision", "git_dirty", "sources", "counts"):
                 if key not in manifest:
                     errors.append(f"manifest missing key: {key}")
-            current_revision = git_revision()
+            current_revision = git_revision(active_project_root)
             if current_revision and manifest.get("git_revision") != current_revision:
                 errors.append(
                     f"manifest Git revision {manifest.get('git_revision')} != {current_revision}"
@@ -1673,10 +1936,30 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
             if manifest.get("manifest_version", 0) < 2 or manifest.get("schema_version", 0) < 3:
                 errors.append("manifest does not advertise schema version 3")
             check_manifest_runtime_contract(manifest, errors, warnings)
-            check_manifest_freshness_contract(manifest, data_root, out_dir, errors, warnings)
+            check_manifest_freshness_contract(
+                manifest,
+                data_root,
+                out_dir,
+                errors,
+                warnings,
+                project_root=active_project_root,
+            )
             for source in manifest.get("sources", []):
-                source_path = _resolve_manifest_source_path(source, manifest, data_root, out_dir)
-                if source_path.exists():
+                source_path = _resolve_manifest_source_path(
+                    source,
+                    manifest,
+                    data_root,
+                    out_dir,
+                    project_root=active_project_root,
+                )
+                if source_path is not None and source_path.exists():
+                    expected_metadata_hash = source.get("metadata_sha256")
+                    if expected_metadata_hash is not None:
+                        actual_metadata_hash = path_metadata_sha256(source_path)
+                        if actual_metadata_hash != expected_metadata_hash:
+                            errors.append(
+                                f"manifest source metadata hash mismatch: {source_path}"
+                            )
                     actual_hash = sha256_path(source_path)
                     if not source.get("sha256"):
                         errors.append(f"manifest source has no sha256: {source_path}")
@@ -1689,6 +1972,14 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"manifest is not valid JSON: {exc}")
 
+    manifest_cache_alignment = check_manifest_cache_contract(
+        manifest,
+        stage_cache_payload,
+        out_dir,
+        errors,
+        warnings,
+    )
+
     counts = output_counts(out_dir)
     # A file cannot contain an exact byte count for itself without a
     # self-referential serialization loop. Keep the verifier's own size out
@@ -1699,13 +1990,14 @@ def verify_outputs(data_root: Path, out_dir: Path, manifest_path: Path | None = 
         "passed": not errors,
         "errors": errors,
         "warnings": warnings,
-        "git_revision": git_revision(),
-        "git_dirty": git_dirty(),
+        "git_revision": git_revision(active_project_root),
+        "git_dirty": git_dirty(active_project_root),
         "counts": counts,
         "analysis_rows": len(analysis),
         "target_rows": len(targets),
         "control_rows": len(controls),
         "manifest_revision": manifest.get("git_revision"),
+        "manifest_cache_alignment": manifest_cache_alignment,
     }
     atomic_write_json(out_dir / "verification.json", result, indent=2)
     return result
@@ -1717,18 +2009,39 @@ def main(argv: list[str] | None = None) -> None:
         "--data-root", default=None, help="data directory; defaults to project data/"
     )
     parser.add_argument(
+        "--project-root",
+        default=None,
+        help="active project root for portable manifest source paths",
+    )
+    parser.add_argument(
         "--out-dir", default=None, help="output directory; defaults to project output/"
     )
     parser.add_argument(
         "--manifest", default=None, help="manifest path; defaults to output/manifest.json"
     )
     args = parser.parse_args(argv)
-    data_root = project_path(args.data_root, "data")
-    out_dir = project_path(args.out_dir, "output")
-    manifest = (
-        project_path(args.manifest, str(out_dir / "manifest.json")) if args.manifest else None
+    project_root = (
+        Path(args.project_root).expanduser().resolve()
+        if args.project_root
+        else default_project_root()
     )
-    result = verify_outputs(data_root, out_dir, manifest)
+
+    def resolve_cli_path(value: str | None, default: str | Path) -> Path:
+        candidate = Path(value) if value is not None else Path(default)
+        return candidate if candidate.is_absolute() else project_root / candidate
+
+    data_root = resolve_cli_path(args.data_root, "data")
+    out_dir = resolve_cli_path(args.out_dir, "output")
+    manifest = resolve_cli_path(args.manifest, out_dir / "manifest.json") if args.manifest else None
+    try:
+        result = verify_outputs(
+            data_root,
+            out_dir,
+            manifest,
+            project_root=project_root,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     if result["passed"]:
         print(
             f"[verify] PASS ({result['analysis_rows']} analysis rows, {result['target_rows']} targets)"

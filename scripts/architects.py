@@ -3,7 +3,10 @@
 
 The NIAH appraisal/composition free text names the architect for many
 churches and country houses ("to a design by William Henry Byrne
-(1844-1917) of Suffolk Street, Dublin"). This stage:
+(1844-1917) of Suffolk Street, Dublin"). This stage uses explicit design,
+architect-role, and tightly bounded design-context evidence so generic
+construction, funding, map-label, clergy, and artwork-supplier phrases are
+not treated as architect attributions. It:
 
   1. extracts the architect from the NIAH text (validated regexes),
   2. joins it to the analyzed footprints (via output/niah_join.csv),
@@ -24,10 +27,14 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_data_tree_path, project_output_tree_path
     from stats import compare_proportions, wilson_interval
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_output_tree_path,
+    )
     from scripts.stats import compare_proportions, wilson_interval
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,16 +45,67 @@ NIAH_JSON = DATA / "niah" / "niah.json"
 JOIN = OUT / "niah_join.csv"
 RESULTS = OUT / "analysis_results.csv"
 
-NAME_RE = re.compile(
-    r"(?:to\s+(?:a\s+)?design(?:s)?|design(?:ed|s)?|works)\s+"
-    r"(?:signed\s+|exhibited\s+|attributed\s+)?"
-    r"(?:to\s+)?(?:by\s+|of\s+)?"
-    r"(?:the\s+(?:firm\s+of\s+|architect(?:s)?\s+)?)?"
-    r"([A-Z][A-Za-z'\.\-]*(?:\s+(?:and\s+|&)?[A-Z][A-Za-z'\.\-]*){0,4})"
+_NAME_PATTERN = (
+    r"[A-Z][A-Za-z'’\.\-]*"
+    r"(?:\s+(?:and\s+|&\s+)?[A-Z][A-Za-z'’\.\-]*){0,4}"
+)
+_ROLE_PREFIX_PATTERN = (
+    r"(?:(?:(?i:(?:a|local|chief|city|harbour|county|district|resident|"
+    r"principal|diocesan|influenced|based)\s+))*"
+    r"(?:(?:[A-Z][A-Za-z'’\.\-]*|and|&)\s+){0,5}"
+    r"(?:(?i:(?:chief|city|harbour|county|district|resident|principal|"
+    r"diocesan|influenced|based)\s+))*"
+    r"(?:(?i:architectural\s+(?:practice|firm)|architect(?:s)?|"
+    r"engineer(?:s)?|surveyor(?:s)?))"
+    r"(?:(?:\s+named\s+(?:only\s+)?as\s+)|(?:\s+|[,;:]\s+))"
+    r")?"
+)
+ATTRIBUTION_RE = re.compile(
+    rf"""
+    (?P<evidence>
+        (?i:\b(?:to\s+(?:a\s+)?design(?:s)?|design(?:ed|s)?|works?))
+        (?:\s+\([^)]{{1,40}}\))?\s+
+        (?:(?i:(?:signed|exhibited|attributed|produced|prepared|executed|approval))
+           (?:\s+\([^)]{{1,40}}\))?\s+)?
+        (?i:(?:by|to|of))\s+
+        (?:(?i:the)\s+)?
+        {_ROLE_PREFIX_PATTERN}
+        (?P<name>{_NAME_PATTERN})
+    )
+    """,
+    re.VERBOSE,
+)
+EXTENDED_ATTRIBUTION_RE = re.compile(
+    rf"""
+    (?P<evidence>
+        (?i:\b(?:design(?:s)?|plan(?:s)?))
+        [^.;]{{0,80}}?
+        (?i:\b(?:signed|attributed|produced|prepared|executed|approval))
+        (?:\s+\([^)]{{1,40}}\))?\s+
+        (?i:(?:by|to|of))\s+
+        (?:(?i:the)\s+)?
+        {_ROLE_PREFIX_PATTERN}
+        (?P<name>{_NAME_PATTERN})
+    )
+    """,
+    re.VERBOSE,
 )
 SIMPLE_RE = re.compile(
-    r"\bby\s+(?:the\s+(?:architect\s+)?)?"
-    r"([A-Z][A-Za-z'\.\-]*(?:\s+(?:and\s+|&)?[A-Z][A-Za-z'\.\-]*){1,3})"
+    rf"""
+    (?P<evidence>(?i:\bby))\s+
+    (?:(?i:the)\s+)?{_ROLE_PREFIX_PATTERN}
+    (?P<name>{_NAME_PATTERN})
+    """,
+    re.VERBOSE,
+)
+ARCHITECTURAL_CONTEXT_RE = re.compile(
+    r"(?i)(?:design(?:ed|s)?|architect(?:s)?|architectural|plans?|"
+    r"prepared|drawn)\W{0,36}$"
+)
+NON_ARCHITECTURAL_CONTEXT_RE = re.compile(
+    r"(?i)\b(?:stained\s+glass|altar(?:\s+fittings?)?|mosaic|"
+    r"window(?:s)?|joinery|ironwork|wall\s+box|post\s+box|"
+    r"waterpump|memorial\s+window|high\s+altar)\b"
 )
 STOPWORDS = {
     "subscription",
@@ -56,6 +114,10 @@ STOPWORDS = {
     "chapel",
     "reverend",
     "rev",
+    "revd",
+    "dr",
+    "pp",
+    "a.d",
     "bally",
     "the",
     "a",
@@ -116,7 +178,7 @@ STOPWORDS = {
 }
 
 
-def clean_name(raw: str) -> str | None:
+def clean_name(raw: str, *, allow_single: bool = False) -> str | None:
     """Normalize and validate an extracted architect name."""
     name = raw.strip()
     # cut at trailing context like ", of Dublin" or " (1844-1917)"
@@ -133,17 +195,20 @@ def clean_name(raw: str) -> str | None:
     name = name.rstrip(".")
     name = re.sub(r"\s+", " ", name)
     words = name.split()
-    if len(words) < 2:  # need surname
+    if len(words) < 2 and not allow_single:  # need surname unless source says so explicitly
         return None
     lowered = [word.lower().strip(".,") for word in words]
-    if any(word in STOPWORDS for word in lowered):
+    if any(
+        word in STOPWORDS and not re.fullmatch(r"[A-Z]\.", token)
+        for word, token in zip(lowered, words)
+    ):
         return None
     if words[0] in ("Sir", "Lady", "Lord", "St.", "Saint") and len(words) < 3:
         return None
     # drop "and Son" -> keep firm name
     name = re.sub(r"\s+(and|&)\s+(Son|Sons|Co\.?)\s*$", "", name)
     words = name.split()
-    if len(words) < 2 or words[-1].lower().strip(".") in STOPWORDS:
+    if (len(words) < 2 and not allow_single) or words[-1].lower().strip(".") in STOPWORDS:
         return None
     return name
 
@@ -169,14 +234,39 @@ def extract_architect(rec: dict) -> str | None:
 def extract_architect_detail(rec: dict) -> dict | None:
     """Return a validated name plus the exact source evidence."""
     txt = f"{rec.get('composition', '')} {rec.get('appraisal', '')}"
-    for m in NAME_RE.finditer(txt):
-        name = clean_name(m.group(1))
+    for m in ATTRIBUTION_RE.finditer(txt):
+        sentence_start = max(txt.rfind(".", 0, m.start()), txt.rfind(";", 0, m.start())) + 1
+        if NON_ARCHITECTURAL_CONTEXT_RE.search(txt[sentence_start : m.start()]):
+            continue
+        evidence = m.group("evidence").strip()
+        name = clean_name(
+            m.group("name"),
+            allow_single="named only as" in evidence.lower(),
+        )
         if name:
-            return {"name": name, "evidence": m.group(0).strip(), "confidence": "high"}
+            return {"name": name, "evidence": evidence, "confidence": "high"}
+    for m in EXTENDED_ATTRIBUTION_RE.finditer(txt):
+        sentence_start = max(txt.rfind(".", 0, m.start()), txt.rfind(";", 0, m.start())) + 1
+        if NON_ARCHITECTURAL_CONTEXT_RE.search(txt[sentence_start : m.start()]):
+            continue
+        evidence = m.group("evidence").strip()
+        name = clean_name(
+            m.group("name"),
+            allow_single="named only as" in evidence.lower(),
+        )
+        if name:
+            return {"name": name, "evidence": evidence, "confidence": "high"}
     for m in SIMPLE_RE.finditer(txt):
-        name = clean_name(m.group(1))
-        if name and not any(w.lower().strip(".,") in STOPWORDS for w in name.split()):
-            return {"name": name, "evidence": m.group(0).strip(), "confidence": "medium"}
+        context = txt[max(0, m.start() - 48) : m.start()]
+        sentence_start = max(txt.rfind(".", 0, m.start()), txt.rfind(";", 0, m.start())) + 1
+        if not ARCHITECTURAL_CONTEXT_RE.search(context) or NON_ARCHITECTURAL_CONTEXT_RE.search(
+            txt[sentence_start : m.start()]
+        ):
+            continue
+        evidence = m.group("evidence").strip() + " " + m.group("name").strip()
+        name = clean_name(m.group("name"))
+        if name:
+            return {"name": name, "evidence": evidence, "confidence": "medium"}
     return None
 
 
@@ -188,8 +278,8 @@ def main() -> None:
     ap.add_argument("--data-root", default=None, help="data directory; defaults to project data/")
     ap.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
     args = ap.parse_args()
-    DATA = project_path(args.data_root, "data")
-    OUT = project_path(args.out_dir, "output")
+    DATA = project_data_tree_path(args.data_root)
+    OUT = project_output_tree_path(args.out_dir)
     NIAH_JSON = DATA / "niah" / "niah.json"
     JOIN = OUT / "niah_join.csv"
     RESULTS = OUT / "analysis_results.csv"
