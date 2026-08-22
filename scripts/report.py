@@ -2246,6 +2246,34 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .culture-focus:hover, .culture-focus[aria-pressed="true"] { border-color:var(--deep-2); color:#f7f2e6; background:var(--deep); }
 .culture-focus span { color:var(--red); font-size:14px; line-height:1; }
 .culture-focus[aria-pressed="true"] span { color:#e5c874; }
+.spectrum-field { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:radial-gradient(circle at 86% 10%,rgba(225,194,118,.16),transparent 30%),linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
+.spectrum-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
+.spectrum-field .culture-mosaic-label { color:#e1c276; }
+.spectrum-field h3 { max-width:560px; margin:7px 0 0; color:#f7f0dc; font:700 24px/1.04 Georgia,serif; letter-spacing:-.045em; }
+.spectrum-head p { max-width:620px; margin:8px 0 0; color:rgba(247,240,220,.65); font-size:10px; line-height:1.5; }
+.spectrum-readout { min-height:104px; padding:11px 12px; border:1px solid rgba(225,194,118,.4); background:rgba(7,29,32,.3); }
+.spectrum-readout > span { color:#e1c276; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.spectrum-readout strong { display:block; margin-top:8px; color:#f7f0dc; font:700 16px/1.05 Georgia,serif; letter-spacing:-.03em; }
+.spectrum-readout p { margin:5px 0 0; color:rgba(247,240,220,.58); font-size:9px; line-height:1.4; }
+.spectrum-readout-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:9px; }
+.spectrum-readout-metric { min-width:0; padding:6px; border:1px solid rgba(247,240,220,.13); background:rgba(7,29,32,.22); }
+.spectrum-readout-metric b, .spectrum-readout-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.spectrum-readout-metric b { color:#e1c276; font:700 11px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.spectrum-readout-metric small { margin-top:3px; color:rgba(247,240,220,.48); font:7px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.spectrum-plot-wrap { margin-top:13px; padding:8px 8px 5px; overflow-x:auto; border:1px solid rgba(247,240,220,.16); background:rgba(7,29,32,.28); scrollbar-color:#c6a85d rgba(247,240,220,.12); }
+.spectrum-plot { display:block; width:100%; min-width:560px; height:auto; }
+.spectrum-grid-line { stroke:rgba(247,240,220,.14); stroke-width:1; }
+.spectrum-axis { stroke:rgba(247,240,220,.42); stroke-width:1; }
+.spectrum-axis-label { fill:rgba(247,240,220,.56); font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; }
+.spectrum-guide { stroke:#e1c276; stroke-width:1.3; stroke-dasharray:5 5; opacity:.8; }
+.spectrum-guide-label { fill:#e1c276; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.spectrum-median-guide { stroke:#7aa5a1; stroke-width:1; stroke-dasharray:2 5; opacity:.7; }
+.spectrum-dot { cursor:pointer; opacity:.78; stroke:#fff4d6; stroke-width:.7; transition:opacity .14s ease,stroke-width .14s ease,r .14s ease; }
+.spectrum-dot:hover, .spectrum-dot:focus { opacity:1; stroke-width:1.8; outline:none; }
+.spectrum-legend { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.spectrum-legend-chip { display:inline-flex; align-items:center; gap:5px; color:rgba(247,240,220,.58); font-size:8px; }
+.spectrum-legend-chip i { width:7px; height:7px; border-radius:50%; }
+.spectrum-note { margin:11px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
 .culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
 .culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
 .culture-timeline .culture-mosaic-label { color:#e1c276; }
@@ -2705,6 +2733,8 @@ tr:hover td { background:#f1f6f1; }
   .culture-reading-context { display:block; }
   .culture-reading-context button { margin-top:9px; }
   .culture-mark { display:none; }
+  .spectrum-head { grid-template-columns:1fr; }
+  .spectrum-field h3 { max-width:none; }
   .culture-grid { grid-template-columns:1fr; }
   .culture-card { min-height:0; }
   .heritage-type-grid { grid-template-columns:1fr; }
@@ -3015,6 +3045,12 @@ tr:hover td { background:#f1f6f1; }
         <p id="cultureReadingContextText">The cultural field stays attached to the measured footprint that opened it.</p>
       </div>
       <button id="cultureReadingReturn" type="button">Return to building dossier →</button>
+    </div>
+    <div class="spectrum-field" aria-labelledby="spectrumHeading">
+      <div class="spectrum-head"><div><span class="culture-mosaic-label">Cruth / measured constellation</span><h3 id="spectrumHeading">The island becomes a cloud of forms.</h3><p>Read aspect ratio <b>r</b> against circularity <b>C</b>. The φ guide marks the golden-ratio screen; colours keep building-group context in view. Select a point to return to the source row, map and dossier.</p></div><div class="spectrum-readout" aria-live="polite"><span id="spectrumStatus">Measured field / r × C</span><strong id="spectrumReadoutTitle">The measured field is ready to explore.</strong><p id="spectrumReadoutText">Each point is a source-linked footprint descriptor; the cloud is a diagnostic surface, not a map of cultural meaning.</p><div class="spectrum-readout-metrics"><span class="spectrum-readout-metric"><b id="spectrumCount">—</b><small>plotted / visible</small></span><span class="spectrum-readout-metric"><b id="spectrumMedian">—</b><small>field median r / C</small></span><span class="spectrum-readout-metric"><b id="spectrumSignals">—</b><small>φ / θ screens</small></span></div></div></div>
+      <div class="spectrum-plot-wrap"><svg id="geometrySpectrumPlot" class="spectrum-plot" viewBox="0 0 760 260" role="img" aria-label="Measured building footprint constellation by aspect ratio and circularity"></svg></div>
+      <div id="spectrumLegend" class="spectrum-legend" aria-label="Building group colours"></div>
+      <p id="spectrumNote" class="spectrum-note">The constellation will appear when the report pack loads. r is a footprint aspect ratio and C is 4πA/P²; both are mapped descriptors, not evidence of design intent.</p>
     </div>
     <div class="culture-grid" aria-label="Data-derived Irish cultural lenses">
       <article class="culture-card">
@@ -5374,6 +5410,40 @@ async function copyPlaceNameLink() {
     if(status) status.textContent='Named-place state saved in the address bar · copy the URL manually.';
   }
 }
+function spectrumGroupColor(group) {
+  const colors={historic:'#bf6d52',worship:'#e1bd66',government:'#8fbe9c',civic:'#7aa5a1',controls:'#a79d8a'};
+  return colors[String(group||'').toLowerCase()]||'#c3bca6';
+}
+function renderGeometrySpectrum() {
+  const plot=$('geometrySpectrumPlot'), legend=$('spectrumLegend'), countValue=$('spectrumCount'), medianValueElement=$('spectrumMedian'), signalsValue=$('spectrumSignals'), status=$('spectrumStatus'), title=$('spectrumReadoutTitle'), text=$('spectrumReadoutText'), note=$('spectrumNote');
+  if(!plot) return;
+  const set=(element,value)=>{ if(element) element.textContent=value; }, scope=SERVER_MODE?'current lazy page':'full embedded snapshot', sourceRows=Array.isArray(filtered)?filtered:DATA, rows=sourceRows.filter(row=>row&&row.osm_id&&Number.isFinite(Number(row.aspect_ratio))&&Number.isFinite(Number(row.circularity)));
+  if(!rows.length) {
+    plot.innerHTML='<text class="spectrum-axis-label" x="24" y="42">No measured r × C rows are available in this view.</text>';
+    plot.setAttribute('aria-label','No measured aspect-ratio and circularity rows are available in this report view');
+    if(legend) legend.innerHTML='';
+    set(countValue,'0'); set(medianValueElement,'—'); set(signalsValue,'—'); set(status,'Measured field unavailable'); set(title,'The measured constellation is not reported.'); set(text,`The ${scope} carries no rows with both aspect ratio and circularity.`); set(note,`No r × C constellation can be drawn from the ${scope}. Clear filters or widen the report view to restore the field.`);
+    return;
+  }
+  const ratios=rows.map(row=>Number(row.aspect_ratio)), circularities=rows.map(row=>Number(row.circularity)), medianR=medianValue(ratios), medianC=medianValue(circularities), ratioSignals=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angleSignals=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, maxPoints=180, stride=Math.max(1,Math.ceil(rows.length/maxPoints)), points=rows.filter((row,index)=>index%stride===0).slice(0,maxPoints), sortedRatios=ratios.slice().sort((a,b)=>a-b), p97=sortedRatios[Math.min(sortedRatios.length-1,Math.floor(sortedRatios.length*.97))], xMin=.5, xMax=Math.max(2.2,Math.min(6,Math.ceil((Number.isFinite(p97)?p97:2.2)*10)/10)), clipped=rows.filter(row=>Number(row.aspect_ratio)<xMin||Number(row.aspect_ratio)>xMax).length;
+  const width=760, height=260, left=54, right=24, top=18, bottom=37, plotWidth=width-left-right, plotHeight=height-top-bottom, clamp=value=>Math.max(0,Math.min(1,value)), x=value=>left+clamp((Number(value)-xMin)/(xMax-xMin))*plotWidth, y=value=>top+(1-clamp(Number(value)))*plotHeight, xTicks=[...new Set([xMin,1,1.618,2,xMax].map(value=>Number(value.toFixed(3))))].sort((a,b)=>a-b), yTicks=[0,.5,1], xGrid=xTicks.map(value=>`<line class="spectrum-grid-line" x1="${x(value).toFixed(1)}" y1="${top}" x2="${x(value).toFixed(1)}" y2="${(top+plotHeight).toFixed(1)}"/><text class="spectrum-axis-label" x="${x(value).toFixed(1)}" y="${height-16}" text-anchor="middle">${value.toFixed(value===1.618?3:1)}</text>`).join(''), yGrid=yTicks.map(value=>`<line class="spectrum-grid-line" x1="${left}" y1="${y(value).toFixed(1)}" x2="${(left+plotWidth).toFixed(1)}" y2="${y(value).toFixed(1)}"/><text class="spectrum-axis-label" x="${left-9}" y="${(y(value)+3).toFixed(1)}" text-anchor="end">${value.toFixed(1)}</text>`).join(''), phiX=x(1.618), medianX=x(medianR), medianY=y(medianC), pointMarkup=points.map(row=>{ const id=String(row.osm_id), titleText=contextTitle(row), place=contextPlaceText(row), signal=contextSignalText(row), ratio=Number(row.aspect_ratio), circularity=Number(row.circularity), label=`${titleText} · ${place} · r ${fmt(ratio,3)} · C ${fmt(circularity,3)} · ${signal}`; return `<circle class="spectrum-dot" cx="${x(ratio).toFixed(1)}" cy="${y(circularity).toFixed(1)}" r="3.4" fill="${spectrumGroupColor(row.group)}" data-spectrum-id="${esc(id)}" tabindex="0" role="button" aria-label="${esc(label)}"><title>${esc(label)}</title></circle>`; }).join('');
+  plot.innerHTML=`<rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="rgba(7,29,32,.22)"/><g aria-hidden="true">${xGrid}${yGrid}<line class="spectrum-axis" x1="${left}" y1="${top+plotHeight}" x2="${left+plotWidth}" y2="${top+plotHeight}"/><line class="spectrum-axis" x1="${left}" y1="${top}" x2="${left}" y2="${top+plotHeight}"/><line class="spectrum-guide" x1="${phiX.toFixed(1)}" y1="${top}" x2="${phiX.toFixed(1)}" y2="${top+plotHeight}"/><text class="spectrum-guide-label" x="${Math.min(left+plotWidth-20,phiX+5).toFixed(1)}" y="${top+11}">φ 1.618</text><line class="spectrum-median-guide" x1="${medianX.toFixed(1)}" y1="${top}" x2="${medianX.toFixed(1)}" y2="${top+plotHeight}"/><line class="spectrum-median-guide" x1="${left}" y1="${medianY.toFixed(1)}" x2="${left+plotWidth}" y2="${medianY.toFixed(1)}"/></g><g>${pointMarkup}</g><text class="spectrum-axis-label" x="${left+plotWidth/2}" y="${height-3}" text-anchor="middle">r / aspect ratio →</text><text class="spectrum-axis-label" transform="translate(12 ${top+plotHeight/2}) rotate(-90)" text-anchor="middle">C / circularity →</text>`;
+  plot.setAttribute('aria-label',`Measured footprint constellation for ${points.length.toLocaleString()} sampled rows from ${rows.length.toLocaleString()} visible rows; x aspect ratio r from ${xMin} to ${xMax}, y circularity C from 0 to 1; dashed φ guide at 1.618.`);
+  if(countValue) countValue.textContent=`${points.length.toLocaleString()} / ${rows.length.toLocaleString()}`;
+  if(medianValueElement) medianValueElement.textContent=`${fmt(medianR,3)} · ${fmt(medianC,3)}`;
+  if(signalsValue) signalsValue.textContent=`${ratioSignals.toLocaleString()} φ · ${angleSignals.toLocaleString()} θ`;
+  if(status) status.textContent=`Measured field / ${scope}`;
+  if(title) title.textContent='Select a point to read its building field.';
+  if(text) text.textContent=`${rows.length.toLocaleString()} visible rows; the plot samples ${points.length.toLocaleString()} deterministically for a readable constellation. Dashed φ is a screening reference, not a design claim.`;
+  if(note) note.textContent=`Showing ${points.length.toLocaleString()} of ${rows.length.toLocaleString()} rows from the ${scope}; ${clipped.toLocaleString()} aspect values fall outside the displayed ${xMin}–${xMax} window. Click or focus a point to open its mapped dossier. r is length/width; C is 4πA/P².`;
+  if(legend) {
+    const groups=new Map(); rows.forEach(row=>{ const key=String(row.group||'other'); groups.set(key,(groups.get(key)||0)+1); });
+    legend.innerHTML=[...groups.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).map(([group,count])=>`<span class="spectrum-legend-chip"><i style="background:${spectrumGroupColor(group)}"></i>${esc(spatialGroupLabel(group))} ${count.toLocaleString()}</span>`).join('');
+  }
+  const readPoint=event=>{ const dot=event.target.closest?.('circle[data-spectrum-id]'); if(!dot) return; const row=targetRowForId(dot.dataset.spectrumId); if(!row) return; const titleText=contextTitle(row), place=contextPlaceText(row), signal=contextSignalText(row); set(status,`Point / ${titleText}`); set(title,`${titleText}${place?` · ${place}`:''}`); set(text,`r ${fmt(row.aspect_ratio,3)} · C ${fmt(row.circularity,3)} · ${signal} · ${spatialGroupLabel(row.group)}. Focus the point to open its source-linked building dossier.`); };
+  plot.onpointerover=readPoint;
+  plot.onfocusin=readPoint;
+}
 function setMakerQuery(name) {
   const input=$('query');
   if(!input||!name) return;
@@ -5421,6 +5491,7 @@ function renderCultureAtlas() {
   renderPlaceBraid();
   renderLandField();
   renderPlaceNameField();
+  renderGeometrySpectrum();
   document.querySelectorAll('.culture-focus').forEach(button=>{
     const active=button.dataset.cultureFocus===$('cultureLens')?.value;
     button.setAttribute('aria-pressed',String(active));
@@ -5561,6 +5632,8 @@ document.addEventListener('click',event=>{
   if(maker?.dataset.makerName) { setMakerQuery(maker.dataset.makerName); return; }
   const placeName=event.target.closest?.('button[data-place-name]');
   if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
+  const spectrum=event.target.closest?.('circle[data-spectrum-id]');
+  if(spectrum?.dataset.spectrumId) { focusRow(spectrum.dataset.spectrumId,{scroll:true,openPopup:true}); return; }
   if(event.target.closest?.('#copyPlaceNameLink')) { copyPlaceNameLink(); return; }
   const carry=event.target.closest?.('#carrySelectionToStudio');
   if(carry?.dataset.carryStudio) { carrySelectionToStudio(carry.dataset.carryStudio); return; }
