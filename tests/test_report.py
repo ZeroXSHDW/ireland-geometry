@@ -500,6 +500,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'class="field-sequence"' in html
     assert 'data-sequence-target="fieldWalk"' in html
     assert 'data-sequence-section="culture"' in html
+    assert 'class="field-principles"' in html
+    assert 'data-field-principle="named"' in html
+    assert 'data-field-principle="heritage"' in html
+    assert 'data-field-principle="form"' in html
+    assert 'data-field-principle="pobal"' in html
+    assert "function selectFieldPrinciple(key)" in html
     assert "function focusAtlasTarget(targetKey,navKey=targetKey)" in html
     assert "data-sequence-section" in html
     assert "<strong>Maths</strong>" in html

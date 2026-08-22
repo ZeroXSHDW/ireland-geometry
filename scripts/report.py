@@ -1411,7 +1411,11 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-section h2 em { color:#e1bd66; font-style:normal; }
 .field-section p { max-width:650px; margin:12px 0 0; color:rgba(247,240,220,.7); font-size:12px; line-height:1.6; }
 .field-principles { display:flex; flex-wrap:wrap; gap:6px; margin-top:17px; }
-.field-principles span { padding:6px 8px; border:1px solid rgba(247,240,220,.18); border-radius:999px; color:rgba(247,240,220,.72); background:rgba(7,33,35,.2); font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; }
+.field-principles button { display:inline-flex; align-items:center; gap:7px; padding:6px 8px; border:1px solid rgba(247,240,220,.18); border-radius:999px; color:rgba(247,240,220,.72); background:rgba(7,33,35,.2); font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; cursor:pointer; transition:transform .18s ease,border-color .18s ease,color .18s ease,background .18s ease,box-shadow .18s ease; }
+.field-principles button b { color:#e1bd66; font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.field-principles button:hover, .field-principles button:focus-visible, .field-principles button.is-active { border-color:rgba(225,189,102,.78); color:#f7f0dc; background:rgba(7,33,35,.42); box-shadow:0 5px 14px rgba(4,20,23,.16); transform:translateY(-1px); }
+.field-principles button:focus-visible { outline:2px solid #e1bd66; outline-offset:3px; }
+.field-principles button.is-active b { color:#f5d887; }
 .field-coordinate { min-height:187px; padding:15px; border:1px solid rgba(225,189,102,.3); background:rgba(8,34,36,.22); }
 .field-coordinate-top { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#dec17b; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
 .field-coordinate-top small { color:rgba(247,240,220,.48); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; }
@@ -2741,7 +2745,7 @@ tr:hover td { background:#f1f6f1; }
         <div class="field-kicker">The Irish field / a measured island</div>
         <h2 id="fieldTitle">Start with the land.<br/><em>Then let the building speak.</em></h2>
         <p>Coordinates give us the first precision: a footprint belongs somewhere, in a county, beside a road, under a particular light. The mathematics here is a lens for noticing—ratios, angles, symmetry, circles—not a story that replaces memory, craft, ecology or lived culture.</p>
-        <div class="field-principles" aria-label="Field principles"><span>ainm / name</span><span>oidhreacht / heritage</span><span>cruth / form</span><span>pobal / shared life</span></div>
+        <div class="field-principles" aria-label="Field principles"><button type="button" data-field-principle="named" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Ainm, named places">ainm / name <b aria-hidden="true">→</b></button><button type="button" data-field-principle="heritage" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Oidhreacht, heritage joins">oidhreacht / heritage <b aria-hidden="true">→</b></button><button type="button" data-field-principle="form" aria-controls="maths" aria-pressed="false" aria-label="Open Cruth, the mathematical grammar">cruth / form <b aria-hidden="true">→</b></button><button type="button" data-field-principle="pobal" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Pobal, shared life">pobal / shared life <b aria-hidden="true">→</b></button></div>
       </div>
       <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div id="coordinatePlot" class="coordinate-plot" aria-label="Ireland field coordinate marker"><span id="coordinatePlotReadout" class="coordinate-plot-readout">Ireland field centre</span><div class="coordinate-axis"><span>51° N</span><span>52°</span><span>53°</span><span>54°</span><span>55° N</span></div></div><p id="coordinateNote" class="coordinate-note">A schematic north–south field for the current report pack. The live map carries the actual points; this view keeps the idea visible: every measurement is situated.</p></div>
     </div>
@@ -4110,6 +4114,11 @@ function renderFieldAtlas() {
     button.classList.toggle('is-active',active);
     button.setAttribute('aria-pressed',String(active));
   });
+  document.querySelectorAll('[data-field-principle]').forEach(button=>{
+    const key=button.dataset.fieldPrinciple, active=key!=='form'&&key===$('cultureLens')?.value;
+    button.classList.toggle('is-active',active);
+    button.setAttribute('aria-pressed',String(active));
+  });
   const meta=FIELD_SIGNAL_META[activePattern];
   set('fieldSignalDetailTitle',meta?.title||'Choose a signal to trace it.');
   set('fieldSignalDetailText',meta?.detail||'Select a mathematical signal to filter the building footprints, focus the map, and carry the question into the heritage and culture layers below.');
@@ -4186,6 +4195,10 @@ function selectFieldSignal(key) {
     $('patterns')?.scrollIntoView({behavior:'smooth',block:'start'});
     fitMapToResults();
   },120);
+}
+function selectFieldPrinciple(key) {
+  if(key==='form') { focusAtlasSection('maths'); return; }
+  if(['named','heritage','pobal'].includes(key)) setCultureFilter(key);
 }
 function initFieldAtlas() {
   document.querySelectorAll('[data-field-signal]').forEach(button=>button.addEventListener('click',()=>selectFieldSignal(button.dataset.fieldSignal)));
@@ -5264,6 +5277,8 @@ document.addEventListener('click',event=>{
   if(quick) { applyQuickView(quick.dataset.quickView); return; }
   const maths=event.target.closest?.('button.maths-card');
   if(maths) { selectMathCard(maths.dataset.mathKey); return; }
+  const principle=event.target.closest?.('button[data-field-principle]');
+  if(principle?.dataset.fieldPrinciple) { selectFieldPrinciple(principle.dataset.fieldPrinciple); return; }
   const heritageEra=event.target.closest?.('button[data-heritage-era]');
   if(heritageEra?.dataset.heritageEra) { setHeritageEra(heritageEra.dataset.heritageEra); return; }
   const heritageType=event.target.closest?.('button[data-heritage-type]');
