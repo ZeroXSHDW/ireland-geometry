@@ -1325,7 +1325,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Field Atlas V4</title>
+<title>Cruth — Ireland Field Atlas V5</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
@@ -1358,6 +1358,20 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .intro-actions button:hover { border-color:#f7e2a8; color:#163a3a; background:#f0d48c; }
 .intro-actions button.secondary { border-color:rgba(248,242,229,.22); color:rgba(248,242,229,.7); background:rgba(248,242,229,.06); }
 .intro-actions button.secondary:hover { border-color:rgba(248,242,229,.55); color:#f8f2e5; background:rgba(248,242,229,.12); }
+.intro-reading { margin-top:22px; }
+.intro-reading-label { display:block; color:rgba(248,242,229,.48); font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.13em; text-transform:uppercase; }
+.intro-reading-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:8px; }
+.intro-reading-card { position:relative; display:flex; min-width:0; min-height:105px; flex-direction:column; align-items:flex-start; padding:10px; border:1px solid rgba(248,242,229,.18); border-radius:10px; color:#f8f2e5; background:linear-gradient(145deg,rgba(248,242,229,.08),rgba(8,31,34,.2)); text-align:left; transition:transform .2s ease,border-color .2s ease,background .2s ease,box-shadow .2s ease; }
+.intro-reading-card::after { content:""; position:absolute; right:10px; bottom:9px; width:17px; height:1px; background:#e1bd66; opacity:.7; transition:width .2s ease; }
+.intro-reading-card:hover, .intro-reading-card:focus-visible { border-color:rgba(225,189,102,.78); background:linear-gradient(145deg,rgba(225,189,102,.17),rgba(8,31,34,.24)); box-shadow:0 8px 24px rgba(0,0,0,.14); transform:translateY(-3px); outline:none; }
+.intro-reading-card:hover::after, .intro-reading-card:focus-visible::after { width:32px; }
+.intro-reading-card > span:first-child { color:#e1bd66; font:700 8px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.09em; text-transform:uppercase; }
+.intro-reading-card strong { display:block; max-width:12ch; margin-top:9px; color:#f8f2e5; font:700 14px/.98 Georgia,serif; letter-spacing:-.035em; }
+.intro-reading-card small { display:block; max-width:18ch; margin-top:auto; padding-top:8px; color:rgba(248,242,229,.54); font-size:8px; line-height:1.3; }
+.intro-reading-card small b { color:#f0d48c; font:700 11px/1 Georgia,serif; }
+.intro-reading-card[data-intro-path="pobal"] { border-color:rgba(119,168,151,.32); }
+.intro-reading-card[data-intro-path="heritage"] { border-color:rgba(191,91,69,.34); }
+.intro-reading-card[data-intro-path="form"] { border-color:rgba(225,189,102,.34); }
 .intro-aside { position:relative; min-height:440px; display:grid; place-items:center; }
 .intro-orbit { position:relative; width:min(39vw,430px); aspect-ratio:1; border:1px solid rgba(225,189,102,.26); border-radius:50%; transform:rotate(-12deg); }
 .intro-orbit::before, .intro-orbit::after { content:""; position:absolute; inset:11%; border:1px dashed rgba(166,207,175,.32); border-radius:50%; }
@@ -2715,12 +2729,20 @@ tr:hover td { background:#f1f6f1; }
   #panel { top:auto; right:0; bottom:0; left:0; width:100%; max-height:72vh; border-radius:14px 14px 0 0; }
   .atlas-nav { padding:6px 12px; }
   .atlas-nav-status { display:none; }
-  .site-intro { place-items:end center; padding:17px; }
+  .site-intro { place-items:end center; padding:12px; }
   .site-intro::before { inset:12px; border-radius:22px; }
-  .intro-shell { display:block; width:100%; padding:22px 18px 64px; }
-  .intro-topline { margin-bottom:48px; }
-  .intro-main h2 { font-size:clamp(48px,15vw,78px); }
-  .intro-main p { font-size:13px; }
+  .intro-shell { display:block; width:100%; padding:15px 18px 48px; }
+  .intro-topline { margin-bottom:28px; }
+  .intro-main h2 { font-size:clamp(42px,14vw,72px); }
+  .intro-main p { margin-top:15px; font-size:12px; line-height:1.45; }
+  .intro-reading { margin-top:12px; }
+  .intro-reading-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+  .intro-reading-card { min-height:67px; padding:7px; }
+  .intro-reading-card strong { margin-top:4px; font-size:11px; }
+  .intro-reading-card small { padding-top:4px; font-size:6.5px; line-height:1.15; }
+  .intro-reading-card small b { font-size:9px; }
+  .intro-actions { gap:7px; margin-top:14px; }
+  .intro-actions button { min-height:35px; padding:7px 11px; }
   .intro-aside { position:absolute; top:19%; right:5%; min-height:0; opacity:.3; pointer-events:none; }
   .intro-orbit { width:235px; }
   .intro-foot { right:18px; bottom:14px; left:18px; display:block; }
@@ -2847,10 +2869,19 @@ tr:hover td { background:#f1f6f1; }
 <section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
   <div class="intro-shell">
     <div class="intro-main">
-      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V4</span><span>Land · line · memory</span></div>
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V5</span><span>Land · line · memory</span></div>
       <div class="intro-kicker">An Irish geometry of place</div>
       <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
       <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
+      <div class="intro-reading" aria-label="Choose your first reading">
+        <span class="intro-reading-label">Choose your first reading</span>
+        <div class="intro-reading-grid">
+          <button class="intro-reading-card" type="button" data-intro-path="place" aria-label="Begin with Áit, the place and coordinate field"><span>01 / Áit</span><strong>Begin with place</strong><small><b id="introPlaceCount">—</b> named contexts · coordinate field</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="pobal" aria-label="Open Pobal, the shared-life cultural lens"><span>02 / Pobal</span><strong>Follow shared life</strong><small><b id="introPobalCount">—</b> civic + worship rows · lived ground</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="heritage" aria-label="Open Oidhreacht, the heritage record field"><span>03 / Oidhreacht</span><strong>Read the record</strong><small><b id="introHeritageCount">—</b> NIAH joins · time + source</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="form" aria-label="Open Cruth, the mathematical grammar"><span>04 / Cruth</span><strong>Trace the form</strong><small><b id="introFormCount">—</b> signal families · ratio + angle</small></button>
+        </div>
+      </div>
       <div class="intro-actions"><button id="enterAtlas" type="button">Enter the field →</button><button id="skipIntro" class="secondary" type="button">Skip opening</button></div>
     </div>
     <div class="intro-aside" aria-hidden="true">
@@ -2890,7 +2921,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
     <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
     <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
-    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V4</strong><span>field atlas release</span></div></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V5</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
     <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
@@ -4413,6 +4444,11 @@ function renderFieldAtlas() {
   set('introTargetCount',Number(SUMMARY.targets||DATA.length||0).toLocaleString());
   set('introNiahCount',Number(SUMMARY.niah_matches||0).toLocaleString());
   set('introSignalCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
+  const culture=SUMMARY.culture||{};
+  set('introPlaceCount',Number(culture.named_places||0).toLocaleString());
+  set('introPobalCount',Number(culture.shared_life||0).toLocaleString());
+  set('introHeritageCount',Number(culture.heritage_joins||SUMMARY.niah_matches||0).toLocaleString());
+  set('introFormCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
   renderFieldCoordinate(targetRowForId(selectedMarkerId||offlineSelection));
   setSignal('golden_ratio','fieldRatioCount','fieldRatioText','fieldRatioMeter','proportion');
   setSignal('golden_angle','fieldAngleCount','fieldAngleText','fieldAngleMeter','rotation');
@@ -4524,6 +4560,20 @@ function dismissSiteIntro(remember=true,focusField=false) {
   window.setTimeout(()=>{ intro.hidden=true; },760);
   if(focusField) window.setTimeout(()=>$('field')?.scrollIntoView({behavior:'smooth',block:'start'}),180);
 }
+function openIntroPath(path) {
+  const key=String(path||'');
+  dismissSiteIntro(true,false);
+  window.setTimeout(()=>{
+    if(key==='place') { focusAtlasSection('field'); return; }
+    if(key==='form') { focusAtlasSection('maths'); return; }
+    if(key==='pobal'||key==='heritage') {
+      const lens=$('cultureLens');
+      if(lens) lens.value=key;
+      applyFilters();
+      focusAtlasSection('culture');
+    }
+  },220);
+}
 function showSiteIntro() {
   const intro=$('siteIntro');
   if(!intro) return;
@@ -4540,6 +4590,7 @@ function initSiteIntro() {
   $('enterAtlas')?.addEventListener('click',()=>dismissSiteIntro(true,true));
   $('skipIntro')?.addEventListener('click',()=>dismissSiteIntro(true,false));
   $('replayIntro')?.addEventListener('click',()=>showSiteIntro());
+  document.querySelectorAll('[data-intro-path]').forEach(button=>button.addEventListener('click',()=>openIntroPath(button.dataset.introPath)));
   intro.addEventListener('click',event=>{ if(event.target===intro) dismissSiteIntro(true,false); });
   intro.addEventListener('keydown',event=>{ if(event.key==='Escape') dismissSiteIntro(true,false); });
   intro.addEventListener('pointermove',event=>{ const rect=intro.getBoundingClientRect(); const x=(event.clientX-rect.left)/rect.width-.5; const y=(event.clientY-rect.top)/rect.height-.5; intro.style.setProperty('--intro-x',x.toFixed(3)); intro.style.setProperty('--intro-y',y.toFixed(3)); });
