@@ -1325,7 +1325,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Field Atlas V5</title>
+<title>Cruth — Ireland Field Atlas V6</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
@@ -1360,7 +1360,7 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .intro-actions button.secondary:hover { border-color:rgba(248,242,229,.55); color:#f8f2e5; background:rgba(248,242,229,.12); }
 .intro-reading { margin-top:22px; }
 .intro-reading-label { display:block; color:rgba(248,242,229,.48); font:700 9px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.13em; text-transform:uppercase; }
-.intro-reading-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:8px; }
+.intro-reading-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; margin-top:8px; }
 .intro-reading-card { position:relative; display:flex; min-width:0; min-height:105px; flex-direction:column; align-items:flex-start; padding:10px; border:1px solid rgba(248,242,229,.18); border-radius:10px; color:#f8f2e5; background:linear-gradient(145deg,rgba(248,242,229,.08),rgba(8,31,34,.2)); text-align:left; transition:transform .2s ease,border-color .2s ease,background .2s ease,box-shadow .2s ease; }
 .intro-reading-card::after { content:""; position:absolute; right:10px; bottom:9px; width:17px; height:1px; background:#e1bd66; opacity:.7; transition:width .2s ease; }
 .intro-reading-card:hover, .intro-reading-card:focus-visible { border-color:rgba(225,189,102,.78); background:linear-gradient(145deg,rgba(225,189,102,.17),rgba(8,31,34,.24)); box-shadow:0 8px 24px rgba(0,0,0,.14); transform:translateY(-3px); outline:none; }
@@ -1370,6 +1370,7 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .intro-reading-card small { display:block; max-width:18ch; margin-top:auto; padding-top:8px; color:rgba(248,242,229,.54); font-size:8px; line-height:1.3; }
 .intro-reading-card small b { color:#f0d48c; font:700 11px/1 Georgia,serif; }
 .intro-reading-card[data-intro-path="pobal"] { border-color:rgba(119,168,151,.32); }
+.intro-reading-card[data-intro-path="civic"] { border-color:rgba(82,123,133,.42); }
 .intro-reading-card[data-intro-path="heritage"] { border-color:rgba(191,91,69,.34); }
 .intro-reading-card[data-intro-path="form"] { border-color:rgba(225,189,102,.34); }
 .intro-aside { position:relative; min-height:440px; display:grid; place-items:center; }
@@ -2869,7 +2870,7 @@ tr:hover td { background:#f1f6f1; }
 <section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
   <div class="intro-shell">
     <div class="intro-main">
-      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V5</span><span>Land · line · memory</span></div>
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V6</span><span>Land · line · memory</span></div>
       <div class="intro-kicker">An Irish geometry of place</div>
       <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
       <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
@@ -2877,9 +2878,10 @@ tr:hover td { background:#f1f6f1; }
         <span class="intro-reading-label">Choose your first reading</span>
         <div class="intro-reading-grid">
           <button class="intro-reading-card" type="button" data-intro-path="place" aria-label="Begin with Áit, the place and coordinate field"><span>01 / Áit</span><strong>Begin with place</strong><small><b id="introPlaceCount">—</b> named contexts · coordinate field</small></button>
-          <button class="intro-reading-card" type="button" data-intro-path="pobal" aria-label="Open Pobal, the shared-life cultural lens"><span>02 / Pobal</span><strong>Follow shared life</strong><small><b id="introPobalCount">—</b> civic + worship rows · lived ground</small></button>
-          <button class="intro-reading-card" type="button" data-intro-path="heritage" aria-label="Open Oidhreacht, the heritage record field"><span>03 / Oidhreacht</span><strong>Read the record</strong><small><b id="introHeritageCount">—</b> NIAH joins · time + source</small></button>
-          <button class="intro-reading-card" type="button" data-intro-path="form" aria-label="Open Cruth, the mathematical grammar"><span>04 / Cruth</span><strong>Trace the form</strong><small><b id="introFormCount">—</b> signal families · ratio + angle</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="pobal" aria-label="Open Pobal, the shared-life cultural lens"><span>02 / Pobal</span><strong>Follow shared life</strong><small><b id="introPobalCount">—</b> shared-life rows · lived ground</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="civic" aria-label="Open Stát, the civic and public-institution lens"><span>03 / Stát</span><strong>Meet civic ground</strong><small><b id="introCivicCount">—</b> public institutions · state + commons</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="heritage" aria-label="Open Oidhreacht, the heritage record field"><span>04 / Oidhreacht</span><strong>Read the record</strong><small><b id="introHeritageCount">—</b> NIAH joins · time + source</small></button>
+          <button class="intro-reading-card" type="button" data-intro-path="form" aria-label="Open Cruth, the mathematical grammar"><span>05 / Cruth</span><strong>Trace the form</strong><small><b id="introFormCount">—</b> signal families · ratio + angle</small></button>
         </div>
       </div>
       <div class="intro-actions"><button id="enterAtlas" type="button">Enter the field →</button><button id="skipIntro" class="secondary" type="button">Skip opening</button></div>
@@ -2921,7 +2923,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
     <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
     <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
-    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V5</strong><span>field atlas release</span></div></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V6</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
     <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
@@ -2933,7 +2935,7 @@ tr:hover td { background:#f1f6f1; }
         <div class="field-kicker">The Irish field / a measured island</div>
         <h2 id="fieldTitle">Start with the land.<br/><em>Then let the building speak.</em></h2>
         <p>Coordinates give us the first precision: a footprint belongs somewhere, in a county, beside a road, under a particular light. The mathematics here is a lens for noticing—ratios, angles, symmetry, circles—not a story that replaces memory, craft, ecology or lived culture.</p>
-        <div class="field-principles" aria-label="Field principles"><button type="button" data-field-principle="named" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Ainm, named places">ainm / name <b aria-hidden="true">→</b></button><button type="button" data-field-principle="heritage" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Oidhreacht, heritage joins">oidhreacht / heritage <b aria-hidden="true">→</b></button><button type="button" data-field-principle="form" aria-controls="maths" aria-pressed="false" aria-label="Open Cruth, the mathematical grammar">cruth / form <b aria-hidden="true">→</b></button><button type="button" data-field-principle="pobal" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Pobal, shared life">pobal / shared life <b aria-hidden="true">→</b></button></div>
+        <div class="field-principles" aria-label="Field principles"><button type="button" data-field-principle="named" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Ainm, named places">ainm / name <b aria-hidden="true">→</b></button><button type="button" data-field-principle="heritage" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Oidhreacht, heritage joins">oidhreacht / heritage <b aria-hidden="true">→</b></button><button type="button" data-field-principle="form" aria-controls="maths" aria-pressed="false" aria-label="Open Cruth, the mathematical grammar">cruth / form <b aria-hidden="true">→</b></button><button type="button" data-field-principle="pobal" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Pobal, shared life">pobal / shared life <b aria-hidden="true">→</b></button><button type="button" data-field-principle="civic" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Stát, civic and public institutions">stát / civic ground <b aria-hidden="true">→</b></button></div>
       </div>
       <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div id="coordinatePlot" class="coordinate-plot" aria-label="Ireland field coordinate marker with latitude and longitude axes"><span id="coordinatePlotReadout" class="coordinate-plot-readout">Ireland field centre</span><div class="coordinate-axis coordinate-latitude-axis" aria-hidden="true"><span>55° N</span><span>54°</span><span>53°</span><span>52°</span><span>51° N</span></div><div class="coordinate-axis coordinate-longitude-axis" aria-hidden="true"><span>10.7° W</span><span>9° W</span><span>8° W</span><span>7° W</span><span>5.3° W</span></div></div><p id="coordinateNote" class="coordinate-note">A schematic WGS84 field for the current report pack: latitude rises vertically and longitude runs west to east. The live map carries the actual points; every measurement stays situated.</p><div id="fieldLight" class="field-light" aria-live="polite" aria-label="Approximate seasonal light field"><div class="field-light-top"><span>Solas / light field</span><small id="fieldLightScope">Ireland field centre</small></div><strong id="fieldLightHeadline">Seasonal light is loading.</strong><div class="field-light-metrics" aria-label="Seasonal light measurements"><span class="field-light-metric"><b id="fieldLightLatitude">—</b><small>latitude</small></span><span class="field-light-metric"><b id="fieldLightSummer">—</b><small>midsummer daylight</small></span><span class="field-light-metric"><b id="fieldLightWinter">—</b><small>midwinter daylight</small></span></div><p id="fieldLightNote" class="field-light-note">Approximate horizon geometry will appear when the field loads.</p></div><div id="fieldShape" class="field-shape" aria-live="polite" aria-label="Measured footprint shape field"><div class="field-shape-top"><span>Cruth / shape field</span><small id="fieldShapeScope">Waiting for a footprint</small></div><strong id="fieldShapeHeadline">Read a footprint as measured form.</strong><div class="field-shape-grid"><div id="fieldShapeVisual" class="field-shape-visual" role="img" aria-label="No footprint selected"><svg viewBox="0 0 150 72" aria-hidden="true"><path d="M10 36 H140 M75 8 V64" fill="none" stroke="#e1bd66" stroke-opacity=".24" stroke-width=".8" stroke-dasharray="3 4"/><path d="M53 20 H97 V52 H53 Z" fill="#6d9b8f" fill-opacity=".22" stroke="#e1bd66" stroke-width="1.4"/><circle cx="75" cy="36" r="3" fill="#e1bd66" stroke="#103537" stroke-width="1"/></svg><small class="field-shape-visual-note" id="fieldShapeVisualNote">select a field stop or map point</small></div><div class="field-shape-metrics" aria-label="Measured footprint properties"><span class="field-shape-metric"><b id="fieldShapeArea">—</b><small>area</small></span><span class="field-shape-metric"><b id="fieldShapePerimeter">—</b><small>perimeter</small></span><span class="field-shape-metric"><b id="fieldShapeScale">—</b><small>length × width</small></span><span class="field-shape-metric"><b id="fieldShapeAspect">—</b><small>aspect r</small></span></div></div><p id="fieldShapeNote" class="field-shape-note">Select a field walk stop or map point to draw its mapped outline and translate area, boundary and proportion into visible form.</p></div><div id="fieldRoots" class="field-roots" aria-live="polite" aria-label="Source-linked Irish roots field"><div class="field-roots-top"><span>Fréamh / roots field</span><small id="fieldRootsScope">Irish field context</small></div><strong id="fieldRootsHeadline">Irish land is a network of names, records and shared places.</strong><div class="field-roots-grid" aria-label="Irish roots context"><span class="field-roots-metric"><b id="fieldRootsPlace">—</b><small>Áit / place</small></span><span class="field-roots-metric"><b id="fieldRootsHeritage">—</b><small>Oidhreacht / heritage</small></span><span class="field-roots-metric"><b id="fieldRootsGroup">—</b><small>Pobal / shared life</small></span></div><p id="fieldRootsNote" class="field-roots-note">Source-linked place and heritage context will appear when the field loads.</p></div></div>
     </div>
@@ -4447,6 +4449,7 @@ function renderFieldAtlas() {
   const culture=SUMMARY.culture||{};
   set('introPlaceCount',Number(culture.named_places||0).toLocaleString());
   set('introPobalCount',Number(culture.shared_life||0).toLocaleString());
+  set('introCivicCount',Number(culture.civic_life||0).toLocaleString());
   set('introHeritageCount',Number(culture.heritage_joins||SUMMARY.niah_matches||0).toLocaleString());
   set('introFormCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
   renderFieldCoordinate(targetRowForId(selectedMarkerId||offlineSelection));
@@ -4543,7 +4546,7 @@ function selectFieldSignal(key) {
 }
 function selectFieldPrinciple(key) {
   if(key==='form') { focusAtlasSection('maths'); return; }
-  if(['named','heritage','pobal'].includes(key)) setCultureFilter(key);
+  if(['named','heritage','pobal','civic'].includes(key)) setCultureFilter(key);
 }
 function initFieldAtlas() {
   document.querySelectorAll('[data-field-signal]').forEach(button=>button.addEventListener('click',()=>selectFieldSignal(button.dataset.fieldSignal)));
@@ -4566,7 +4569,7 @@ function openIntroPath(path) {
   window.setTimeout(()=>{
     if(key==='place') { focusAtlasSection('field'); return; }
     if(key==='form') { focusAtlasSection('maths'); return; }
-    if(key==='pobal'||key==='heritage') {
+    if(key==='pobal'||key==='civic'||key==='heritage') {
       const lens=$('cultureLens');
       if(lens) lens.value=key;
       applyFilters();

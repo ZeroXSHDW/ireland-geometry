@@ -325,8 +325,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'class="spectrum-lens-controls"' in html
     assert 'data-spectrum-lens="named"' in html
     assert "function setSpectrumLens(key)" in html
-    assert "FIELD ATLAS V5" in html
-    assert 'id="heroSnapshot">V5' in html
+    assert "FIELD ATLAS V6" in html
+    assert 'id="heroSnapshot">V6' in html
     assert 'class="spectrum-notation"' in html
     assert 'class="culture-coordinate-field"' in html
     assert 'id="cultureCoordinatePlot"' in html
@@ -509,19 +509,23 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function renderMathsIndex()" in html
     assert "function renderMathsReadingContext()" in html
     assert "function selectMathCard(key)" in html
-    assert "Cruth — Ireland Field Atlas V5" in html
+    assert "Cruth — Ireland Field Atlas V6" in html
     assert 'id="siteIntro"' in html
     assert 'class="intro-proof"' in html
     assert 'class="intro-reading"' in html
     assert 'data-intro-path="place"' in html
     assert 'data-intro-path="pobal"' in html
+    assert 'data-intro-path="civic"' in html
     assert 'data-intro-path="heritage"' in html
     assert 'data-intro-path="form"' in html
     assert 'id="introPlaceCount"' in html
     assert 'id="introPobalCount"' in html
+    assert 'id="introCivicCount"' in html
     assert 'id="introHeritageCount"' in html
     assert 'id="introFormCount"' in html
     assert "function openIntroPath(path)" in html
+    assert 'data-field-principle="civic"' in html
+    assert "['named','heritage','pobal','civic'].includes(key)" in html
     assert 'id="introTargetCount"' in html
     assert 'id="introNiahCount"' in html
     assert 'id="introSignalCount"' in html
