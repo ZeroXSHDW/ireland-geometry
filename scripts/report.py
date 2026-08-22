@@ -1325,7 +1325,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Field Atlas V7</title>
+<title>Cruth — Ireland Field Atlas V8</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
@@ -2357,6 +2357,23 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .civic-geometry-guide-label { fill:#a56b3a; }
 .civic-geometry-point { stroke:#fffaf0; stroke-width:1.4; }
 .civic-geometry-point-label { fill:#315c57; font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace; paint-order:stroke; stroke:#fffaf0; stroke-width:3px; stroke-linejoin:round; }
+.civic-geometry-exemplar-section { margin-top:12px; padding:12px; border:1px solid #b7cbc0; background:rgba(255,252,244,.42); }
+.civic-geometry-exemplar-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.civic-geometry-exemplar-head > div:first-child { min-width:0; }
+.civic-geometry-exemplar-head .culture-mosaic-label { color:#527b85; }
+.civic-geometry-exemplar-head h4 { margin:6px 0 0; color:var(--deep); font:700 18px/1.04 Georgia,serif; letter-spacing:-.035em; }
+.civic-geometry-exemplar-head p { max-width:610px; margin:5px 0 0; color:#69766e; font-size:9px; line-height:1.45; }
+.civic-geometry-exemplar-count { flex:0 0 auto; padding:7px 8px; border:1px solid #b7cbc0; color:#527b85; background:#fffaf0; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.06em; text-transform:uppercase; }
+.civic-geometry-exemplar-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:10px; }
+.civic-geometry-exemplar { display:flex; min-width:0; flex-direction:column; padding:9px; border:1px solid #c5d4ce; color:var(--deep); background:rgba(255,253,248,.82); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.civic-geometry-exemplar:hover, .civic-geometry-exemplar:focus-visible { border-color:#315c57; background:#fffaf0; box-shadow:0 6px 16px rgba(31,63,59,.1); transform:translateY(-2px); outline:none; }
+.civic-geometry-exemplar-top { display:flex; align-items:baseline; justify-content:space-between; gap:6px; color:#527b85; font:700 7px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.07em; text-transform:uppercase; }
+.civic-geometry-exemplar-top small { color:#897c67; font-size:7px; letter-spacing:0; text-transform:none; }
+.civic-geometry-exemplar strong { display:block; min-height:30px; margin-top:8px; overflow:hidden; color:var(--deep); font:700 14px/1.08 Georgia,serif; letter-spacing:-.03em; text-overflow:ellipsis; }
+.civic-geometry-exemplar-place { display:block; min-height:22px; margin-top:5px; overflow:hidden; color:#69766e; font-size:8px; line-height:1.3; text-overflow:ellipsis; }
+.civic-geometry-exemplar-meta { display:block; min-height:21px; margin-top:6px; color:#897c67; font:700 7px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.02em; text-transform:uppercase; }
+.civic-geometry-exemplar-metrics { display:block; margin-top:7px; padding-top:6px; border-top:1px solid #d2ddd6; color:#315c57; font:700 8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.civic-geometry-exemplar-action { display:block; margin-top:auto; padding-top:9px; color:#527b85; font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
 .civic-geometry-note { margin:11px 0 0; color:#6d786f; font-size:9px; line-height:1.45; }
 .culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
 .culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
@@ -2728,6 +2745,9 @@ tr:hover td { background:#f1f6f1; }
   .civic-geometry-head { grid-template-columns:1fr; }
   .civic-geometry-grid { grid-template-columns:1fr; }
   .civic-geometry-metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
+  .civic-geometry-exemplar-head { display:block; }
+  .civic-geometry-exemplar-count { display:inline-block; margin-top:8px; }
+  .civic-geometry-exemplar-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .heritage-type-head { grid-template-columns:1fr; }
   .heritage-type-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .place-braid-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -2906,7 +2926,7 @@ tr:hover td { background:#f1f6f1; }
 <section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
   <div class="intro-shell">
     <div class="intro-main">
-      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V7</span><span>Land · line · memory</span></div>
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V8</span><span>Land · line · memory</span></div>
       <div class="intro-kicker">An Irish geometry of place</div>
       <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
       <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
@@ -2959,7 +2979,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
     <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
     <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
-    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V7</strong><span>field atlas release</span></div></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V8</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
     <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
@@ -3201,6 +3221,7 @@ tr:hover td { background:#f1f6f1; }
       <div class="civic-geometry-head"><div><span class="culture-mosaic-label">Stát / civic geometry</span><h3 id="civicGeometryHeading">Make public form measurable.</h3><p>Compare Government and Civic cohorts as mapped building groups. Median proportion, compactness, φ/θ screening rates and heritage reach keep the Irish state visible as built form without claiming one national style.</p></div><div class="civic-geometry-readout" aria-live="polite"><span id="civicGeometryStatus">Civic field / Government + Civic</span><strong id="civicGeometryReadoutTitle">Choose a public cohort to inspect its measured centre.</strong><p id="civicGeometryReadoutText">The field will place public-institution geometry beside its source and cultural boundary.</p></div></div>
       <div id="civicGeometryGrid" class="civic-geometry-grid" aria-label="Measured geometry of Government and Civic building cohorts"></div>
       <div class="civic-geometry-plot-wrap"><svg id="civicGeometryPlot" class="civic-geometry-plot" viewBox="0 0 760 240" role="img" aria-label="Government and Civic cohort medians by aspect ratio and circularity"></svg></div>
+      <div class="civic-geometry-exemplar-section" aria-labelledby="civicGeometryExemplarHeading"><div class="civic-geometry-exemplar-head"><div><span class="culture-mosaic-label">Foirm / named civic forms</span><h4 id="civicGeometryExemplarHeading">The aggregate has a name.</h4><p>Move from cohort medians to source-linked buildings. Each example keeps its mapped place, heritage context and measured r/C beside the public-institution question.</p></div><span id="civicGeometryExemplarCount" class="civic-geometry-exemplar-count">Loading examples</span></div><div id="civicGeometryExemplars" class="civic-geometry-exemplar-grid" aria-label="Source-linked Government and Civic building examples"></div></div>
       <p id="civicGeometryNote" class="civic-geometry-note">The civic field will appear when the report pack loads. Group medians describe this mapped snapshot; they are not evidence of a shared state design language or historical intent.</p>
     </div>
     <div class="culture-timeline" aria-labelledby="heritageTimelineHeading">
@@ -5627,7 +5648,7 @@ function civicGeometryRate(rows,key) {
   return rows.filter(row=>rowHasSignal(row,key)).length/rows.length*100;
 }
 function renderCivicGeometryField() {
-  const grid=$('civicGeometryGrid'), plot=$('civicGeometryPlot'), status=$('civicGeometryStatus'), title=$('civicGeometryReadoutTitle'), text=$('civicGeometryReadoutText'), note=$('civicGeometryNote');
+  const grid=$('civicGeometryGrid'), plot=$('civicGeometryPlot'), exemplars=$('civicGeometryExemplars'), exemplarCount=$('civicGeometryExemplarCount'), status=$('civicGeometryStatus'), title=$('civicGeometryReadoutTitle'), text=$('civicGeometryReadoutText'), note=$('civicGeometryNote');
   if(!grid) return;
   const source=(Array.isArray(DATA)&&DATA.length?DATA:filtered).filter(row=>row&&['government','civic'].includes(String(row.group||''))), scope=SERVER_MODE?'current lazy page':'full embedded snapshot', groups=['government','civic'], rateText=value=>Number.isFinite(Number(value))?`${fmt(value,1)}%`:'—';
   const entries=groups.map(group=>{
@@ -5637,6 +5658,8 @@ function renderCivicGeometryField() {
   const activeGroup=String($('group')?.value||'');
   if(!entries.length) {
     grid.innerHTML='<span class="footnote">No Government or Civic rows are available in this report view.</span>';
+    if(exemplars) exemplars.innerHTML='<span class="footnote">No source-linked public building examples are available in this report view.</span>';
+    if(exemplarCount) exemplarCount.textContent='No examples in view';
     if(plot) plot.innerHTML='<text class="civic-geometry-axis-label" x="28" y="46">No civic geometry is available in this view.</text>';
     if(status) status.textContent=`Civic field unavailable / ${scope}`;
     if(title) title.textContent='The public-institution field is not reported.';
@@ -5653,6 +5676,27 @@ function renderCivicGeometryField() {
     plot.innerHTML=`<rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="rgba(255,252,244,.3)"/><g aria-hidden="true">${xGrid}${yGrid}<line class="civic-geometry-axis" x1="${left}" y1="${top+plotHeight}" x2="${left+plotWidth}" y2="${top+plotHeight}"/><line class="civic-geometry-axis" x1="${left}" y1="${top}" x2="${left}" y2="${top+plotHeight}"/><line class="civic-geometry-guide" x1="${phiX.toFixed(1)}" y1="${top}" x2="${phiX.toFixed(1)}" y2="${top+plotHeight}"/><text class="civic-geometry-guide-label" x="${Math.min(left+plotWidth-20,phiX+5).toFixed(1)}" y="${top+11}">φ 1.618</text></g><g>${points}</g><text class="civic-geometry-axis-label" x="${left+plotWidth/2}" y="${height-4}" text-anchor="middle">median aspect ratio r →</text><text class="civic-geometry-axis-label" transform="translate(12 ${top+plotHeight/2}) rotate(-90)" text-anchor="middle">median circularity C →</text>`;
     plot.setAttribute('aria-label',`Government and Civic cohort medians across the ${scope}; x median aspect ratio r from ${xMin} to ${xMax}, y median circularity C from 0 to 1, with a φ guide at 1.618.`);
   }
+  const exemplarRows=groups.flatMap(group=>source.filter(row=>String(row.group||'')===group&&String(row.osm_id||'')).sort((a,b)=>Boolean(b.niah?.reg_no)-Boolean(a.niah?.reg_no)||Number(b.score||0)-Number(a.score||0)||Number(b.area_m2||0)-Number(a.area_m2||0)||String(a.osm_id).localeCompare(String(b.osm_id))).slice(0,3));
+  if(exemplars) {
+    if(exemplars.dataset.civicExemplarsBound!=='true') {
+      exemplars.dataset.civicExemplarsBound='true';
+      exemplars.addEventListener('click',event=>{
+        const button=event.target.closest?.('button[data-civic-building-id]');
+        if(!button?.dataset.civicBuildingId) return;
+        event.stopPropagation();
+        focusRow(button.dataset.civicBuildingId,{scroll:true,openPopup:false});
+      });
+    }
+    if(!exemplarRows.length) {
+      exemplars.innerHTML='<span class="footnote">No source-linked public building examples are available in this report view.</span>';
+    } else {
+      exemplars.innerHTML=exemplarRows.map(row=>{
+        const label=spatialGroupLabel(row.group), titleText=contextTitle(row), place=selectionPlaceText(row), niah=row.niah||{}, type=String(niah.type||'').trim(), record=niah.reg_no?selectionHeritageText(row):'OSM target · NIAH not joined', signals=contextSignalText(row), aria=`Focus ${titleText}, ${place}, ${label}; aspect ratio ${fmt(row.aspect_ratio,3)}, circularity ${fmt(row.circularity,3)}, ${signals}`;
+        return `<button class="civic-geometry-exemplar" type="button" data-civic-building-id="${esc(row.osm_id)}" aria-label="${esc(aria)}"><span class="civic-geometry-exemplar-top"><span>${esc(label)}</span><small>${esc(niah.reg_no?'NIAH linked':'mapped target')}</small></span><strong>${esc(titleText)}</strong><span class="civic-geometry-exemplar-place">${esc(place)}</span><span class="civic-geometry-exemplar-meta">${esc(type?heritageTypeLabel(type):'type not reported')} · ${esc(String(niah.century||'date not reported'))}</span><span class="civic-geometry-exemplar-meta">${esc(record)}</span><span class="civic-geometry-exemplar-metrics">r ${fmt(row.aspect_ratio,3)} · C ${fmt(row.circularity,3)} · ${esc(signals)}</span><b class="civic-geometry-exemplar-action">Focus in map / dossier →</b></button>`;
+      }).join('');
+    }
+  }
+  if(exemplarCount) exemplarCount.textContent=`${exemplarRows.length.toLocaleString()} examples · ${exemplarRows.filter(row=>Boolean(row.niah?.reg_no)).length.toLocaleString()} NIAH`;
   const focus=entries.find(entry=>entry.group===activeGroup)||entries[0], focusLabel=spatialGroupLabel(focus.group);
   if(status) status.textContent=`Civic field / ${scope}`;
   if(title) title.textContent=`${focusLabel} / measured centre`;
@@ -5849,6 +5893,8 @@ document.addEventListener('click',event=>{
   if(county?.dataset.countyFocus) { setCountyFilter(county.dataset.countyFocus); return; }
   const civicGeometry=event.target.closest?.('button[data-civic-geometry-group]');
   if(civicGeometry?.dataset.civicGeometryGroup) { setRhythmGroup(civicGeometry.dataset.civicGeometryGroup); return; }
+  const civicBuilding=event.target.closest?.('button[data-civic-building-id]');
+  if(civicBuilding?.dataset.civicBuildingId) { focusRow(civicBuilding.dataset.civicBuildingId,{scroll:true,openPopup:false}); return; }
   const rhythm=event.target.closest?.('button[data-rhythm-group]');
   if(rhythm?.dataset.rhythmGroup) { setRhythmGroup(rhythm.dataset.rhythmGroup); return; }
   const scale=event.target.closest?.('button[data-scale-group]');

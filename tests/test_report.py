@@ -325,8 +325,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'class="spectrum-lens-controls"' in html
     assert 'data-spectrum-lens="named"' in html
     assert "function setSpectrumLens(key)" in html
-    assert "FIELD ATLAS V7" in html
-    assert 'id="heroSnapshot">V7' in html
+    assert "FIELD ATLAS V8" in html
+    assert 'id="heroSnapshot">V8' in html
     assert 'class="spectrum-notation"' in html
     assert 'class="culture-coordinate-field"' in html
     assert 'id="cultureCoordinatePlot"' in html
@@ -509,7 +509,7 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function renderMathsIndex()" in html
     assert "function renderMathsReadingContext()" in html
     assert "function selectMathCard(key)" in html
-    assert "Cruth — Ireland Field Atlas V7" in html
+    assert "Cruth — Ireland Field Atlas V8" in html
     assert 'id="siteIntro"' in html
     assert 'class="intro-proof"' in html
     assert 'class="intro-reading"' in html
@@ -522,9 +522,13 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="civicGeometryGrid"' in html
     assert 'id="civicGeometryPlot"' in html
     assert 'id="civicGeometryReadoutTitle"' in html
+    assert 'id="civicGeometryExemplars"' in html
+    assert 'id="civicGeometryExemplarCount"' in html
     assert "function civicGeometryRate(rows,key)" in html
     assert "function renderCivicGeometryField()" in html
     assert 'data-civic-geometry-group' in html
+    assert 'data-civic-building-id' in html
+    assert "civicExemplarsBound" in html
     assert 'id="introPlaceCount"' in html
     assert 'id="introPobalCount"' in html
     assert 'id="introCivicCount"' in html
