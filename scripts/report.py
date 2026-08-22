@@ -1325,7 +1325,7 @@ TEMPLATE = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Cruth — Ireland Field Atlas V2</title>
+<title>Cruth — Ireland Field Atlas V3</title>
 <style>
 :root { color-scheme: light; --ink:#183233; --muted:#66736f; --line:#ded8ca;
         --blue:#356c69; --red:#bf5b45; --green:#4c765f; --gold:#d5a84b;
@@ -2273,6 +2273,12 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .spectrum-legend { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
 .spectrum-legend-chip { display:inline-flex; align-items:center; gap:5px; color:rgba(247,240,220,.58); font-size:8px; }
 .spectrum-legend-chip i { width:7px; height:7px; border-radius:50%; }
+.spectrum-notation { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:9px; }
+.spectrum-notation button { min-width:0; padding:7px 8px; border:1px solid rgba(225,194,118,.22); border-radius:7px; color:#f7f0dc; background:rgba(7,29,32,.22); text-align:left; }
+.spectrum-notation button:hover, .spectrum-notation button:focus-visible { border-color:#e1c276; background:rgba(7,29,32,.5); }
+.spectrum-notation b, .spectrum-notation small { display:block; }
+.spectrum-notation b { color:#e1c276; font:700 13px/1 Georgia,serif; }
+.spectrum-notation small { margin-top:4px; overflow:hidden; color:rgba(247,240,220,.52); font:7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
 .spectrum-note { margin:11px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
 .culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
 .culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
@@ -2735,6 +2741,7 @@ tr:hover td { background:#f1f6f1; }
   .culture-mark { display:none; }
   .spectrum-head { grid-template-columns:1fr; }
   .spectrum-field h3 { max-width:none; }
+  .spectrum-notation { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .culture-grid { grid-template-columns:1fr; }
   .culture-card { min-height:0; }
   .heritage-type-grid { grid-template-columns:1fr; }
@@ -2809,7 +2816,7 @@ tr:hover td { background:#f1f6f1; }
 <section id="siteIntro" class="site-intro" aria-labelledby="introTitle">
   <div class="intro-shell">
     <div class="intro-main">
-      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V2</span><span>Land · line · memory</span></div>
+      <div class="intro-topline"><span>CRUTH / FIELD ATLAS V3</span><span>Land · line · memory</span></div>
       <div class="intro-kicker">An Irish geometry of place</div>
       <h2 id="introTitle">Every stone has a <em>ratio.</em><br/>Every place has a memory.</h2>
       <p>Enter a living map of Irish land, buildings and shared space. Follow the evidence from footprint to equation, from equation to threshold, and from threshold back to the people and places that give it meaning.</p>
@@ -2852,7 +2859,7 @@ tr:hover td { background:#f1f6f1; }
     <div class="subtitle">A data-backed field atlas where Irish land, building footprints, heritage records and civic imagination meet. Read the island as coordinates, the building as geometry, and culture as the context that keeps both honest.</div>
     <p class="hero-note">The scan finds geometric signals. The studio translates them into contemporary possibilities; it does not claim historic intent or reduce Irish culture to a formula.</p>
     <div class="header-actions"><a href="#field">Enter the field</a><a href="#studio">Open the design studio</a><a href="#culture">Read the cultural lens</a><a href="#patterns">Browse measured patterns</a><button id="replayIntro" type="button">Replay opening</button><a href="review.html" target="_blank" rel="noopener">Open expert review queue</a></div>
-    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V2</strong><span>field atlas release</span></div></div>
+    <div class="hero-metrics" aria-label="Atlas at a glance"><div class="hero-metric"><strong id="heroTargetCount">—</strong><span>target footprints</span></div><div class="hero-metric"><strong id="heroNiahCount">—</strong><span>NIAH-linked joins</span></div><div class="hero-metric"><strong id="heroSignalCount">—</strong><span>geometry signals</span></div><div class="hero-metric"><strong id="heroSnapshot">V3</strong><span>field atlas release</span></div></div>
   </header>
   <nav id="atlasNav" class="atlas-nav" aria-label="Atlas sections">
     <div class="atlas-nav-links"><a href="#field" data-nav-section="field" data-nav-label="The Irish field" aria-current="page">Field</a><a href="#maths" data-nav-section="maths" data-nav-label="Mathematical grammar">Maths</a><a href="#studio" data-nav-section="studio" data-nav-label="Design studio">Studio</a><a href="#culture" data-nav-section="culture" data-nav-label="Cultural lens">Culture</a><a href="#filters" data-nav-section="filters" data-nav-label="Explore targets">Explore</a><a href="#evidence" data-nav-section="evidence" data-nav-label="Evidence and findings">Evidence</a></div>
@@ -3050,6 +3057,7 @@ tr:hover td { background:#f1f6f1; }
       <div class="spectrum-head"><div><span class="culture-mosaic-label">Cruth / measured constellation</span><h3 id="spectrumHeading">The island becomes a cloud of forms.</h3><p>Read aspect ratio <b>r</b> against circularity <b>C</b>. The φ guide marks the golden-ratio screen; colours keep building-group context in view. Select a point to return to the source row, map and dossier.</p></div><div class="spectrum-readout" aria-live="polite"><span id="spectrumStatus">Measured field / r × C</span><strong id="spectrumReadoutTitle">The measured field is ready to explore.</strong><p id="spectrumReadoutText">Each point is a source-linked footprint descriptor; the cloud is a diagnostic surface, not a map of cultural meaning.</p><div class="spectrum-readout-metrics"><span class="spectrum-readout-metric"><b id="spectrumCount">—</b><small>plotted / visible</small></span><span class="spectrum-readout-metric"><b id="spectrumMedian">—</b><small>field median r / C</small></span><span class="spectrum-readout-metric"><b id="spectrumSignals">—</b><small>φ / θ screens</small></span></div></div></div>
       <div class="spectrum-plot-wrap"><svg id="geometrySpectrumPlot" class="spectrum-plot" viewBox="0 0 760 260" role="img" aria-label="Measured building footprint constellation by aspect ratio and circularity"></svg></div>
       <div id="spectrumLegend" class="spectrum-legend" aria-label="Building group colours"></div>
+      <div class="spectrum-notation" aria-label="Mathematical notation key"><button type="button" data-maths-read="maths" aria-label="Read aspect ratio r in the maths section"><b>r</b><small>L / W · proportion</small></button><button type="button" data-maths-read="maths" aria-label="Read circularity C in the maths section"><b>C</b><small>4πA / P² · compactness</small></button><button type="button" data-maths-read="maths" aria-label="Read golden ratio phi in the maths section"><b>φ</b><small>1.618… · ratio screen</small></button><button type="button" data-maths-read="maths" aria-label="Read golden angle theta in the maths section"><b>θ</b><small>137.5° · angle screen</small></button></div>
       <p id="spectrumNote" class="spectrum-note">The constellation will appear when the report pack loads. r is a footprint aspect ratio and C is 4πA/P²; both are mapped descriptors, not evidence of design intent.</p>
     </div>
     <div class="culture-grid" aria-label="Data-derived Irish cultural lenses">
