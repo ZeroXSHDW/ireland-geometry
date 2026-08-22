@@ -525,6 +525,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="coordinatePlot"' in html
     assert 'id="coordinatePlotReadout"' in html
     assert 'id="coordinateNote"' in html
+    assert 'coordinate-latitude-axis' in html
+    assert 'coordinate-longitude-axis' in html
+    assert 'latitude rises vertically and longitude runs west to east' in html
     assert "--coordinate-x" in html
     assert "Selected coordinate" in html
     assert "function updateMapStamp()" in html
