@@ -2279,6 +2279,10 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .spectrum-notation b, .spectrum-notation small { display:block; }
 .spectrum-notation b { color:#e1c276; font:700 13px/1 Georgia,serif; }
 .spectrum-notation small { margin-top:4px; overflow:hidden; color:rgba(247,240,220,.52); font:7px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.spectrum-lens-controls { display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:12px; }
+.spectrum-lens-controls > span { margin-right:3px; color:rgba(247,240,220,.5); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.spectrum-lens-controls button { min-height:26px; padding:4px 8px; border:1px solid rgba(247,240,220,.2); border-radius:999px; color:rgba(247,240,220,.7); background:rgba(7,29,32,.22); font-size:8px; font-weight:750; }
+.spectrum-lens-controls button:hover, .spectrum-lens-controls button:focus-visible, .spectrum-lens-controls button[aria-pressed="true"] { border-color:#e1c276; color:#173f40; background:#e1c276; }
 .spectrum-note { margin:11px 0 0; color:rgba(247,240,220,.46); font-size:9px; line-height:1.45; }
 .culture-timeline { margin-top:10px; padding:15px; border:1px solid #355d59; border-radius:15px; color:#f7f0dc; background:linear-gradient(135deg,#173b3d 0%,#23544f 100%); box-shadow:0 8px 22px rgba(31,63,59,.08); }
 .culture-timeline-head { display:grid; grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr); gap:16px; align-items:start; }
@@ -3055,6 +3059,7 @@ tr:hover td { background:#f1f6f1; }
     </div>
     <div class="spectrum-field" aria-labelledby="spectrumHeading">
       <div class="spectrum-head"><div><span class="culture-mosaic-label">Cruth / measured constellation</span><h3 id="spectrumHeading">The island becomes a cloud of forms.</h3><p>Read aspect ratio <b>r</b> against circularity <b>C</b>. The φ guide marks the golden-ratio screen; colours keep building-group context in view. Select a point to return to the source row, map and dossier.</p></div><div class="spectrum-readout" aria-live="polite"><span id="spectrumStatus">Measured field / r × C</span><strong id="spectrumReadoutTitle">The measured field is ready to explore.</strong><p id="spectrumReadoutText">Each point is a source-linked footprint descriptor; the cloud is a diagnostic surface, not a map of cultural meaning.</p><div class="spectrum-readout-metrics"><span class="spectrum-readout-metric"><b id="spectrumCount">—</b><small>plotted / visible</small></span><span class="spectrum-readout-metric"><b id="spectrumMedian">—</b><small>field median r / C</small></span><span class="spectrum-readout-metric"><b id="spectrumSignals">—</b><small>φ / θ screens</small></span></div></div></div>
+      <div class="spectrum-lens-controls" role="group" aria-label="Cultural lens for the geometry cloud"><span>Lens the cloud</span><button type="button" data-spectrum-lens="" aria-pressed="true">All visible</button><button type="button" data-spectrum-lens="named" aria-pressed="false">Ainm · named</button><button type="button" data-spectrum-lens="heritage" aria-pressed="false">Oidhreacht · heritage</button><button type="button" data-spectrum-lens="pobal" aria-pressed="false">Pobal · shared life</button><button type="button" data-spectrum-lens="civic" aria-pressed="false">Civic ground</button></div>
       <div class="spectrum-plot-wrap"><svg id="geometrySpectrumPlot" class="spectrum-plot" viewBox="0 0 760 260" role="img" aria-label="Measured building footprint constellation by aspect ratio and circularity"></svg></div>
       <div id="spectrumLegend" class="spectrum-legend" aria-label="Building group colours"></div>
       <div class="spectrum-notation" aria-label="Mathematical notation key"><button type="button" data-maths-read="maths" aria-label="Read aspect ratio r in the maths section"><b>r</b><small>L / W · proportion</small></button><button type="button" data-maths-read="maths" aria-label="Read circularity C in the maths section"><b>C</b><small>4πA / P² · compactness</small></button><button type="button" data-maths-read="maths" aria-label="Read golden ratio phi in the maths section"><b>φ</b><small>1.618… · ratio screen</small></button><button type="button" data-maths-read="maths" aria-label="Read golden angle theta in the maths section"><b>θ</b><small>137.5° · angle screen</small></button></div>
@@ -5425,12 +5430,21 @@ function spectrumGroupColor(group) {
 function renderGeometrySpectrum() {
   const plot=$('geometrySpectrumPlot'), legend=$('spectrumLegend'), countValue=$('spectrumCount'), medianValueElement=$('spectrumMedian'), signalsValue=$('spectrumSignals'), status=$('spectrumStatus'), title=$('spectrumReadoutTitle'), text=$('spectrumReadoutText'), note=$('spectrumNote');
   if(!plot) return;
-  const set=(element,value)=>{ if(element) element.textContent=value; }, scope=SERVER_MODE?'current lazy page':'full embedded snapshot', sourceRows=Array.isArray(filtered)?filtered:DATA, rows=sourceRows.filter(row=>row&&row.osm_id&&Number.isFinite(Number(row.aspect_ratio))&&Number.isFinite(Number(row.circularity)));
+  const set=(element,value)=>{ if(element) element.textContent=value; };
+  const scope=SERVER_MODE?'current lazy page':'full embedded snapshot';
+  const lens=String($('cultureLens')?.value||'');
+  const lensLabel=lens?(CULTURE_LENS_LABELS[lens]||lens):'all visible rows';
+  const sourceRows=Array.isArray(filtered)?filtered:DATA;
+  const rows=sourceRows.filter(row=>row&&row.osm_id&&Number.isFinite(Number(row.aspect_ratio))&&Number.isFinite(Number(row.circularity)));
+  document.querySelectorAll('button[data-spectrum-lens]').forEach(button=>{
+    const active=String(button.dataset.spectrumLens||'')===lens;
+    button.setAttribute('aria-pressed',String(active));
+  });
   if(!rows.length) {
     plot.innerHTML='<text class="spectrum-axis-label" x="24" y="42">No measured r × C rows are available in this view.</text>';
     plot.setAttribute('aria-label','No measured aspect-ratio and circularity rows are available in this report view');
     if(legend) legend.innerHTML='';
-    set(countValue,'0'); set(medianValueElement,'—'); set(signalsValue,'—'); set(status,'Measured field unavailable'); set(title,'The measured constellation is not reported.'); set(text,`The ${scope} carries no rows with both aspect ratio and circularity.`); set(note,`No r × C constellation can be drawn from the ${scope}. Clear filters or widen the report view to restore the field.`);
+    set(countValue,'0'); set(medianValueElement,'—'); set(signalsValue,'—'); set(status,`Measured field unavailable / ${lensLabel}`); set(title,'The measured constellation is not reported.'); set(text,`The ${lensLabel} in the ${scope} carries no rows with both aspect ratio and circularity.`); set(note,`No r × C constellation can be drawn for ${lensLabel} from the ${scope}. Clear filters or widen the report view to restore the field.`);
     return;
   }
   const ratios=rows.map(row=>Number(row.aspect_ratio)), circularities=rows.map(row=>Number(row.circularity)), medianR=medianValue(ratios), medianC=medianValue(circularities), ratioSignals=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angleSignals=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, maxPoints=180, stride=Math.max(1,Math.ceil(rows.length/maxPoints)), points=rows.filter((row,index)=>index%stride===0).slice(0,maxPoints), sortedRatios=ratios.slice().sort((a,b)=>a-b), p97=sortedRatios[Math.min(sortedRatios.length-1,Math.floor(sortedRatios.length*.97))], xMin=.5, xMax=Math.max(2.2,Math.min(6,Math.ceil((Number.isFinite(p97)?p97:2.2)*10)/10)), clipped=rows.filter(row=>Number(row.aspect_ratio)<xMin||Number(row.aspect_ratio)>xMax).length;
@@ -5440,10 +5454,10 @@ function renderGeometrySpectrum() {
   if(countValue) countValue.textContent=`${points.length.toLocaleString()} / ${rows.length.toLocaleString()}`;
   if(medianValueElement) medianValueElement.textContent=`${fmt(medianR,3)} · ${fmt(medianC,3)}`;
   if(signalsValue) signalsValue.textContent=`${ratioSignals.toLocaleString()} φ · ${angleSignals.toLocaleString()} θ`;
-  if(status) status.textContent=`Measured field / ${scope}`;
+  if(status) status.textContent=`Measured field / ${lensLabel} · ${scope}`;
   if(title) title.textContent='Select a point to read its building field.';
-  if(text) text.textContent=`${rows.length.toLocaleString()} visible rows; the plot samples ${points.length.toLocaleString()} deterministically for a readable constellation. Dashed φ is a screening reference, not a design claim.`;
-  if(note) note.textContent=`Showing ${points.length.toLocaleString()} of ${rows.length.toLocaleString()} rows from the ${scope}; ${clipped.toLocaleString()} aspect values fall outside the displayed ${xMin}–${xMax} window. Click or focus a point to open its mapped dossier. r is length/width; C is 4πA/P².`;
+  if(text) text.textContent=`Lens: ${lensLabel}. ${rows.length.toLocaleString()} visible rows; the plot samples ${points.length.toLocaleString()} deterministically for a readable constellation. Dashed φ is a screening reference, not a design claim.`;
+  if(note) note.textContent=`Lens ${lensLabel}; showing ${points.length.toLocaleString()} of ${rows.length.toLocaleString()} rows from the ${scope}; ${clipped.toLocaleString()} aspect values fall outside the displayed ${xMin}–${xMax} window. Click or focus a point to open its mapped dossier. r is length/width; C is 4πA/P².`;
   if(legend) {
     const groups=new Map(); rows.forEach(row=>{ const key=String(row.group||'other'); groups.set(key,(groups.get(key)||0)+1); });
     legend.innerHTML=[...groups.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).map(([group,count])=>`<span class="spectrum-legend-chip"><i style="background:${spectrumGroupColor(group)}"></i>${esc(spatialGroupLabel(group))} ${count.toLocaleString()}</span>`).join('');
@@ -5451,6 +5465,16 @@ function renderGeometrySpectrum() {
   const readPoint=event=>{ const dot=event.target.closest?.('circle[data-spectrum-id]'); if(!dot) return; const row=targetRowForId(dot.dataset.spectrumId); if(!row) return; const titleText=contextTitle(row), place=contextPlaceText(row), signal=contextSignalText(row); set(status,`Point / ${titleText}`); set(title,`${titleText}${place?` · ${place}`:''}`); set(text,`r ${fmt(row.aspect_ratio,3)} · C ${fmt(row.circularity,3)} · ${signal} · ${spatialGroupLabel(row.group)}. Focus the point to open its source-linked building dossier.`); };
   plot.onpointerover=readPoint;
   plot.onfocusin=readPoint;
+}
+function setSpectrumLens(key) {
+  const select=$('cultureLens');
+  if(!select) return;
+  const next=String(key||'');
+  select.value=select.value===next?'':next;
+  heritageEraKey='';
+  setAtlasNavActive('filters');
+  applyFilters();
+  window.setTimeout(()=>$('geometrySpectrumPlot')?.scrollIntoView({behavior:'smooth',block:'center'}),120);
 }
 function setMakerQuery(name) {
   const input=$('query');
@@ -5640,6 +5664,8 @@ document.addEventListener('click',event=>{
   if(maker?.dataset.makerName) { setMakerQuery(maker.dataset.makerName); return; }
   const placeName=event.target.closest?.('button[data-place-name]');
   if(placeName?.dataset.placeName) { setPlaceName(placeName.dataset.placeName); return; }
+  const spectrumLens=event.target.closest?.('button[data-spectrum-lens]');
+  if(spectrumLens) { setSpectrumLens(spectrumLens.dataset.spectrumLens||''); return; }
   const spectrum=event.target.closest?.('circle[data-spectrum-id]');
   if(spectrum?.dataset.spectrumId) { focusRow(spectrum.dataset.spectrumId,{scroll:true,openPopup:true}); return; }
   if(event.target.closest?.('#copyPlaceNameLink')) { copyPlaceNameLink(); return; }

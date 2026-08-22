@@ -322,6 +322,9 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="geometrySpectrumPlot"' in html
     assert "function renderGeometrySpectrum()" in html
     assert "data-spectrum-id" in html
+    assert 'class="spectrum-lens-controls"' in html
+    assert 'data-spectrum-lens="named"' in html
+    assert "function setSpectrumLens(key)" in html
     assert "FIELD ATLAS V3" in html
     assert 'id="heroSnapshot">V3' in html
     assert 'class="spectrum-notation"' in html
