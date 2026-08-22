@@ -1371,7 +1371,12 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .intro-orbit-label.south { bottom:2%; left:50%; transform:translateX(-50%); }
 .intro-orbit-label.west { top:51%; left:-7%; }
 .intro-foot { position:absolute; right:28px; bottom:22px; left:28px; display:flex; align-items:center; justify-content:space-between; gap:20px; color:rgba(248,242,229,.42); font-size:10px; }
-.intro-foot span:last-child { color:#dec17b; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.intro-proof { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 12px; min-width:0; color:rgba(248,242,229,.5); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.intro-proof span { white-space:nowrap; }
+.intro-proof strong { color:#f5d887; font:700 14px/1 Georgia,serif; letter-spacing:-.04em; }
+.intro-proof em { color:rgba(248,242,229,.4); font-style:normal; letter-spacing:0; text-transform:none; }
+.intro-foot > span:last-child { margin-left:auto; color:#dec17b; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+@media (min-width:721px) { .intro-proof { position:absolute; left:260px; right:140px; } }
 #panel { position:fixed; z-index:1000; top:18px; right:18px; bottom:18px; width:min(780px,calc(100vw - 36px));
          display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; border:1px solid rgba(228,218,193,.78); border-radius:26px;
          background:var(--panel); box-shadow:0 22px 80px rgba(4,20,23,.38); }
@@ -2563,7 +2568,11 @@ tr:hover td { background:#f1f6f1; }
   .intro-main p { font-size:13px; }
   .intro-aside { position:absolute; top:19%; right:5%; min-height:0; opacity:.3; pointer-events:none; }
   .intro-orbit { width:235px; }
-  .intro-foot { right:18px; bottom:14px; left:18px; }
+  .intro-foot { right:18px; bottom:14px; left:18px; display:block; }
+  .intro-proof { position:static; gap:3px 9px; font-size:7px; }
+  .intro-proof span { white-space:normal; }
+  .intro-proof strong { font-size:13px; }
+  .intro-foot > span:last-child { display:block; margin-top:7px; margin-left:0; text-align:right; }
   .hero-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:12px; }
   .field-section { padding:22px 18px 21px; }
   .field-sequence { grid-template-columns:repeat(2,minmax(0,1fr)); row-gap:18px; }
@@ -2684,7 +2693,7 @@ tr:hover td { background:#f1f6f1; }
       <div class="intro-orbit"><span class="intro-orbit-line"></span><span class="intro-orbit-line second"></span><span class="intro-orbit-core">φ</span><span class="intro-orbit-label north">north / 55°</span><span class="intro-orbit-label east">shore / edge</span><span class="intro-orbit-label south">south / 51°</span><span class="intro-orbit-label west">field / trace</span></div>
     </div>
   </div>
-  <div class="intro-foot"><span>Measured buildings · open sources · contemporary hypotheses</span><span>scroll / click to begin</span></div>
+  <div class="intro-foot"><div class="intro-proof" aria-label="Current atlas snapshot"><span><strong id="introTargetCount">—</strong> footprints</span><span><strong id="introNiahCount">—</strong> NIAH joins</span><span><strong id="introSignalCount">—</strong> signal families <em>φ · θ · ↔ · □</em></span></div><span>scroll / click to begin</span></div>
 </section>
 <div id="map" aria-label="Map of analysed Irish buildings"></div>
 <div id="mapLoading" role="status" aria-live="polite"><span class="map-loading-dot" aria-hidden="true"></span><span id="mapLoadingText">Loading live basemap…</span></div>
@@ -4063,6 +4072,9 @@ function renderFieldAtlas() {
   set('heroTargetCount',Number(SUMMARY.targets||DATA.length||0).toLocaleString());
   set('heroNiahCount',Number(SUMMARY.niah_matches||0).toLocaleString());
   set('heroSignalCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
+  set('introTargetCount',Number(SUMMARY.targets||DATA.length||0).toLocaleString());
+  set('introNiahCount',Number(SUMMARY.niah_matches||0).toLocaleString());
+  set('introSignalCount',PATTERN_CATALOG.filter(item=>Number(item.count||0)>0).length.toLocaleString());
   setSignal('golden_ratio','fieldRatioCount','fieldRatioText','fieldRatioMeter','proportion');
   setSignal('golden_angle','fieldAngleCount','fieldAngleText','fieldAngleMeter','rotation');
   setSignal('reflective_symmetry','fieldSymmetryCount','fieldSymmetryText','fieldSymmetryMeter','symmetry');

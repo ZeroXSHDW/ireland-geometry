@@ -490,6 +490,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert "function selectMathCard(key)" in html
     assert "Cruth — Ireland Field Atlas V2" in html
     assert 'id="siteIntro"' in html
+    assert 'class="intro-proof"' in html
+    assert 'id="introTargetCount"' in html
+    assert 'id="introNiahCount"' in html
+    assert 'id="introSignalCount"' in html
+    assert 'set(\'introTargetCount\'' in html
     assert 'id="field"' in html
     assert 'id="fieldTitle"' in html
     assert 'class="field-sequence"' in html
