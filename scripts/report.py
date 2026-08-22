@@ -2375,6 +2375,7 @@ tr[data-id].selected td { background:#f4ebd5; box-shadow:inset 3px 0 0 var(--gol
 .county-pulse-top { display:flex; align-items:baseline; justify-content:space-between; gap:5px; color:#897c67; font-size:8px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
 .county-pulse strong { display:block; margin-top:7px; color:var(--deep); font:700 18px/1 Georgia,serif; letter-spacing:-.04em; }
 .county-pulse small { display:block; margin-top:5px; color:#49685e; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.county-pulse-form { color:#6c806e !important; font-size:7px !important; letter-spacing:.02em; }
 .county-pulse-track { display:block; height:4px; margin-top:8px; overflow:hidden; border-radius:99px; background:#dce3d8; }
 .county-pulse-track i { display:block; height:100%; min-width:2px; border-radius:inherit; background:linear-gradient(90deg,#527b85,#d0a34c); }
 .county-pulse em { display:block; margin-top:6px; overflow:hidden; color:#897c68; font-size:8px; font-style:normal; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
@@ -4129,6 +4130,7 @@ function initStudio() {
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (value, digits=1) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '—';
+const medianValue = values => { const sorted=values.filter(value=>Number.isFinite(Number(value))).map(Number).sort((a,b)=>a-b); if(!sorted.length) return NaN; const middle=Math.floor(sorted.length/2); return sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2; };
 const pFmt = value => { const p=Number(value); if (!Number.isFinite(p)) return 'n/a'; if (p<1e-4) return '&lt;0.0001'; if (p<.001) return '&lt;0.001'; return p.toFixed(4).replace(/0+$/,'').replace(/\.$/,''); };
 const flagsText = row => row.flags.join(', ');
 const hasFlag = (row, flag) => row.flags.includes(flag);
@@ -4881,10 +4883,11 @@ function renderCountyFieldNote() {
   const named=rows.filter(row=>row.spatial?.settlement_class==='named_place').length;
   const ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length;
   const angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length;
+  const medianRatio=medianValue(rows.map(row=>row.aspect_ratio)), medianCircularity=medianValue(rows.map(row=>row.circularity)), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`median r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'median form not reported';
   const scope=SERVER_MODE?`The lazy view has returned ${rows.length.toLocaleString()} records on this page; the filtered total is ${total.toLocaleString()}.`:`The embedded snapshot contains ${total.toLocaleString()} target footprints in this county.`;
   const metrics=SERVER_MODE
     ? `<b>${total.toLocaleString()}</b> targets · <b>${niah.toLocaleString()}</b> NIAH joins`
-    : `<b>${total.toLocaleString()}</b> targets · <b>${niah.toLocaleString()}</b> NIAH · <b>${named.toLocaleString()}</b> named-place contexts · φ ${fmt(ratio/Math.max(1,total)*100,1)}% · θ ${fmt(angle/Math.max(1,total)*100,1)}%`;
+    : `<b>${total.toLocaleString()}</b> targets · <b>${niah.toLocaleString()}</b> NIAH · <b>${named.toLocaleString()}</b> named-place contexts · φ ${fmt(ratio/Math.max(1,total)*100,1)}% · θ ${fmt(angle/Math.max(1,total)*100,1)}% · <b>${form}</b>`;
   note.innerHTML=`<span>Field note / ${esc(county)}</span><p>${scope} Use this as a place-specific reading of the snapshot, not a claim that a county has one architectural identity.</p><div class="county-field-metrics">${metrics}</div>`;
 }
 function renderCountyPulse() {
@@ -4894,12 +4897,14 @@ function renderCountyPulse() {
   DATA.forEach(row=>{
     const county=rowCounty(row);
     if(!county) return;
-    const item=groups.get(county)||{county,target:0,niah:0,named:0,ratio:0,angle:0};
+    const item=groups.get(county)||{county,target:0,niah:0,named:0,ratio:0,angle:0,aspects:[],circularities:[]};
     item.target++;
     if(row.niah?.reg_no) item.niah++;
     if(row.spatial?.settlement_class==='named_place') item.named++;
     if(rowHasSignal(row,'golden_ratio')) item.ratio++;
     if(rowHasSignal(row,'golden_angle')) item.angle++;
+    item.aspects.push(row.aspect_ratio);
+    item.circularities.push(row.circularity);
     groups.set(county,item);
   });
   const rows=[...groups.values()].sort((a,b)=>b.target-a.target||a.county.localeCompare(b.county));
@@ -4911,8 +4916,8 @@ function renderCountyPulse() {
   }
   const max=Math.max(1,...rows.map(row=>row.target));
   grid.innerHTML=rows.map(row=>{
-    const ratio=row.ratio/Math.max(1,row.target)*100, angle=row.angle/Math.max(1,row.target)*100, active=row.county===selected, width=Math.max(3,Math.min(100,row.target/max*100)), label=`${row.county}: ${row.target.toLocaleString()} targets; φ ${fmt(ratio,1)}%; θ ${fmt(angle,1)}%; ${row.niah.toLocaleString()} NIAH joins; ${row.named.toLocaleString()} named-place contexts`;
-    return `<button class="county-pulse" type="button" data-county-focus="${esc(row.county)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="county-pulse-top"><span>${esc(row.county)}</span><small>${active?'selected':'field'}</small></span><strong>${row.target.toLocaleString()}</strong><small>φ ${fmt(ratio,1)}% · θ ${fmt(angle,1)}%</small><span class="county-pulse-track" aria-hidden="true"><i style="width:${width}%"></i></span><em>${row.niah.toLocaleString()} NIAH · ${row.named.toLocaleString()} Ainm</em></button>`;
+    const ratio=row.ratio/Math.max(1,row.target)*100, angle=row.angle/Math.max(1,row.target)*100, medianRatio=medianValue(row.aspects), medianCircularity=medianValue(row.circularities), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'form n/a', active=row.county===selected, width=Math.max(3,Math.min(100,row.target/max*100)), label=`${row.county}: ${row.target.toLocaleString()} targets; φ ${fmt(ratio,1)}%; θ ${fmt(angle,1)}%; median form ${form}; ${row.niah.toLocaleString()} NIAH joins; ${row.named.toLocaleString()} named-place contexts`;
+    return `<button class="county-pulse" type="button" data-county-focus="${esc(row.county)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="county-pulse-top"><span>${esc(row.county)}</span><small>${active?'selected':'field'}</small></span><strong>${row.target.toLocaleString()}</strong><small>φ ${fmt(ratio,1)}% · θ ${fmt(angle,1)}%</small><small class="county-pulse-form">${esc(form)}</small><span class="county-pulse-track" aria-hidden="true"><i style="width:${width}%"></i></span><em>${row.niah.toLocaleString()} NIAH · ${row.named.toLocaleString()} Ainm</em></button>`;
   }).join('');
   if(note) note.textContent=`Showing ${rows.length.toLocaleString()} county contexts from the ${scope}; card bars scale to the largest visible target field. φ and θ are target-level screening rates, not evidence of a county-wide architectural identity.`;
 }
@@ -5332,7 +5337,7 @@ function renderPlaceNameField() {
   chips.innerHTML=entries.slice(0,18).map(([name,count])=>`<button class="place-name-chip" type="button" data-place-name="${esc(name)}" aria-pressed="${query===name.toLowerCase()}"><span>${esc(name)}</span><small>${count.toLocaleString()}</small></button>`).join('');
   const selected=entries.find(([name])=>name.toLowerCase()===query), status=SUMMARY.source_status?.settlements||'not_reported';
   if(selected) {
-    const [name]=selected, rows=DATA.filter(row=>row.spatial?.settlement_class==='named_place'&&String(row.spatial?.settlement_name||row.address_city||'').trim().toLowerCase()===name.toLowerCase()), niah=rows.filter(row=>Boolean(row.niah?.reg_no)).length, ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, median=values=>{ const sorted=values.filter(value=>Number.isFinite(Number(value))).map(Number).sort((a,b)=>a-b); if(!sorted.length) return NaN; const middle=Math.floor(sorted.length/2); return sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2; }, medianRatio=median(rows.map(row=>row.aspect_ratio)), medianCircularity=median(rows.map(row=>row.circularity)), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'not reported', groupCounts=new Map();
+    const [name]=selected, rows=DATA.filter(row=>row.spatial?.settlement_class==='named_place'&&String(row.spatial?.settlement_name||row.address_city||'').trim().toLowerCase()===name.toLowerCase()), niah=rows.filter(row=>Boolean(row.niah?.reg_no)).length, ratio=rows.filter(row=>rowHasSignal(row,'golden_ratio')).length, angle=rows.filter(row=>rowHasSignal(row,'golden_angle')).length, medianRatio=medianValue(rows.map(row=>row.aspect_ratio)), medianCircularity=medianValue(rows.map(row=>row.circularity)), form=Number.isFinite(medianRatio)&&Number.isFinite(medianCircularity)?`r ${fmt(medianRatio,3)} · C ${fmt(medianCircularity,3)}`:'not reported', groupCounts=new Map();
     rows.forEach(row=>{ const label=spatialGroupLabel(row.group); groupCounts.set(label,(groupCounts.get(label)||0)+1); });
     const groups=[...groupCounts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,2).map(([label,count])=>`${label} ${count.toLocaleString()}`).join(' · ')||'not reported';
     set(readoutStatus,`${name} · source context`); set(readoutTitle,`${name} / named-place field`); set(readoutText,`${rows.length.toLocaleString()} named-place rows in the ${scope}; median measured form ${form}; ${niah.toLocaleString()} NIAH joins; ${groups}. These are source-linked screen counts, not an etymological reading.`); set(rowsValue,rows.length.toLocaleString()); set(heritageValue,niah.toLocaleString()); set(signalsValue,`${ratio.toLocaleString()} φ · ${angle.toLocaleString()} θ`); set(formValue,form); set(groupsValue,groups); if(readout) readout.setAttribute('aria-label',`${name} named-place field: ${rows.length.toLocaleString()} rows, median measured form ${form}, ${niah.toLocaleString()} NIAH joins, ${ratio.toLocaleString()} golden-ratio screens, ${angle.toLocaleString()} golden-angle screens, groups ${groups}`);

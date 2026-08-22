@@ -317,6 +317,8 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="placeNameRows"' in html
     assert 'id="placeNameSignals"' in html
     assert 'id="placeNameForm"' in html
+    assert 'class="county-pulse-form"' in html
+    assert "const medianValue = values =>" in html
     assert "function renderHeritageTimeline()" in html
     assert "function setHeritageEra(key)" in html
     assert "function renderLandField()" in html
