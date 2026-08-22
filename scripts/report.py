@@ -5521,6 +5521,7 @@ function renderCultureCoordinateField() {
   const openPoint=event=>{ const dot=event.target.closest?.('circle[data-coordinate-id]'); if(!dot?.dataset.coordinateId) return; focusRow(dot.dataset.coordinateId,{scroll:true,openPopup:true}); };
   plot.onpointerover=readPoint;
   plot.onfocusin=readPoint;
+  plot.onpointerup=event=>{ if(event.button===0) { event.preventDefault(); openPoint(event); } };
   plot.onclick=openPoint;
   plot.onkeydown=event=>{ if(event.key==='Enter'||event.key===' ') { event.preventDefault(); openPoint(event); } };
 }
