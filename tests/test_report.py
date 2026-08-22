@@ -499,6 +499,12 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'id="fieldTitle"' in html
     assert 'class="field-sequence"' in html
     assert 'data-sequence-target="fieldWalk"' in html
+    assert 'id="fieldJourney"' in html
+    assert 'id="fieldJourneyTrack"' in html
+    assert 'id="fieldJourneyReadoutTitle"' in html
+    assert 'id="fieldJourneyTotal"' in html
+    assert "function renderFieldJourney()" in html
+    assert "straight-line coordinate reading" in html
     assert 'data-sequence-section="culture"' in html
     assert 'class="field-principles"' in html
     assert 'data-field-principle="named"' in html

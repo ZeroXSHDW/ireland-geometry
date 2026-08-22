@@ -1531,6 +1531,32 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .field-walk-nav:disabled { cursor:not-allowed; opacity:.35; }
 .field-walk-progress { flex:1 1 auto; min-width:0; color:rgba(247,240,220,.5); font:700 8px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-align:center; text-transform:uppercase; }
 .field-walk-note { margin:10px 0 0; color:rgba(247,240,220,.42); font-size:9px; line-height:1.4; }
+.field-journey { margin-top:12px; padding:13px; border:1px solid rgba(225,189,102,.28); background:linear-gradient(135deg,rgba(8,34,36,.44),rgba(66,91,69,.28)); }
+.field-journey-head { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(230px,.92fr); gap:14px; align-items:start; }
+.field-journey-head h4 { margin:6px 0 0; color:#f7f0dc; font:700 20px/1.05 Georgia,serif; letter-spacing:-.04em; }
+.field-journey-head h4 em { color:#e1bd66; font-style:normal; }
+.field-journey-head p { max-width:560px; margin:6px 0 0; color:rgba(247,240,220,.55); font-size:9px; line-height:1.45; }
+.field-journey-readout { min-height:84px; padding:10px 11px; border:1px solid rgba(225,189,102,.36); background:rgba(8,34,36,.32); }
+.field-journey-readout > span { color:#e1bd66; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.field-journey-readout strong { display:block; margin-top:7px; overflow-wrap:anywhere; color:#f7f0dc; font:700 14px/1.08 Georgia,serif; letter-spacing:-.03em; }
+.field-journey-readout p { margin:5px 0 0; color:rgba(247,240,220,.55); font-size:8px; line-height:1.4; }
+.field-journey-track { display:flex; align-items:stretch; gap:5px; margin-top:13px; padding:1px 0 5px; overflow-x:auto; scrollbar-color:#c6a85d rgba(247,240,220,.12); }
+.field-journey-node { display:flex; flex:1 1 0; flex-direction:column; min-width:116px; padding:8px; border:1px solid rgba(247,240,220,.18); color:#f7f0dc; background:rgba(8,34,36,.3); text-align:left; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.field-journey-node:hover, .field-journey-node:focus-visible { border-color:#e1bd66; background:rgba(8,34,36,.54); box-shadow:0 6px 16px rgba(4,20,23,.16); transform:translateY(-2px); }
+.field-journey-node[aria-pressed="true"] { border-color:#e1bd66; background:rgba(8,34,36,.62); box-shadow:0 0 0 2px rgba(225,189,102,.14); }
+.field-journey-node-top { display:flex; align-items:center; justify-content:space-between; gap:5px; color:rgba(247,240,220,.48); font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.field-journey-node-top b { display:grid; flex:0 0 auto; width:22px; height:22px; place-items:center; border:1px solid rgba(225,189,102,.42); border-radius:50%; color:#e1bd66; font:700 12px/1 Georgia,serif; }
+.field-journey-node strong { display:block; margin-top:12px; overflow:hidden; color:#f7f0dc; font:700 13px/1.1 Georgia,serif; letter-spacing:-.025em; text-overflow:ellipsis; white-space:nowrap; }
+.field-journey-node small { display:block; margin-top:5px; overflow:hidden; color:rgba(247,240,220,.46); font-size:8px; line-height:1.25; text-overflow:ellipsis; white-space:nowrap; }
+.field-journey-segment { display:flex; flex:0 0 82px; flex-direction:column; justify-content:center; gap:5px; min-width:66px; color:rgba(247,240,220,.42); text-align:center; }
+.field-journey-segment i { display:block; height:3px; min-width:14px; border-radius:99px; background:linear-gradient(90deg,rgba(225,189,102,.45),#e1bd66); transform:scaleX(var(--journey-weight,1)); transform-origin:left center; }
+.field-journey-segment small { color:rgba(247,240,220,.48); font:700 7px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; white-space:nowrap; }
+.field-journey-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; margin-top:8px; }
+.field-journey-metric { min-width:0; padding:7px 8px; border:1px solid rgba(225,189,102,.18); background:rgba(225,189,102,.055); }
+.field-journey-metric b, .field-journey-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.field-journey-metric b { color:#e1bd66; font:700 12px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.field-journey-metric small { margin-top:4px; color:rgba(247,240,220,.42); font:7px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.05em; text-transform:uppercase; }
+.field-journey-note { margin:9px 0 0; color:rgba(247,240,220,.4); font-size:8px; line-height:1.4; }
 .measure-ledger { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; margin-top:8px; border:1px solid rgba(225,189,102,.2); background:rgba(225,189,102,.2); }
 .measure-ledger article { min-width:0; min-height:78px; padding:10px; background:rgba(8,34,36,.3); }
 .measure-ledger span { display:block; color:rgba(247,240,220,.47); font:700 9px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
@@ -2578,6 +2604,7 @@ tr:hover td { background:#f1f6f1; }
   .field-coordinate { min-height:0; }
   .field-sequence { grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:18px; }
   .field-walk-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .field-journey-head { grid-template-columns:1fr; }
   .maths-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .measure-ledger { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .lab-toolbar { align-items:stretch; }
@@ -2624,6 +2651,10 @@ tr:hover td { background:#f1f6f1; }
   .field-walk-head { display:block; }
   .field-walk-count { display:inline-block; margin-top:10px; text-align:left; }
   .field-walk-grid { grid-template-columns:1fr; }
+  .field-journey { padding:11px; }
+  .field-journey-track { margin-right:-4px; padding-right:4px; }
+  .field-journey-node { flex:0 0 142px; }
+  .field-journey-segment { flex-basis:72px; }
   .field-walk-controls { align-items:stretch; flex-wrap:wrap; }
   .field-walk-nav { flex:1 1 calc(50% - 4px); }
   .field-walk-progress { order:-1; flex-basis:100%; }
@@ -2790,6 +2821,15 @@ tr:hover td { background:#f1f6f1; }
     <div id="fieldWalk" class="field-walk" aria-labelledby="fieldWalkTitle">
       <div class="field-walk-head"><div><span class="field-walk-kicker">Wander the field / four measured invitations</span><h3 id="fieldWalkTitle">No route required.<br/><em>Start where the signal catches you.</em></h3><p class="field-walk-intro">These waypoints are selected from the current research snapshot to give a first visit a human scale. Open one to bring its real footprint, map position, source chain and mathematical dossier into view.</p></div><div class="field-walk-count"><strong id="fieldWalkCount">—</strong><small>curated waypoints</small></div></div>
       <div id="fieldWalkGrid" class="field-walk-grid" aria-label="Curated field walk waypoints"></div>
+      <div id="fieldJourney" class="field-journey" aria-labelledby="fieldJourneyHeading">
+        <div class="field-journey-head">
+          <div><span class="field-walk-kicker">Slí / journey field</span><h4 id="fieldJourneyHeading">Not a route.<br/><em>A line of attention.</em></h4><p>The curated stops are threaded by their source coordinates. Read the straight-line span, the next leg and its bearing as a geographic rhythm—not as a walking route or a historical itinerary.</p></div>
+          <div class="field-journey-readout" aria-live="polite"><span id="fieldJourneyStatus">Coordinate journey</span><strong id="fieldJourneyReadoutTitle">Choose a field stop to set your position.</strong><p id="fieldJourneyReadoutText">The journey field will connect the curated stops when the report pack loads.</p></div>
+        </div>
+        <div id="fieldJourneyTrack" class="field-journey-track" role="list" aria-label="Straight-line journey between curated field stops"></div>
+        <div class="field-journey-metrics" aria-label="Journey geometry measurements"><span class="field-journey-metric"><b id="fieldJourneyTotal">—</b><small>first → last span</small></span><span class="field-journey-metric"><b id="fieldJourneyLeg">—</b><small>active leg</small></span><span class="field-journey-metric"><b id="fieldJourneyBearing">—</b><small id="fieldJourneyBearingLabel">first → last bearing</small></span></div>
+        <p id="fieldJourneyNote" class="field-journey-note">Coordinates will remain separate from route, walking, and historical claims.</p>
+      </div>
       <div id="fieldWalkControls" class="field-walk-controls" aria-live="polite" hidden><button id="fieldWalkPrevious" class="field-walk-nav" type="button" data-field-walk-nav="previous" aria-label="Go to the previous field walk stop">← Previous stop</button><span id="fieldWalkProgress" class="field-walk-progress">Choose a stop to begin</span><button id="fieldWalkNext" class="field-walk-nav" type="button" data-field-walk-nav="next" aria-label="Go to the next field walk stop">Next stop →</button></div>
       <p id="fieldWalkNote" class="field-walk-note">The walk is a reproducible starting sample, not a ranking of Irish buildings or evidence of historic mathematical intention.</p>
     </div>
@@ -4122,6 +4162,46 @@ function fieldSignalCount(key) {
 function fieldWalkIndexForId(id) {
   return FIELD_WALK.findIndex(item=>String(item?.row?.osm_id||'')===String(id||''));
 }
+function renderFieldJourney() {
+  const track=$('fieldJourneyTrack'), status=$('fieldJourneyStatus'), title=$('fieldJourneyReadoutTitle'), text=$('fieldJourneyReadoutText'), totalValue=$('fieldJourneyTotal'), legValue=$('fieldJourneyLeg'), bearingValue=$('fieldJourneyBearing'), bearingLabel=$('fieldJourneyBearingLabel'), note=$('fieldJourneyNote');
+  if(!track) return;
+  const items=FIELD_WALK.filter(item=>item?.row?.osm_id), rows=items.map(item=>item.row||{}), selectedIndex=fieldWalkIndexForId(selectedMarkerId), distanceText=value=>Number.isFinite(Number(value))?contextDistanceLabel(value):'n/a', bearingText=value=>Number.isFinite(Number(value))?`${fmt(value,0)}°`:'n/a';
+  if(!rows.length) {
+    track.innerHTML='<span class="footnote">No coordinate-linked stops are available in this report pack.</span>';
+    if(status) status.textContent='Coordinate journey unavailable';
+    if(title) title.textContent='The journey field has no stops.';
+    if(text) text.textContent='Use the measured catalogue or map to begin a place reading.';
+    if(totalValue) totalValue.textContent='n/a';
+    if(legValue) legValue.textContent='n/a';
+    if(bearingValue) bearingValue.textContent='n/a';
+    if(note) note.textContent='No coordinate sequence is inferred when the source rows do not carry usable positions.';
+    return;
+  }
+  const legs=rows.slice(0,-1).map((row,index)=>contextDistanceMeters(row,rows[index+1])), finiteLegs=legs.filter(value=>Number.isFinite(value)), maxLeg=Math.max(1,...finiteLegs), totalDistance=contextDistanceMeters(rows[0],rows[rows.length-1]);
+  track.innerHTML=rows.map((row,index)=>{
+    const item=items[index], id=String(row.osm_id||''), active=selectedIndex===index, titleText=contextTitle(row), place=selectionPlaceText(row), label=`${item.title||'Field waypoint'} · ${titleText} · ${place}`;
+    const node=`<button class="field-journey-node" type="button" data-field-walk-id="${esc(id)}" aria-pressed="${active}" aria-label="${esc(label)}"><span class="field-journey-node-top"><span>${esc(item.step||String(index+1).padStart(2,'0'))} / ${esc(item.symbol||'·')}</span><b aria-hidden="true">${esc(String(index+1).padStart(2,'0'))}</b></span><strong>${esc(titleText)}</strong><small>${esc(place)}</small></button>`;
+    if(index>=rows.length-1) return node;
+    const leg=legs[index], weight=Number.isFinite(leg)?Math.max(.28,Math.min(1,.32+.68*leg/maxLeg)):.28;
+    return `${node}<span class="field-journey-segment" aria-hidden="true"><i style="--journey-weight:${weight.toFixed(2)}"></i><small>${esc(distanceText(leg))}</small></span>`;
+  }).join('');
+  const current=selectedIndex>=0?rows[selectedIndex]:null, next=selectedIndex>=0?rows[selectedIndex+1]:null, previous=selectedIndex>0?rows[selectedIndex-1]:null, legFrom=current&&next?current:previous, legTo=current&&next?next:current, activeLeg=legFrom&&legTo?contextDistanceMeters(legFrom,legTo):NaN, activeBearing=legFrom&&legTo?comparisonBearingDegrees(legFrom,legTo):NaN, firstToLastBearing=rows.length>1?comparisonBearingDegrees(rows[0],rows[rows.length-1]):NaN;
+  if(totalValue) totalValue.textContent=distanceText(totalDistance);
+  if(legValue) legValue.textContent=distanceText(activeLeg);
+  if(bearingValue) bearingValue.textContent=bearingText(selectedIndex>=0?activeBearing:firstToLastBearing);
+  if(bearingLabel) bearingLabel.textContent=selectedIndex>=0?'active leg bearing':'first → last bearing';
+  if(selectedIndex<0) {
+    if(status) status.textContent=`${rows.length} coordinate-linked stops`;
+    if(title) title.textContent='Choose a field stop to set your position.';
+    if(text) text.textContent=`${distanceText(totalDistance)} first-to-last span · initial bearing ${bearingText(firstToLastBearing)} · straight-line coordinate reading.`;
+  } else {
+    const currentItem=items[selectedIndex], currentTitle=contextTitle(current), currentPlace=selectionPlaceText(current);
+    if(status) status.textContent=`Stop ${String(selectedIndex+1).padStart(2,'0')} / ${String(rows.length).padStart(2,'0')} · ${currentItem.title||'field waypoint'}`;
+    if(title) title.textContent=`${currentTitle}${currentPlace&&currentPlace!=='Context not reported'?` · ${currentPlace}`:''}`;
+    if(text) text.textContent=next?`Next: ${contextTitle(next)} · ${distanceText(activeLeg)} straight-line · bearing ${bearingText(activeBearing)} from this coordinate.`:previous?`Final stop · from ${contextTitle(previous)} · ${distanceText(activeLeg)} straight-line · bearing ${bearingText(activeBearing)}.`:'The first stop sets the coordinate origin for the journey field.';
+  }
+  if(note) note.textContent=`${rows.length} curated source rows · ${distanceText(totalDistance)} first-to-last span. Distances use source coordinates; no walking route, road itinerary, or historic journey is inferred.`;
+}
 function moveFieldWalk(delta) {
   if(!FIELD_WALK.length) return;
   const current=fieldWalkIndexForId(selectedMarkerId);
@@ -4147,6 +4227,7 @@ function fieldWalkShapeSvg(row) {
 function renderFieldWalk() {
   const grid=$('fieldWalkGrid'), count=$('fieldWalkCount'), note=$('fieldWalkNote'), controls=$('fieldWalkControls'), previous=$('fieldWalkPrevious'), next=$('fieldWalkNext'), progress=$('fieldWalkProgress');
   if(!grid) return;
+  renderFieldJourney();
   if(count) count.textContent=FIELD_WALK.length.toLocaleString();
   if(!FIELD_WALK.length) {
     grid.innerHTML='<p class="footnote">No curated waypoints are available in this report pack; use the signal cards or map to begin.</p>';
