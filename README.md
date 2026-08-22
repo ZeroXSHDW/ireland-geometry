@@ -1454,3 +1454,7 @@ It reports the release gate’s explicit validation-record requirement under
   Local Government and Heritage, CC BY 4.0.
 - Sentinel-2 / Copernicus and Esri World Imagery are used according to their
   respective terms for optional visual/reference layers.
+
+## Security
+
+Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Do not publish private source datasets, credentials, or deployment state.
