@@ -1376,7 +1376,7 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .intro-proof strong { color:#f5d887; font:700 14px/1 Georgia,serif; letter-spacing:-.04em; }
 .intro-proof em { color:rgba(248,242,229,.4); font-style:normal; letter-spacing:0; text-transform:none; }
 .intro-foot > span:last-child { margin-left:auto; color:#dec17b; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-@media (min-width:721px) { .intro-proof { position:absolute; left:260px; right:140px; } }
+@media (min-width:721px) { .intro-shell { transform:translateY(-18px); } .intro-proof { position:absolute; left:260px; right:140px; } }
 #panel { position:fixed; z-index:1000; top:18px; right:18px; bottom:18px; width:min(780px,calc(100vw - 36px));
          display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; border:1px solid rgba(228,218,193,.78); border-radius:26px;
          background:var(--panel); box-shadow:0 22px 80px rgba(4,20,23,.38); }
