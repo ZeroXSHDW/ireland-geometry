@@ -528,6 +528,11 @@ def test_report_is_data_driven_and_replaces_template_tokens(tmp_path):
     assert 'coordinate-latitude-axis' in html
     assert 'coordinate-longitude-axis' in html
     assert 'latitude rises vertically and longitude runs west to east' in html
+    assert 'id="fieldLight"' in html
+    assert 'id="fieldLightSummer"' in html
+    assert 'id="fieldLightWinter"' in html
+    assert "function solarHorizonMetrics(latitude,declination)" in html
+    assert "function renderFieldLight(row)" in html
     assert "--coordinate-x" in html
     assert "Selected coordinate" in html
     assert "function updateMapStamp()" in html

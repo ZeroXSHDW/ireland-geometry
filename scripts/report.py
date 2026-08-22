@@ -1430,6 +1430,16 @@ body.intro-open #mapHud, body.intro-open #mapLabel { opacity:.18; transition:opa
 .coordinate-longitude-axis { right:6px; bottom:5px; left:32px; display:flex; justify-content:space-between; gap:4px; }
 .coordinate-longitude-axis span, .coordinate-latitude-axis span { white-space:nowrap; }
 .coordinate-note { margin-top:10px; color:rgba(247,240,220,.5); font-size:9px; line-height:1.35; }
+.field-light { margin-top:10px; padding:10px; border:1px solid rgba(225,189,102,.22); background:rgba(7,33,35,.2); }
+.field-light-top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; color:#dec17b; font:700 8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+.field-light-top small { color:rgba(247,240,220,.45); font:8px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:0; text-transform:none; }
+.field-light strong { display:block; margin-top:6px; color:#f7f0dc; font:700 15px/1.05 Georgia,serif; letter-spacing:-.035em; }
+.field-light-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:8px; }
+.field-light-metric { min-width:0; padding:6px; border:1px solid rgba(225,189,102,.16); background:rgba(225,189,102,.05); }
+.field-light-metric b, .field-light-metric small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.field-light-metric b { color:#e1bd66; font:700 11px/1.05 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.field-light-metric small { margin-top:3px; color:rgba(247,240,220,.46); font-size:7px; line-height:1.2; text-transform:uppercase; letter-spacing:.04em; }
+.field-light-note { margin:8px 0 0; color:rgba(247,240,220,.48); font-size:8px; line-height:1.35; }
 .field-signals { position:relative; z-index:1; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:20px; }
 .field-sequence { position:relative; z-index:1; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; margin-top:22px; padding-top:16px; }
 .field-sequence::before { content:""; position:absolute; top:5px; right:4%; left:4%; height:1px; background:linear-gradient(90deg,#8ab89f,#e1bd66 46%,#bf5b45 83%,rgba(247,240,220,.2)); }
@@ -2750,7 +2760,7 @@ tr:hover td { background:#f1f6f1; }
         <p>Coordinates give us the first precision: a footprint belongs somewhere, in a county, beside a road, under a particular light. The mathematics here is a lens for noticing—ratios, angles, symmetry, circles—not a story that replaces memory, craft, ecology or lived culture.</p>
         <div class="field-principles" aria-label="Field principles"><button type="button" data-field-principle="named" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Ainm, named places">ainm / name <b aria-hidden="true">→</b></button><button type="button" data-field-principle="heritage" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Oidhreacht, heritage joins">oidhreacht / heritage <b aria-hidden="true">→</b></button><button type="button" data-field-principle="form" aria-controls="maths" aria-pressed="false" aria-label="Open Cruth, the mathematical grammar">cruth / form <b aria-hidden="true">→</b></button><button type="button" data-field-principle="pobal" aria-controls="filters" aria-pressed="false" aria-label="Filter the atlas by Pobal, shared life">pobal / shared life <b aria-hidden="true">→</b></button></div>
       </div>
-      <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div id="coordinatePlot" class="coordinate-plot" aria-label="Ireland field coordinate marker with latitude and longitude axes"><span id="coordinatePlotReadout" class="coordinate-plot-readout">Ireland field centre</span><div class="coordinate-axis coordinate-latitude-axis" aria-hidden="true"><span>55° N</span><span>54°</span><span>53°</span><span>52°</span><span>51° N</span></div><div class="coordinate-axis coordinate-longitude-axis" aria-hidden="true"><span>10.7° W</span><span>9° W</span><span>8° W</span><span>7° W</span><span>5.3° W</span></div></div><p id="coordinateNote" class="coordinate-note">A schematic WGS84 field for the current report pack: latitude rises vertically and longitude runs west to east. The live map carries the actual points; every measurement stays situated.</p></div>
+      <div class="field-coordinate" aria-label="Coordinate field diagram"><div class="field-coordinate-top"><span>Coordinate field</span><small>WGS84 / snapshot</small></div><div id="coordinatePlot" class="coordinate-plot" aria-label="Ireland field coordinate marker with latitude and longitude axes"><span id="coordinatePlotReadout" class="coordinate-plot-readout">Ireland field centre</span><div class="coordinate-axis coordinate-latitude-axis" aria-hidden="true"><span>55° N</span><span>54°</span><span>53°</span><span>52°</span><span>51° N</span></div><div class="coordinate-axis coordinate-longitude-axis" aria-hidden="true"><span>10.7° W</span><span>9° W</span><span>8° W</span><span>7° W</span><span>5.3° W</span></div></div><p id="coordinateNote" class="coordinate-note">A schematic WGS84 field for the current report pack: latitude rises vertically and longitude runs west to east. The live map carries the actual points; every measurement stays situated.</p><div id="fieldLight" class="field-light" aria-live="polite" aria-label="Approximate seasonal light field"><div class="field-light-top"><span>Solas / light field</span><small id="fieldLightScope">Ireland field centre</small></div><strong id="fieldLightHeadline">Seasonal light is loading.</strong><div class="field-light-metrics" aria-label="Seasonal light measurements"><span class="field-light-metric"><b id="fieldLightLatitude">—</b><small>latitude</small></span><span class="field-light-metric"><b id="fieldLightSummer">—</b><small>midsummer daylight</small></span><span class="field-light-metric"><b id="fieldLightWinter">—</b><small>midwinter daylight</small></span></div><p id="fieldLightNote" class="field-light-note">Approximate horizon geometry will appear when the field loads.</p></div></div>
     </div>
     <div class="field-sequence" aria-label="Atlas narrative sequence"><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>01</span><strong>Land</strong><small>shore · weather · ground</small></button><button class="field-sequence-step" type="button" data-sequence-target="field" data-sequence-section="field"><span>02</span><strong>Coordinate</strong><small>where the point belongs</small></button><button class="field-sequence-step" type="button" data-sequence-target="fieldWalk" data-sequence-section="field"><span>03</span><strong>Footprint</strong><small>area · edge · scale</small></button><button class="field-sequence-step" type="button" data-sequence-target="maths" data-sequence-section="maths"><span>04</span><strong>Maths</strong><small>ratio · angle · symmetry</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>05</span><strong>Heritage</strong><small>record · name · time</small></button><button class="field-sequence-step" type="button" data-sequence-target="culture" data-sequence-section="culture"><span>06</span><strong>Culture</strong><small>Áit · Pobal · Oidhreacht</small></button><button class="field-sequence-step" type="button" data-sequence-target="studio" data-sequence-section="studio"><span>07</span><strong>Civic possibility</strong><small>the shared room ahead</small></button></div>
     <div id="fieldWalk" class="field-walk" aria-labelledby="fieldWalkTitle">
@@ -3441,18 +3451,33 @@ function scenarioValues() {
 function skyClamp(value,min,max) { return Math.max(min,Math.min(max,value)); }
 function skyLatitudeText(value) { return `${fmt(Math.abs(value),2)}° ${value>=0?'N':'S'}`; }
 function skyLongitudeText(value) { return `${fmt(Math.abs(value),2)}° ${value>=0?'E':'W'}`; }
+function solarHorizonMetrics(latitude,declination) {
+  const lat=skyClamp(Number(latitude),-66,66), declinationValue=Number(declination)||0, latitudeRadians=lat*Math.PI/180, declinationRadians=declinationValue*Math.PI/180;
+  const hourAngle=Math.acos(skyClamp(-Math.tan(latitudeRadians)*Math.tan(declinationRadians),-1,1));
+  const daylightHours=24*hourAngle/Math.PI, noonAltitude=skyClamp(90-Math.abs(lat-declinationValue),0,90), sunrise=Math.acos(skyClamp(Math.sin(declinationRadians)/Math.cos(latitudeRadians),-1,1))*180/Math.PI;
+  return {daylightHours,noonAltitude,sunrise,sunset:360-sunrise};
+}
+function renderFieldLight(row) {
+  const root=$('fieldLight');
+  if(!root) return;
+  const rawLat=Number(row?.lat), selected=Number.isFinite(rawLat), lat=selected?skyClamp(rawLat,-66,66):DEFAULT_MAP_CENTER[0], summer=solarHorizonMetrics(lat,SKY_DECLINATION.midsummer), winter=solarHorizonMetrics(lat,SKY_DECLINATION.midwinter), place=selected?selectionPlaceText(row):'Ireland field centre', title=selected?contextTitle(row):'the island field';
+  const set=(id,value)=>{ const element=$(id); if(element) element.textContent=value; };
+  set('fieldLightScope',selected?place:'Ireland field centre');
+  set('fieldLightHeadline',`${fmt(summer.daylightHours,1)} h midsummer · ${fmt(winter.daylightHours,1)} h midwinter`);
+  set('fieldLightLatitude',skyLatitudeText(lat));
+  set('fieldLightSummer',`${fmt(summer.daylightHours,1)} h`);
+  set('fieldLightWinter',`${fmt(winter.daylightHours,1)} h`);
+  set('fieldLightNote',`Approximate solar geometry for ${title} at ${skyLatitudeText(lat)}: noon altitude ${fmt(summer.noonAltitude,1)}° in midsummer and ${fmt(winter.noonAltitude,1)}° in midwinter. This is a light question, not a site-specific energy or daylight model.`);
+  root.setAttribute('aria-label',`Approximate seasonal light field for ${title}: ${fmt(summer.daylightHours,1)} hours of midsummer daylight and ${fmt(winter.daylightHours,1)} hours of midwinter daylight.`);
+}
 function skyFieldMetrics() {
   const values=scenarioValues(), reference=studioReferenceData;
   const rawLat=Number(reference?.lat), rawLon=Number(reference?.lon);
   const lat=Number.isFinite(rawLat)?skyClamp(rawLat,-66,66):DEFAULT_MAP_CENTER[0];
   const lon=Number.isFinite(rawLon)?rawLon:DEFAULT_MAP_CENTER[1];
   const declination=Number(SKY_DECLINATION[values.season] ?? 0);
-  const latitudeRadians=lat*Math.PI/180, declinationRadians=declination*Math.PI/180;
-  const hourAngle=Math.acos(skyClamp(-Math.tan(latitudeRadians)*Math.tan(declinationRadians),-1,1));
-  const daylightHours=24*hourAngle/Math.PI;
-  const noonAltitude=skyClamp(90-Math.abs(lat-declination),0,90);
-  const sunrise=Math.acos(skyClamp(Math.sin(declinationRadians)/Math.cos(latitudeRadians),-1,1))*180/Math.PI;
-  return {values,reference,lat,lon,declination,daylightHours,noonAltitude,sunrise,sunset:360-sunrise};
+  const solar=solarHorizonMetrics(lat,declination);
+  return {values,reference,lat,lon,declination,...solar};
 }
 function renderSkyField() {
   const root=$('skyField');
@@ -4071,6 +4096,7 @@ function renderFieldWalk() {
 function renderFieldCoordinate(row) {
   const plot=$('coordinatePlot'), readout=$('coordinatePlotReadout'), note=$('coordinateNote');
   if(!plot) return;
+  renderFieldLight(row);
   const lat=Number(row?.lat), lon=Number(row?.lon), focused=Number.isFinite(lat)&&Number.isFinite(lon);
   const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
   if(focused) {
