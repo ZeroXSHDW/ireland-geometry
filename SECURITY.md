@@ -11,5 +11,3 @@ The supported surface is the default branch, the latest review branch, repositor
 ## Handling
 
 Reports are investigated against the affected revision and addressed according to severity and maintainer capacity. Please do not assume that acknowledgement promises a particular response time. Never commit real credentials or sensitive customer, device, or production data.
-
-
