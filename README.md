@@ -610,9 +610,11 @@ and source archive. The package-smoke job inspects both archives and fails if
 out of release artifacts.
 The canonical Python 3.11 wheel, sdist, and SHA-256 manifest are retained as
 downloadable artifacts for 14 days from successful CI runs. The Pages
-deployment workflow runs only after the `Ireland geometry checks` workflow
-succeeds, then checks out that exact validated commit before auditing and
-uploading `docs/`.
+deployment workflow runs only after an `Ireland geometry checks` push run
+succeeds on the internal `agent/publish-github-pages` branch, rejects fork and
+pull-request workflow runs, then checks out that exact validated commit before
+auditing and uploading `docs/`. A manual dispatch checks out the repository
+default branch rather than the dispatcher’s arbitrary ref.
 
 `ireland-geometry-serve` binds to `127.0.0.1:8000` and serves
 `report_lazy.html` by default. Use `--open` to launch it in the default
