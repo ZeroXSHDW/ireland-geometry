@@ -32,6 +32,17 @@ def test_every_workflow_checkout_enforces_patch_hygiene():
             ), workflow_path
 
 
+def test_workflows_use_fixed_runners_and_bounded_python_bootstraps():
+    workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.y*ml"))
+    assert workflow_paths
+
+    for workflow_path in workflow_paths:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "ubuntu-latest" not in workflow, workflow_path
+        assert "pip install --upgrade pip" not in workflow, workflow_path
+        assert "pip install --upgrade pip setuptools wheel" not in workflow, workflow_path
+
+
 def test_patch_hygiene_is_documented_for_contributors():
     for filename in ("README.md", "CONTRIBUTING.md"):
         content = (ROOT / filename).read_text(encoding="utf-8")
