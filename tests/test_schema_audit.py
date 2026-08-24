@@ -38,6 +38,15 @@ def test_schema_registry_is_available_as_a_package_resource():
     assert json.loads(holiday_schema.read_text(encoding="utf-8"))["$id"] == "ireland-geometry.public-holidays.v1"
 
 
+def test_tracked_ferry_schedule_source_is_portable():
+    artifact = Path(__file__).resolve().parents[1] / "data" / "roads" / "ferry_schedules.json"
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    source = payload.get("source")
+    assert isinstance(source, str) and source
+    assert not Path(source).is_absolute()
+    assert ".." not in Path(source).parts
+
+
 def test_schema_audit_checks_required_columns_and_numeric_values(tmp_path):
     path = tmp_path / "sample.csv"
     path.write_text("osm_id,area_m2\nway/1,12.5\n", encoding="utf-8")

@@ -108,11 +108,11 @@ and 300 Monte Carlo iterations:
 
 ## Quick start
 
-Use Python 3.10 or newer. The primary extractor needs the `osmium` Python
-bindings (the project commonly documented as PyOsmium) and processes the PBF
-locally. For a supported local environment, choose an installed interpreter
-explicitly; Python 3.11 is the current workspace default and Python 3.10/3.12
-are also supported.
+Use Python 3.10 or newer. The checked-in `.python-version` selects Python 3.11
+for the default local workflow and Pages runtime; the CI matrix also verifies
+Python 3.10 and 3.12. The primary extractor needs the `osmium` Python bindings
+(the project commonly documented as PyOsmium) and processes the PBF locally.
+For a supported local environment, choose an installed interpreter explicitly.
 
 ```bash
 python3.11 -m venv .venv
@@ -222,6 +222,8 @@ Useful commands:
 .venv/bin/python scripts/release_check.py --json --require-pages
 # Optional deep source-content check (the default gate checks metadata only):
 .venv/bin/python scripts/release_check.py --json --require-pages --check-input-hashes
+.venv/bin/python -m pip check
+git diff --check
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python scripts/repro_check.py --out-dir output
@@ -1454,3 +1456,7 @@ It reports the release gate’s explicit validation-record requirement under
   Local Government and Heritage, CC BY 4.0.
 - Sentinel-2 / Copernicus and Esri World Imagery are used according to their
   respective terms for optional visual/reference layers.
+
+## Security
+
+Report vulnerabilities privately using [SECURITY.md](SECURITY.md). Do not publish private source datasets, credentials, or deployment state.

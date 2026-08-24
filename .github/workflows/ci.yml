@@ -3,21 +3,32 @@ name: Ireland geometry checks
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ireland-geometry-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - run: git diff --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev]"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
       - run: python -m compileall -q scripts run_pipeline.py
@@ -32,15 +43,18 @@ jobs:
       - run: python scripts/repro_check.py --help
 
   optional-data:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: "3.11"
+          persist-credentials: false
+      - run: git diff --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev,data]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev,data]"
       - run: python -c "import duckdb, pyarrow; print(f'duckdb={duckdb.__version__} pyarrow={pyarrow.__version__}')"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
@@ -49,15 +63,18 @@ jobs:
       - run: ireland-geometry-serve --help
 
   optional-geo3d:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: "3.11"
+          persist-credentials: false
+      - run: git diff --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev,geo3d]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev,geo3d]"
       - run: python -c "import laspy, rasterio; print(f'laspy={laspy.__version__} rasterio={rasterio.__version__}')"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
@@ -66,17 +83,21 @@ jobs:
       - run: ireland-geometry-serve --help
 
   package-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - run: git diff --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install --disable-pip-version-check "setuptools==83.0.0" "wheel==0.46.2"
       - run: python -m pip wheel . --no-deps --no-build-isolation --wheel-dir wheelhouse
       - name: Verify wheel excludes bytecode caches
         run: |
@@ -125,7 +146,7 @@ jobs:
               assert f"{root}/{relative}" in names, relative
           print("sdist source assets verified")
           PY
-      - run: python -m pip install --force-reinstall --no-deps wheelhouse/*.whl
+      - run: python -m pip install --disable-pip-version-check --force-reinstall --no-deps wheelhouse/*.whl
       - run: cd /tmp && python -c "from importlib.resources import files; import run_pipeline; assert files('schemas').joinpath('artifacts.json').is_file(); assert files('schemas').joinpath('analysis_plan.json').is_file(); assert files('schemas').joinpath('ferry_schedules.json').is_file(); assert (files('schemas').joinpath('artifacts.json')).read_text(encoding='utf-8').startswith('{'); assert 'build_interpretation' in files('scripts').joinpath('report.py').read_text(encoding='utf-8'); assert files('scripts').joinpath('pages_audit.py').is_file(); assert files('scripts').joinpath('publish_pages.py').is_file(); assert files('scripts').joinpath('release_check.py').is_file()"
       - name: Execute dependency-light packaged report page
         run: |
@@ -796,7 +817,7 @@ jobs:
           cat package-sha256sums.txt
       - if: matrix.python-version == '3.11'
         name: Upload canonical package artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ireland-geometry-packages-py3.11-${{ github.sha }}-${{ github.run_attempt }}
           path: |
@@ -807,10 +828,14 @@ jobs:
           retention-days: 14
 
   pages-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          python-version: "3.11"
+          persist-credentials: false
+      - run: git diff --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: .python-version
       - run: python scripts/pages_audit.py --json

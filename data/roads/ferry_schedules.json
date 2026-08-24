@@ -1,6 +1,6 @@
 {
   "contract":"ireland-geometry.ferry-schedules.v1",
-  "source":"/Users/admin/Desktop/MAPS/ireland_geometry/data/raw/ireland-latest.osm.pbf",
+  "source":"data/raw/ireland-latest.osm.pbf",
   "schedules":[
     {
       "way_id":"137424610",

@@ -9,6 +9,8 @@ are available with `.venv/bin/python -m pip install -e ".[data,geo3d]"`.
 The standard local checks are:
 
 ```text
+.venv/bin/python -m pip check
+git diff --check
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
@@ -46,6 +48,9 @@ distribution, together with `package-sha256sums.txt`, for 14 days so a tested
 artifact can be downloaded without rebuilding locally. The Pages deployment
 workflow is gated on a successful `Ireland geometry checks` run and deploys
 the exact commit that passed that workflow.
+The package build backend is intentionally pinned to `setuptools==83.0.0` and
+`wheel==0.46.2`; keep those pins aligned between `pyproject.toml` and the
+package-smoke workflow when updating the build toolchain.
 The package-smoke version checks derive the expected value from the installed
 distribution metadata and compare every command's `--version` output with it;
 updating the package version therefore does not require a separate workflow

@@ -10,7 +10,8 @@
       "const": "ireland-geometry.ferry-schedules.v1"
     },
     "source": {
-      "type": "string"
+      "type": "string",
+      "description": "Portable project-relative POSIX reference or external/basename reference; absolute machine paths are not permitted."
     },
     "schedules": {
       "type": "array",
