@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       matrix:
@@ -28,8 +28,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev]"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
       - run: python -m compileall -q scripts run_pipeline.py
@@ -44,7 +43,7 @@ jobs:
       - run: python scripts/repro_check.py --help
 
   optional-data:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -55,8 +54,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev,data]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev,data]"
       - run: python -c "import duckdb, pyarrow; print(f'duckdb={duckdb.__version__} pyarrow={pyarrow.__version__}')"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
@@ -65,7 +63,7 @@ jobs:
       - run: ireland-geometry-serve --help
 
   optional-geo3d:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -76,8 +74,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev,geo3d]"
+      - run: python -m pip install --disable-pip-version-check -e ".[dev,geo3d]"
       - run: python -c "import laspy, rasterio; print(f'laspy={laspy.__version__} rasterio={rasterio.__version__}')"
       - run: python -m pytest
       - run: python -m ruff check scripts tests run_pipeline.py
@@ -86,7 +83,7 @@ jobs:
       - run: ireland-geometry-serve --help
 
   package-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       matrix:
@@ -100,7 +97,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install --disable-pip-version-check "setuptools==80.9.0" "wheel==0.45.1"
       - run: python -m pip wheel . --no-deps --no-build-isolation --wheel-dir wheelhouse
       - name: Verify wheel excludes bytecode caches
         run: |
@@ -149,7 +146,7 @@ jobs:
               assert f"{root}/{relative}" in names, relative
           print("sdist source assets verified")
           PY
-      - run: python -m pip install --force-reinstall --no-deps wheelhouse/*.whl
+      - run: python -m pip install --disable-pip-version-check --force-reinstall --no-deps wheelhouse/*.whl
       - run: cd /tmp && python -c "from importlib.resources import files; import run_pipeline; assert files('schemas').joinpath('artifacts.json').is_file(); assert files('schemas').joinpath('analysis_plan.json').is_file(); assert files('schemas').joinpath('ferry_schedules.json').is_file(); assert (files('schemas').joinpath('artifacts.json')).read_text(encoding='utf-8').startswith('{'); assert 'build_interpretation' in files('scripts').joinpath('report.py').read_text(encoding='utf-8'); assert files('scripts').joinpath('pages_audit.py').is_file(); assert files('scripts').joinpath('publish_pages.py').is_file(); assert files('scripts').joinpath('release_check.py').is_file()"
       - name: Execute dependency-light packaged report page
         run: |
@@ -831,7 +828,7 @@ jobs:
           retention-days: 14
 
   pages-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
