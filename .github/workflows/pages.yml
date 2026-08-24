@@ -24,7 +24,12 @@ jobs:
   deploy:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'agent/publish-github-pages' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -34,7 +39,9 @@ jobs:
       - name: Check out validated site revision
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # Manual dispatches always use the repository default branch. A
+          # workflow_run uses the exact internal push commit that passed CI.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.repository.default_branch }}
           persist-credentials: false
       - run: git diff --check
       - name: Set up Python for site audit
