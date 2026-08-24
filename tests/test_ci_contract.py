@@ -59,3 +59,14 @@ def test_patch_hygiene_is_documented_for_contributors():
     for filename in ("README.md", "CONTRIBUTING.md"):
         content = (ROOT / filename).read_text(encoding="utf-8")
         assert "git diff --check" in content, filename
+
+
+def test_pages_deployment_only_trusts_internal_push_validation():
+    workflow = (ROOT / ".github/workflows/pages.yml").read_text(encoding="utf-8")
+
+    assert "github.event.workflow_run.event == 'push'" in workflow
+    assert "github.event.workflow_run.head_branch == 'agent/publish-github-pages'" in workflow
+    assert "github.event.workflow_run.head_repository.full_name == github.repository" in workflow
+    assert "github.event_name == 'workflow_run' && github.event.workflow_run.head_sha" in workflow
+    assert "github.event.repository.default_branch" in workflow
+    assert "github.event.workflow_run.head_sha || github.sha" not in workflow
