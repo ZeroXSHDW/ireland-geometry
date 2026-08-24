@@ -222,6 +222,8 @@ Useful commands:
 .venv/bin/python scripts/release_check.py --json --require-pages
 # Optional deep source-content check (the default gate checks metadata only):
 .venv/bin/python scripts/release_check.py --json --require-pages --check-input-hashes
+.venv/bin/python -m pip check
+git diff --check
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python scripts/repro_check.py --out-dir output

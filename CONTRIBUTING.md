@@ -9,6 +9,8 @@ are available with `.venv/bin/python -m pip install -e ".[data,geo3d]"`.
 The standard local checks are:
 
 ```text
+.venv/bin/python -m pip check
+git diff --check
 .venv/bin/python -m pytest
 .venv/bin/ruff check scripts tests run_pipeline.py
 .venv/bin/python -m compileall -q scripts run_pipeline.py
