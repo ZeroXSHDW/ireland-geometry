@@ -87,6 +87,7 @@ try:
     from runtime import (
         atomic_write_csv,
         atomic_write_json,
+        manifest_relative_path,
         project_data_tree_path,
         project_input_path,
         project_output_tree_path,
@@ -98,6 +99,7 @@ except ImportError:
     from scripts.runtime import (
         atomic_write_csv,
         atomic_write_json,
+        manifest_relative_path,
         project_data_tree_path,
         project_input_path,
         project_output_tree_path,
@@ -112,6 +114,25 @@ VEHICLE_CLASSES = ("general", "delivery", "hgv", "psv", "taxi")
 CONDITIONAL_ACCESS_DIRECTIONS = ("both", "forward", "backward")
 ROAD_GRAPH_FORMAT = "ireland-geometry-road-sqlite-v21"
 ROAD_CONTEXT_FIELDS = ("name", "ref", "highway", "route", "oneway")
+
+
+def _portable_source_reference(path: str | Path) -> str:
+    """Return a stable source reference for generated graph metadata.
+
+    Generated graph companions are copied between checkouts and must not leak
+    the absolute path of the machine that built them. In-project inputs use a
+    project-relative POSIX path; external inputs retain only an explicit
+    ``external/`` basename reference.
+    """
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        if ".." not in candidate.parts:
+            return candidate.as_posix()
+        return f"external/{candidate.name or 'unknown-input'}"
+    relative = manifest_relative_path(candidate, project_path(None, "."))
+    if relative is not None:
+        return relative
+    return f"external/{candidate.name or 'unknown-input'}"
 
 
 def _optional_way_tag(value: object) -> str | None:
@@ -3650,7 +3671,7 @@ def write_sqlite_graph(
             "format": ROAD_GRAPH_FORMAT,
             "storage": "sqlite",
             "directed": True,
-            "source": source,
+            "source": _portable_source_reference(source),
             "node_n": len(coordinates),
             "edge_n": len(edge_rows),
             "complete": complete,
@@ -4834,7 +4855,7 @@ def write_sqlite_graph_from_pbf(
         "format": ROAD_GRAPH_FORMAT,
         "storage": "sqlite",
         "directed": True,
-        "source": str(path),
+        "source": _portable_source_reference(path),
         "node_n": node_n,
         "edge_n": edge_n,
         "way_n": handler.way_n,
@@ -4947,7 +4968,7 @@ def write_sqlite_graph_from_pbf(
         output / "ferry_schedules.json",
         {
             "contract": FERRY_SCHEDULE_CONTRACT,
-            "source": str(path),
+            "source": _portable_source_reference(path),
             "schedules": sorted(
                 handler.ferry_schedule_rows,
                 key=lambda entry: str(entry.get("way_id", "")),
@@ -5090,7 +5111,7 @@ def write_graph(
         {
             "format": "ireland-geometry-road-graph-v1",
             "directed": True,
-            "source": source,
+            "source": _portable_source_reference(source),
             "node_n": len(node_rows),
             "edge_n": len(edge_rows),
             "way_context": bool(portable_graph and portable_graph.has_way_context),
@@ -6198,14 +6219,14 @@ def main(argv: list[str] | None = None) -> None:
                 "median_straight_m": round(straight[len(straight) // 2], 2) if straight else "",
                 "network_to_straight_ratio": round(sum(ratio) / len(ratio), 4) if ratio else "",
                 "status": "provided",
-                "source": source,
+                "source": _portable_source_reference(source),
                 "method": routing_method,
             }
         )
     atomic_write_csv(
         out / "road_routing.csv",
         ["group", "sample_n", "route_n", "reachable_pct", "median_route_m", "p90_route_m", "median_straight_m", "network_to_straight_ratio", "status", "source", "method"],
-        summaries or [{"group": "all", "sample_n": 0, "route_n": 0, "reachable_pct": 0, "median_route_m": "", "p90_route_m": "", "median_straight_m": "", "network_to_straight_ratio": "", "status": "no_pairs", "source": source, "method": "Dijkstra"}],
+        summaries or [{"group": "all", "sample_n": 0, "route_n": 0, "reachable_pct": 0, "median_route_m": "", "p90_route_m": "", "median_straight_m": "", "network_to_straight_ratio": "", "status": "no_pairs", "source": _portable_source_reference(source), "method": "Dijkstra"}],
     )
     if graph is not None:
         graph.close()
