@@ -19,6 +19,7 @@ from scripts.review import calibration
 from scripts.road_routing import (
     PortableRoadGraph,
     SQLiteRoadGraph,
+    _portable_source_reference,
     build_node_index,
     conditional_access_profile_rules,
     graph_from_rows,
@@ -177,6 +178,19 @@ def test_routing_graph_export_round_trips_and_indexes_nearest_nodes(tmp_path):
         {"lat": "53", "lon": "-8.0009"}, loaded_nodes, build_node_index(loaded_nodes)
     ) == "b"
     assert (graph_path / "road_graph_metadata.json").exists()
+
+
+def test_generated_graph_source_references_are_portable(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    monkeypatch.setattr(runtime_module, "ROOT", project)
+
+    assert (
+        _portable_source_reference(project / "data" / "raw" / "ireland-latest.osm.pbf")
+        == "data/raw/ireland-latest.osm.pbf"
+    )
+    assert _portable_source_reference(tmp_path / "outside" / "input.pbf") == "external/input.pbf"
+    assert _portable_source_reference("data/raw/input.pbf") == "data/raw/input.pbf"
+    assert _portable_source_reference("../input.pbf") == "external/input.pbf"
 
 
 def test_portable_graph_preserves_directed_way_context_and_path_segments(tmp_path):
