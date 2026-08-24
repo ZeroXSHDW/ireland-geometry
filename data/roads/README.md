@@ -9,6 +9,11 @@ ferry-edge layer and indexed node cells, and applies OSM one-way semantics plus
 validated via-node and via-way turn restrictions during Dijkstra. Both
 backends use deterministic nearest-node snapping.
 
+When a SQLite graph carries `ferry_schedules.json`, its optional `source` field
+is a portable project-relative POSIX reference (or an `external/` basename for
+inputs outside the project). Generated graph metadata never stores the
+absolute path of the machine that built it.
+
 The direct adapter can persist a bounded portable CSV graph:
 
 ```bash
