@@ -1,5 +1,7 @@
 # Ireland Geometric Pattern Scan
 
+**Private repository.** Owner: [ZeroXSHDW](https://github.com/ZeroXSHDW).
+
 Live dashboard: <https://zeroxshdw.github.io/ireland-geometry/>
 
 Reproducible geospatial analysis of Irish building footprints. The pipeline
@@ -1454,3 +1456,7 @@ It reports the release gate’s explicit validation-record requirement under
   Local Government and Heritage, CC BY 4.0.
 - Sentinel-2 / Copernicus and Esri World Imagery are used according to their
   respective terms for optional visual/reference layers.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
