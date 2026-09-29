@@ -22,7 +22,18 @@
 
 ## Screenshots
 
-_No product screenshots are checked in yet. Add images under `docs/branding/` (see placeholder note in this PR) and embed them here._
+Real captures from the checked-in interactive dashboard (`docs/index.html` — Cruth Field Atlas V8):
+
+![Cruth Field Atlas opening](docs/branding/hero.jpg)
+
+![Cruth Field Atlas live map](docs/branding/ui-map.jpg)
+
+| Image | Source |
+| --- | --- |
+| `docs/branding/hero.jpg` | Opening splash of the in-repo HTML atlas |
+| `docs/branding/ui-map.jpg` | Live cartography view after dismissing the intro |
+
+See [`docs/branding/SCREENSHOTS.md`](docs/branding/SCREENSHOTS.md) for provenance notes.
 
 ---
 Live dashboard: <https://zeroxshdw.github.io/ireland-geometry/>
