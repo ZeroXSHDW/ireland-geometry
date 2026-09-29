@@ -16,9 +16,23 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
-    from runtime import package_version, project_path
+    from runtime import (
+        package_version,
+        path_symlink_paths,
+        project_path,
+        reject_output_file,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
 except ImportError:
-    from scripts.runtime import package_version, project_path
+    from scripts.runtime import (
+        package_version,
+        path_symlink_paths,
+        project_path,
+        reject_output_file,
+        reject_symlink_path,
+        reject_symlink_root,
+    )
 
 
 BUNDLE_CONTRACT = "ireland-geometry.bundle.v1"
@@ -26,6 +40,7 @@ BUNDLE_MANIFEST_NAME = "bundle.json"
 DEFAULT_EXCLUDES = ("doctor.json", "stage_cache.json", BUNDLE_MANIFEST_NAME)
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 PROVENANCE_FIELDS = ("source_manifest", "source_verification")
+VALIDATION_FILES = ("schema_validation.json", "reproducibility.json")
 VERIFICATION_STATUSES = {"not_provided", "invalid", "pass", "fail"}
 
 
@@ -59,8 +74,47 @@ def _manifest_contract(out_dir: Path) -> dict[str, Any]:
     return {"status": "unsupported", "version": contract.get("version")}
 
 
-def _provenance_records(out_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return manifest and verification summaries carried into bundle.json."""
+def _validation_record(out_dir: Path, name: str) -> dict[str, Any]:
+    """Return a validation-record provenance summary for a generated output."""
+    path = out_dir / name
+    record: dict[str, Any] = {
+        "path": name,
+        "available": path.is_file(),
+        "included": False,
+        "sha256": _sha256(path) if path.is_file() else None,
+        "status": "not_provided",
+        "passed": None,
+    }
+    if not path.is_file():
+        return record
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        record["status"] = "invalid"
+        record["error"] = str(exc)
+        return record
+    if not isinstance(payload, dict):
+        record["status"] = "invalid"
+        record["error"] = "validation record must be an object"
+        return record
+    raw_passed = payload.get("passed")
+    if not isinstance(raw_passed, bool):
+        record["status"] = "invalid"
+        record["error"] = "validation record passed must be a boolean"
+        return record
+    record["passed"] = raw_passed
+    record["status"] = "pass" if raw_passed else "fail"
+    if type(payload.get("artifact_count")) is int and payload["artifact_count"] >= 0:
+        record["artifact_count"] = payload["artifact_count"]
+    if type(payload.get("schema_version")) is int and payload["schema_version"] >= 0:
+        record["schema_version"] = payload["schema_version"]
+    return record
+
+
+def _provenance_records(
+    out_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
+    """Return source manifest, verification, and validation summaries."""
     manifest_path = out_dir / "manifest.json"
     manifest = {
         "path": "manifest.json",
@@ -78,30 +132,31 @@ def _provenance_records(out_dir: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         "status": "not_provided",
         "passed": None,
     }
+    validation = {name: _validation_record(out_dir, name) for name in VALIDATION_FILES}
     if not verification_path.is_file():
-        return manifest, verification
+        return manifest, verification, validation
     try:
         payload = json.loads(verification_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         verification["status"] = "invalid"
         verification["error"] = str(exc)
-        return manifest, verification
+        return manifest, verification, validation
     if not isinstance(payload, dict):
         verification["status"] = "invalid"
         verification["error"] = "verification record must be an object"
-        return manifest, verification
+        return manifest, verification, validation
     raw_passed = payload.get("passed")
     if not isinstance(raw_passed, bool):
         verification["status"] = "invalid"
         verification["error"] = "verification record passed must be a boolean"
-        return manifest, verification
+        return manifest, verification, validation
     passed = raw_passed
     verification["passed"] = passed
     verification["status"] = "pass" if passed else "fail"
     for key in ("analysis_rows", "target_rows", "control_rows"):
         if type(payload.get(key)) is int and payload[key] >= 0:
             verification[key] = payload[key]
-    return manifest, verification
+    return manifest, verification, validation
 
 
 def _is_sha256(value: object) -> bool:
@@ -110,6 +165,125 @@ def _is_sha256(value: object) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+def _validate_verified_manifest(manifest: dict[str, Any], out_dir: Path) -> None:
+    """Require current output files to match the manifest before bundling."""
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("--require-verified needs a complete manifest artifact inventory")
+    required = {"verification.json", *VALIDATION_FILES}
+    seen: set[str] = set()
+    output_root = out_dir.resolve()
+    for index, record in enumerate(artifacts, 1):
+        if not isinstance(record, dict):
+            raise TypeError(f"manifest artifact {index} is not an object")
+        relative = record.get("relative_path")
+        if (
+            record.get("path_base") != "output_dir"
+            or not isinstance(relative, str)
+            or not relative
+            or relative.startswith("/")
+            or "\\" in relative
+        ):
+            raise ValueError(f"manifest artifact {index} has an unsafe relative path")
+        posix_path = PurePosixPath(relative)
+        if (
+            posix_path.as_posix() != relative
+            or any(part in {"", ".", ".."} for part in posix_path.parts)
+        ):
+            raise ValueError(f"manifest artifact has an unsafe relative path: {relative}")
+        if relative in seen:
+            raise ValueError(f"manifest contains a duplicate artifact: {relative}")
+        seen.add(relative)
+        candidate = out_dir.joinpath(*posix_path.parts)
+        try:
+            candidate.resolve().relative_to(output_root)
+        except ValueError as exc:
+            raise ValueError(f"manifest artifact escapes output directory: {relative}") from exc
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError(f"current manifest artifact is missing or symlinked: {relative}")
+        expected_bytes = record.get("bytes")
+        expected_hash = record.get("sha256")
+        if type(expected_bytes) is not int or expected_bytes < 0:
+            raise ValueError(f"manifest artifact has an invalid byte count: {relative}")
+        if not _is_sha256(expected_hash):
+            raise ValueError(f"manifest artifact has an invalid SHA-256: {relative}")
+        if candidate.stat().st_size != expected_bytes:
+            raise ValueError(f"current output byte count differs from manifest: {relative}")
+        if _sha256(candidate) != expected_hash:
+            raise ValueError(f"current output hash differs from manifest: {relative}")
+    missing = sorted(required - seen)
+    if missing:
+        raise ValueError(
+            "manifest is missing required verified artifact records: " + ", ".join(missing)
+        )
+
+
+def _validate_validation_records(
+    source_validation: object,
+    artifact_records: dict[str, dict[str, Any]],
+    require_verified: bool,
+) -> None:
+    """Validate schema and reproducibility provenance in a bundle."""
+    if not isinstance(source_validation, dict):
+        if require_verified:
+            raise ValueError("verified bundle is missing validation provenance records")
+        raise TypeError("bundle source_validation must be an object")
+    if set(source_validation) != set(VALIDATION_FILES):
+        raise ValueError("bundle source_validation must include schema and reproducibility records")
+    records: list[dict[str, Any]] = []
+    for name in VALIDATION_FILES:
+        record = source_validation[name]
+        if not isinstance(record, dict):
+            raise TypeError(f"bundle source_validation record must be an object: {name}")
+        if record.get("path") != name:
+            raise ValueError(f"bundle source_validation path must be {name}")
+        if not isinstance(record.get("available"), bool):
+            raise TypeError(f"bundle source_validation availability must be a boolean: {name}")
+        if not isinstance(record.get("included"), bool):
+            raise TypeError(f"bundle source_validation inclusion must be a boolean: {name}")
+        available = record["available"]
+        included = record["included"]
+        digest = record.get("sha256")
+        if available:
+            if not _is_sha256(digest):
+                raise ValueError(f"bundle source_validation has an invalid SHA-256: {name}")
+        elif digest is not None:
+            raise ValueError(f"bundle source_validation has a hash without a source: {name}")
+        if included and not available:
+            raise ValueError(f"bundle source_validation includes an unavailable source: {name}")
+        artifact = artifact_records.get(name)
+        if included != (artifact is not None):
+            state = "missing" if included else "unexpected"
+            raise ValueError(f"bundle source_validation member is {state}: {name}")
+        if artifact is not None and digest != artifact.get("sha256"):
+            raise ValueError(f"bundle source_validation hash differs for {name}")
+        status = record.get("status")
+        if not isinstance(status, str) or status not in VERIFICATION_STATUSES:
+            raise ValueError(f"bundle source_validation has an unsupported status: {name}")
+        passed = record.get("passed")
+        if status in {"pass", "fail"}:
+            if not isinstance(passed, bool) or passed is not (status == "pass"):
+                raise ValueError(f"bundle source_validation status disagrees with passed: {name}")
+        elif passed is not None:
+            raise ValueError(f"bundle source_validation passed must be null when unavailable: {name}")
+        if available and status == "not_provided":
+            raise ValueError(f"bundle source_validation cannot be not_provided when available: {name}")
+        if not available and status != "not_provided":
+            raise ValueError(f"bundle source_validation status requires an available record: {name}")
+        for key in ("artifact_count", "schema_version"):
+            if key in record and (type(record[key]) is not int or record[key] < 0):
+                raise ValueError(f"bundle source_validation has an invalid {key}: {name}")
+        records.append(record)
+    if require_verified and any(
+        not record["available"]
+        or not record["included"]
+        or record["status"] != "pass"
+        or record["passed"] is not True
+        for record in records
+    ):
+        raise ValueError("verified bundle validation provenance does not contain passing included records")
 
 
 def _validate_provenance(
@@ -180,6 +354,13 @@ def _validate_provenance(
         ):
             raise ValueError(f"bundle source_verification has an invalid {key} count")
 
+    if "source_validation" in manifest or require_verified:
+        _validate_validation_records(
+            manifest.get("source_validation"),
+            artifact_records,
+            require_verified,
+        )
+
     if require_verified and (
         not source_manifest["available"]
         or not source_manifest["included"]
@@ -204,7 +385,9 @@ def _collect_files(
     archive_resolved = archive.resolve()
     files: list[tuple[Path, str]] = []
     for path in sorted(out_dir.rglob("*")):
-        if not path.is_file() or path.is_symlink():
+        if path.is_symlink():
+            raise ValueError(f"Output contains a symlink: {path}")
+        if not path.is_file():
             continue
         relative = path.relative_to(out_dir).as_posix()
         if path.resolve() == archive_resolved:
@@ -251,7 +434,12 @@ def _safe_member_name(value: object) -> str:
 
 def verify_bundle(archive_path: str | Path) -> dict[str, Any]:
     """Validate a bundle manifest and every payload hash without extracting it."""
-    archive_path = Path(archive_path).expanduser().resolve()
+    archive_input = reject_symlink_path(archive_path, label="Bundle archive input")
+    reject_symlink_root(
+        archive_input.parent,
+        label="Bundle archive input parent directory",
+    )
+    archive_path = archive_input.resolve()
     if not archive_path.is_file():
         raise FileNotFoundError(f"Bundle archive does not exist: {archive_path}")
     with zipfile.ZipFile(archive_path) as source:
@@ -324,17 +512,27 @@ def verify_bundle(archive_path: str | Path) -> dict[str, Any]:
     for field in PROVENANCE_FIELDS:
         if field in manifest:
             result[field] = manifest[field]
+    if "source_validation" in manifest:
+        result["source_validation"] = manifest["source_validation"]
     return result
 
 
 def extract_bundle(archive_path: str | Path, destination: str | Path) -> dict[str, Any]:
     """Verify a bundle, then safely extract it into a new destination directory."""
     verification = verify_bundle(archive_path)
-    destination_path = Path(destination).expanduser().resolve()
+    destination_input = reject_symlink_path(
+        destination,
+        label="Extraction destination",
+    )
+    destination_path = destination_input.resolve()
     if destination_path.exists():
         raise FileExistsError(
             f"Extraction destination already exists; choose a new directory: {destination_path}"
         )
+    reject_symlink_root(
+        destination_input.parent,
+        label="Extraction parent directory",
+    )
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = Path(
         tempfile.mkdtemp(prefix=f".{destination_path.name}.", dir=destination_path.parent)
@@ -366,32 +564,65 @@ def build_bundle(
     require_verified: bool = False,
 ) -> dict[str, Any]:
     """Write a deterministic ZIP bundle and return its machine-readable summary."""
-    output = Path(out_dir).expanduser().resolve()
-    archive = Path(archive_path).expanduser().resolve()
+    output_input = reject_symlink_root(Path(out_dir).expanduser(), label="Output directory")
+    output = output_input.resolve()
     if not output.is_dir():
         raise FileNotFoundError(f"Output directory does not exist: {output}")
+    output_symlinks = path_symlink_paths(output)
+    if output_symlinks:
+        raise ValueError(f"Output contains a symlink: {output / output_symlinks[0]}")
+    archive_input = reject_output_file(archive_path, label="Bundle archive")
+    archive = archive_input.resolve()
     if archive == output or archive.is_dir():
         raise ValueError("Bundle archive must be a file path outside the output directory")
+    try:
+        archive.relative_to(output)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Bundle archive must be outside the output directory")
 
-    source_manifest, source_verification = _provenance_records(output)
+    source_manifest, source_verification, source_validation = _provenance_records(output)
     if require_verified and not source_manifest["available"]:
         raise ValueError("--require-verified needs output/manifest.json")
     if require_verified and source_verification["status"] != "pass":
         raise ValueError(
             "--require-verified needs a passing output/verification.json record"
         )
+    if require_verified:
+        missing_validation = [
+            name for name, record in source_validation.items() if record["status"] != "pass"
+        ]
+        if missing_validation:
+            raise ValueError(
+                "--require-verified needs passing validation records: "
+                + ", ".join(missing_validation)
+            )
+        manifest_path = output / "manifest.json"
+        try:
+            manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"--require-verified needs a valid output/manifest.json: {exc}") from exc
+        if not isinstance(manifest_payload, dict):
+            raise ValueError("--require-verified needs output/manifest.json to be an object")
+        _validate_verified_manifest(manifest_payload, output)
 
     patterns = tuple(DEFAULT_EXCLUDES) + tuple(str(pattern) for pattern in excludes)
+    protected_provenance = ("manifest.json", "verification.json", *VALIDATION_FILES)
     if require_verified and any(
-        _matches_exclude(name, patterns) for name in ("manifest.json", "verification.json")
+        _matches_exclude(name, patterns) for name in protected_provenance
     ):
-        raise ValueError("--require-verified cannot exclude manifest.json or verification.json")
+        raise ValueError(
+            "--require-verified cannot exclude manifest, verification, schema, or reproducibility records"
+        )
     files = _collect_files(output, archive, patterns)
     if not files:
         raise ValueError(f"No bundleable files found in {output}")
     artifact_paths = {relative for _, relative in files}
     source_manifest["included"] = source_manifest["path"] in artifact_paths
     source_verification["included"] = source_verification["path"] in artifact_paths
+    for name, record in source_validation.items():
+        record["included"] = name in artifact_paths
 
     artifacts = [
         {
@@ -408,6 +639,7 @@ def build_bundle(
         "manifest_path_contract": _manifest_contract(output),
         "source_manifest": source_manifest,
         "source_verification": source_verification,
+        "source_validation": source_validation,
         "require_verified": require_verified,
         "artifact_count": len(artifacts),
         "artifact_bytes": sum(int(item["bytes"]) for item in artifacts),
@@ -490,7 +722,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--require-verified",
         action="store_true",
-        help="fail unless output/verification.json exists and passed",
+        help="fail unless manifest, verification, schema, and reproducibility records all pass",
     )
     parser.add_argument(
         "--json",
@@ -526,9 +758,9 @@ def main(argv: list[str] | None = None) -> None:
                 f"{result['destination']} after verification"
             )
         return
-    output = project_path(args.out_dir, "output").resolve()
+    output = project_path(args.out_dir, "output").expanduser()
     archive = (
-        project_path(args.archive, str(output.parent / f"{output.name}.bundle.zip")).resolve()
+        project_path(args.archive, str(output.parent / f"{output.name}.bundle.zip")).expanduser()
         if args.archive
         else output.parent / f"{output.name}.bundle.zip"
     )

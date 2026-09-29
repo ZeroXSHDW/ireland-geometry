@@ -14,10 +14,10 @@ import csv
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_output_tree_path
     from stats import apply_holm, compare_proportions
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import atomic_write_csv, project_output_tree_path
     from scripts.stats import apply_holm, compare_proportions
 
 
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default=None)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     rows = read_csv(out / "analysis_results.csv")
     if not rows:
         raise SystemExit(f"Missing {out / 'analysis_results.csv'}. Run analyze.py first.")

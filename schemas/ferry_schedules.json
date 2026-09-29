@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ireland-geometry.ferry-schedules.v1",
+  "title": "Ireland Geometry ferry service metadata",
+  "description": "Optional weekly or calendar-qualified service windows and per-way crossing durations for persisted SQLite ferry edges. PH windows require the sibling public_holidays.json contract for evaluation.",
+  "type": "object",
+  "required": ["contract", "schedules"],
+  "properties": {
+    "contract": {
+      "const": "ireland-geometry.ferry-schedules.v1"
+    },
+    "source": {
+      "type": "string"
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/schedule"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "schedule": {
+      "type": "object",
+      "required": ["way_id"],
+      "properties": {
+        "way_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "opening_hours": {
+          "type": "string",
+          "minLength": 1
+        },
+        "duration_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["opening_hours"]},
+        {"required": ["duration_s"]}
+      ]
+    }
+  }
+}

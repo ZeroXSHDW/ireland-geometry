@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from runtime import atomic_write_json, project_path
+    from runtime import atomic_write_json, project_output_tree_path
 except ImportError:
-    from scripts.runtime import atomic_write_json, project_path
+    from scripts.runtime import atomic_write_json, project_output_tree_path
 
 
 PARQUET_BATCH_SIZE = 10_000
@@ -272,7 +272,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default=None)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir, "output")
     source = out / "analysis_results.csv"
     if not source.exists():
         raise SystemExit(f"Missing {source}. Run analyze.py first.")

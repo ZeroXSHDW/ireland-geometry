@@ -174,12 +174,26 @@ def main() -> None:
     )
     args = ap.parse_args()
     try:
-        from runtime import atomic_write_text, project_path
+        from runtime import (
+            atomic_write_text,
+            project_data_tree_path,
+            project_input_path,
+            project_output_tree_path,
+        )
     except ImportError:
-        from scripts.runtime import atomic_write_text, project_path
-    data_root = project_path(args.data_root, "data")
-    OUT = project_path(args.out_dir, "output")
-    PBF = project_path(args.pbf, str(data_root / "raw" / "ireland-latest.osm.pbf"))
+        from scripts.runtime import (
+            atomic_write_text,
+            project_data_tree_path,
+            project_input_path,
+            project_output_tree_path,
+        )
+    data_root = project_data_tree_path(args.data_root)
+    OUT = project_output_tree_path(args.out_dir)
+    PBF = project_input_path(
+        args.pbf,
+        str(data_root / "raw" / "ireland-latest.osm.pbf"),
+        label="roads PBF",
+    )
     RESULTS = OUT / "analysis_results.csv"
 
     if not RESULTS.exists():

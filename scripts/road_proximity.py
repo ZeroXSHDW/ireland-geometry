@@ -27,9 +27,19 @@ except ImportError as exc:  # pragma: no cover - dependency is part of the runti
     raise SystemExit("the osmium package (PyOsmium bindings) is required for road proximity") from exc
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 ROAD_HIGHWAYS = {
@@ -79,9 +89,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--pbf", default=None, help="OSM PBF path")
     parser.add_argument("--seed", type=int, default=20260816)
     args = parser.parse_args(argv)
-    data = project_path(args.data_root, "data")
-    out = project_path(args.out_dir, "output")
-    pbf = project_path(args.pbf, str(data / "raw" / "ireland-latest.osm.pbf"))
+    data = project_data_tree_path(args.data_root)
+    out = project_output_tree_path(args.out_dir)
+    pbf = project_input_path(
+        args.pbf,
+        str(data / "raw" / "ireland-latest.osm.pbf"),
+        label="road proximity PBF",
+    )
     results_path = out / "analysis_results.csv"
     if not pbf.exists() or not results_path.exists():
         raise SystemExit("Missing PBF or analysis_results.csv. Run fetch and analyze first.")

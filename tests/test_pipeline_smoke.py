@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.bundle import verify_bundle
+
 osmium = pytest.importorskip("osmium")
 Node = osmium.osm.mutable.Node
 Way = osmium.osm.mutable.Way
@@ -72,6 +74,7 @@ def test_offline_pipeline_smoke_produces_verified_contracts(tmp_path):
         "0",
         "--holdout-fraction",
         "0.5",
+        "--bundle",
     ]
     result = subprocess.run(
         command,
@@ -82,6 +85,7 @@ def test_offline_pipeline_smoke_produces_verified_contracts(tmp_path):
     )
     if result.returncode:
         raise AssertionError(f"smoke pipeline failed:\n{result.stdout}\n{result.stderr}")
+    assert "===== bundle-verify =====" in result.stdout
 
     manifest = read_json(output / "manifest.json")
     schema = read_json(output / "schema_validation.json")
@@ -96,6 +100,17 @@ def test_offline_pipeline_smoke_produces_verified_contracts(tmp_path):
     assert report_data["scoring"]["config_sha256"] == scoring["config_sha256"]
     assert verification["passed"] is True
     assert verification["errors"] == []
+    assert verification["manifest_cache_alignment"]["status"] == "partial"
+    assert set(verification["manifest_cache_alignment"]["unavailable_stages"]) == {
+        "fetch",
+        "fetch-niah",
+    }
+    assert verification["manifest_cache_alignment"]["contract"] == "ireland-geometry.manifest-cache.v1"
+    bundle = project / "output.bundle.zip"
+    assert bundle.is_file()
+    bundle_result = verify_bundle(bundle)
+    assert bundle_result["passed"] is True
+    assert bundle_result["require_verified"] is True
     lazy_html = (output / "report_lazy.html").read_text(encoding="utf-8")
     assert "/api/report/page" in lazy_html
     assert "offline=1" in lazy_html

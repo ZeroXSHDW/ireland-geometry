@@ -29,10 +29,20 @@ from shapely.strtree import STRtree
 
 try:
     from geometry import geometry_from_element, repair_geometry
-    from runtime import atomic_write_csv, project_path
+    from runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
     from scripts.geometry import geometry_from_element, repair_geometry
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 def number(value, default=0.0) -> float:
@@ -341,8 +351,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
     parser.add_argument("--lidar", default=None, help="optional normalized LiDAR CSV/JSON/GeoJSON, GeoTIFF DSM, or LAS/LAZ")
     args = parser.parse_args(argv)
-    data = project_path(args.data_root, "data")
-    out = project_path(args.out_dir, "output")
+    data = project_data_tree_path(args.data_root)
+    out = project_output_tree_path(args.out_dir)
     combined = data / "combined.json"
     results = out / "analysis_results.csv"
     if not combined.exists() or not results.exists():
@@ -369,7 +379,15 @@ def main(argv: list[str] | None = None) -> None:
         ],
         parts,
     )
-    lidar_path = project_path(args.lidar, str(data / "lidar" / "building_heights.csv")) if args.lidar else data / "lidar" / "building_heights.csv"
+    lidar_path = (
+        project_input_path(
+            args.lidar,
+            str(data / "lidar" / "building_heights.csv"),
+            label="LiDAR input",
+        )
+        if args.lidar
+        else data / "lidar" / "building_heights.csv"
+    )
     source_info = {
         "status": "not_provided",
         "quality": "not_provided",

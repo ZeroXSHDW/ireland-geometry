@@ -43,7 +43,7 @@ except ImportError:
     from scripts.analyze import GOLDEN_ANGLE
 try:
     from geometry import geometry_from_element, interior_angles, repair_geometry, to_local_meters
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_data_tree_path, project_output_tree_path
     from stats import apply_holm, compare_proportions
 except ImportError:
     from scripts.geometry import (
@@ -52,7 +52,11 @@ except ImportError:
         repair_geometry,
         to_local_meters,
     )
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_output_tree_path,
+    )
     from scripts.stats import apply_holm, compare_proportions
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -207,8 +211,8 @@ def main() -> None:
     ap.add_argument("--data-root", default=None, help="data directory; defaults to project data/")
     ap.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
     args = ap.parse_args()
-    DATA = project_path(args.data_root, "data")
-    OUT = project_path(args.out_dir, "output")
+    DATA = project_data_tree_path(args.data_root)
+    OUT = project_output_tree_path(args.out_dir)
     NIAH_JSON = DATA / "niah" / "niah.json"
     COMBINED = DATA / "combined.json"
     RESULTS = OUT / "analysis_results.csv"

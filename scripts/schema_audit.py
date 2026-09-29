@@ -15,7 +15,8 @@ try:
         atomic_write_json,
         git_revision,
         package_version,
-        project_path,
+        project_input_path,
+        project_output_tree_path,
         utc_now,
     )
 except ImportError:
@@ -24,7 +25,8 @@ except ImportError:
         atomic_write_json,
         git_revision,
         package_version,
-        project_path,
+        project_input_path,
+        project_output_tree_path,
         utc_now,
     )
 
@@ -129,9 +131,13 @@ def main(argv: list[str] | None = None) -> None:
         help="emit the audit result as machine-readable JSON",
     )
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     schema = (
-        project_path(args.schema, "schemas/artifacts.json")
+        project_input_path(
+            args.schema,
+            "schemas/artifacts.json",
+            label="schema input",
+        )
         if args.schema
         else PACKAGE_ROOT / "schemas" / "artifacts.json"
     )

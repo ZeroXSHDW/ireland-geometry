@@ -30,7 +30,21 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from pathlib import Path
+
+try:
+    from runtime import (
+        atomic_write_stream,
+        project_data_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
+except ImportError:
+    from scripts.runtime import (
+        atomic_write_stream,
+        project_data_path,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 
 IRELAND_BBOX = "POLYGON((-10.7 51.3, -10.7 55.4, -5.8 55.4, -5.8 51.3, -10.7 51.3))"
 CATALOGUE = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
@@ -94,7 +108,11 @@ def main() -> None:
         print("  ... run with --download to fetch the 10 m RGB bands.")
         return
 
-    out = Path("data/satellite")
+    out = reject_symlink_root(
+        project_data_path(None) / "satellite",
+        label="satellite data directory",
+    )
+    out = reject_symlink_tree(out, label="satellite data directory")
     out.mkdir(parents=True, exist_ok=True)
     for t in tiles:
         pid = t["Id"]
@@ -104,8 +122,8 @@ def main() -> None:
             req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
             dest = out / f"{t['Name']}_{band}.jp2"
             print(f"[satellite] {band} -> {dest.name}", flush=True)
-            with urllib.request.urlopen(req, timeout=600) as r, dest.open("wb") as f:
-                f.write(r.read())
+            with urllib.request.urlopen(req, timeout=600) as r:
+                atomic_write_stream(dest, r)
     print(f"[satellite] done -> {out}")
 
 

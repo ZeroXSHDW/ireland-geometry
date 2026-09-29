@@ -8,7 +8,9 @@ columnar -> schema-audit -> report -> repro-check -> verify. When both
 ``report`` and ``verify`` are selected, the report is refreshed once more
 after the final validation pass so its data pack and compact interpretation
 sidecar reflect the completed build. Use ``--stage`` to run one stage or a
-comma-separated subset. All paths are resolved relative to this project unless
+comma-separated subset. ``--bundle`` adds a complete verified archive after
+the final verification/report-refresh sequence; ``--bundle-archive`` can set
+its destination. All paths are resolved relative to this project unless
 absolute.
 """
 
@@ -37,9 +39,21 @@ def _default_project_root() -> Path:
 PROJECT_ROOT = _default_project_root()
 
 try:
-    from scripts.runtime import default_analysis_plan_path, package_version
+    from scripts.road_routing import VEHICLE_CLASSES
+    from scripts.runtime import (
+        default_analysis_plan_path,
+        package_version,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 except ImportError:
-    from runtime import default_analysis_plan_path, package_version
+    from road_routing import VEHICLE_CLASSES
+    from runtime import (
+        default_analysis_plan_path,
+        package_version,
+        reject_symlink_root,
+        reject_symlink_tree,
+    )
 
 STAGES = (
     "fetch",
@@ -166,7 +180,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--routing-include-ferries",
         action="store_true",
-        help="include persisted ferry geometry in routing; ferry schedules are not modeled",
+        help="include persisted ferry geometry and any modeled service windows in routing",
     )
     parser.add_argument(
         "--routing-max-ways",
@@ -191,6 +205,59 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=50.0,
         help="assumed routing speed for conditional turn windows",
     )
+    parser.add_argument(
+        "--routing-weight-t",
+        type=float,
+        default=None,
+        help="optional vehicle weight profile in metric tonnes for conditional routing",
+    )
+    parser.add_argument(
+        "--routing-rating-t",
+        type=float,
+        default=None,
+        help=(
+            "optional HGV permitted gross-weight rating in metric tonnes for "
+            "maxweightrating:hgv and Irish maxweightrating:goods routing"
+        ),
+    )
+    parser.add_argument(
+        "--routing-height-m",
+        type=float,
+        default=None,
+        help="optional vehicle height profile in metres for dimensional routing",
+    )
+    parser.add_argument(
+        "--routing-width-m",
+        type=float,
+        default=None,
+        help="optional vehicle width profile in metres for dimensional routing",
+    )
+    parser.add_argument(
+        "--routing-length-m",
+        type=float,
+        default=None,
+        help="optional vehicle length profile in metres for dimensional routing",
+    )
+    parser.add_argument(
+        "--routing-axleload-t",
+        type=float,
+        default=None,
+        help="optional vehicle axle-load profile in metric tonnes for dimensional routing",
+    )
+    parser.add_argument(
+        "--routing-vehicle-class",
+        choices=VEHICLE_CLASSES,
+        default="general",
+        help="vehicle-class profile for conditional road access (default: general)",
+    )
+    parser.add_argument(
+        "--routing-allow-hgv-destination",
+        action="store_true",
+        help=(
+            "allow an explicit hgv routing profile to use destination-only "
+            "ways and supported destination weight/rating exceptions"
+        ),
+    )
     parser.add_argument("--review-labels", default=None, help="optional expert review labels CSV")
     parser.add_argument("--analysis-plan", default=None, help="preregistered analysis plan JSON")
     parser.add_argument("--holdout-fraction", type=float, default=None)
@@ -210,9 +277,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="emit the dry-run plan as machine-readable JSON (implies --dry-run)",
     )
+    parser.add_argument(
+        "--bundle",
+        action="store_true",
+        help="create a complete verified bundle after the final verify stage",
+    )
+    parser.add_argument(
+        "--bundle-archive",
+        default=None,
+        help="bundle ZIP path for --bundle (default: beside --out-dir as <name>.bundle.zip)",
+    )
     args = parser.parse_args(argv)
     if args.dry_run_json:
         args.dry_run = True
+    if args.bundle_archive and not args.bundle:
+        parser.error("--bundle-archive requires --bundle")
     if args.mc < 1:
         parser.error("--mc must be positive")
     if args.bootstrap_iterations < 1:
@@ -227,6 +306,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--routing-max-pairs must be non-negative")
     if not math.isfinite(args.routing_speed_kmh) or args.routing_speed_kmh <= 0:
         parser.error("--routing-speed-kmh must be a finite positive number")
+    if args.routing_weight_t is not None and (
+        not math.isfinite(args.routing_weight_t) or args.routing_weight_t <= 0
+    ):
+        parser.error("--routing-weight-t must be a finite positive number of tonnes")
+    if args.routing_rating_t is not None and (
+        not math.isfinite(args.routing_rating_t) or args.routing_rating_t <= 0
+    ):
+        parser.error("--routing-rating-t must be a finite positive number of tonnes")
+    if args.routing_height_m is not None and (
+        not math.isfinite(args.routing_height_m) or args.routing_height_m <= 0
+    ):
+        parser.error("--routing-height-m must be a finite positive number of metres")
+    for value, option, unit in (
+        (args.routing_width_m, "--routing-width-m", "metres"),
+        (args.routing_length_m, "--routing-length-m", "metres"),
+        (args.routing_axleload_t, "--routing-axleload-t", "tonnes"),
+    ):
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            parser.error(f"{option} must be a finite positive number of {unit}")
     return args
 
 
@@ -338,6 +436,21 @@ def build_stage_command(
         ]
         if args.routing_departure:
             command += ["--departure", args.routing_departure]
+        if args.routing_weight_t is not None:
+            command += ["--weight-t", str(args.routing_weight_t)]
+        if args.routing_rating_t is not None:
+            command += ["--rating-t", str(args.routing_rating_t)]
+        if args.routing_height_m is not None:
+            command += ["--height-m", str(args.routing_height_m)]
+        if args.routing_width_m is not None:
+            command += ["--width-m", str(args.routing_width_m)]
+        if args.routing_length_m is not None:
+            command += ["--length-m", str(args.routing_length_m)]
+        if args.routing_axleload_t is not None:
+            command += ["--axleload-t", str(args.routing_axleload_t)]
+        command += ["--vehicle-class", args.routing_vehicle_class]
+        if args.routing_allow_hgv_destination:
+            command.append("--allow-hgv-destination")
         if args.road_graph:
             command += ["--road-graph", str(project_path(args.road_graph, str(data_root / "roads")))]
         if args.road_from_pbf:
@@ -372,10 +485,51 @@ def build_stage_command(
             str(data_root),
             "--out-dir",
             str(out_dir),
+            "--project-root",
+            str(PROJECT_ROOT),
             "--manifest",
             str(out_dir / "manifest.json"),
         ]
     return command
+
+
+def default_bundle_archive(out_dir: Path, value: str | None = None) -> Path:
+    """Resolve the optional post-build bundle path beside the output directory."""
+    default = out_dir.parent / f"{out_dir.name}.bundle.zip"
+    return project_path(value, str(default)).expanduser() if value else default
+
+
+def build_bundle_command(out_dir: Path, archive: Path) -> list[str]:
+    """Build a complete verified bundle from the final output directory."""
+    return [
+        sys.executable,
+        str(ROOT / "scripts" / "bundle.py"),
+        "--out-dir",
+        str(out_dir),
+        "--archive",
+        str(archive),
+        "--require-verified",
+    ]
+
+
+def build_bundle_verify_command(archive: Path) -> list[str]:
+    """Verify the archive produced by the post-validation bundle operation."""
+    return [
+        sys.executable,
+        str(ROOT / "scripts" / "bundle.py"),
+        "--verify",
+        str(archive),
+    ]
+
+
+def run_bundle(out_dir: Path, archive: Path, env: dict[str, str]) -> None:
+    """Build and independently verify the post-validation publication bundle."""
+    command = build_bundle_command(out_dir, archive)
+    print("\n===== bundle =====", flush=True)
+    subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=True)
+    verify_command = build_bundle_verify_command(archive)
+    print("\n===== bundle-verify =====", flush=True)
+    subprocess.run(verify_command, cwd=PROJECT_ROOT, env=env, check=True)
 
 
 def run_stage(
@@ -412,6 +566,14 @@ def manifest_parameters(args: argparse.Namespace) -> dict[str, object]:
         "routing_max_pairs": args.routing_max_pairs,
         "routing_departure": args.routing_departure,
         "routing_speed_kmh": args.routing_speed_kmh,
+        "routing_weight_t": args.routing_weight_t,
+        "routing_rating_t": args.routing_rating_t,
+        "routing_height_m": args.routing_height_m,
+        "routing_width_m": args.routing_width_m,
+        "routing_length_m": args.routing_length_m,
+        "routing_axleload_t": args.routing_axleload_t,
+        "routing_vehicle_class": args.routing_vehicle_class,
+        "routing_allow_hgv_destination": args.routing_allow_hgv_destination,
         "review_labels": args.review_labels,
         "analysis_plan": args.analysis_plan,
         "holdout_fraction": args.holdout_fraction,
@@ -537,7 +699,13 @@ def write_manifest(
                         )
                     merged = dict(source)
                     if current is not None:
-                        for field in ("modified_at", "source_kind", "path_base", "relative_path"):
+                        for field in (
+                            "modified_at",
+                            "source_kind",
+                            "path_base",
+                            "relative_path",
+                            "metadata_sha256",
+                        ):
                             if field in current:
                                 merged[field] = current[field]
                     preserved_sources.append(merged)
@@ -551,13 +719,36 @@ def write_manifest(
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     global PROJECT_ROOT
+    # A process may call ``main`` more than once (test runners, notebooks, or
+    # embedding applications). Recompute the default before applying a new
+    # explicit root so one invocation cannot leak its project context into the
+    # next one.
+    PROJECT_ROOT = _default_project_root()
     if args.project_root:
         candidate = Path(args.project_root).expanduser()
         PROJECT_ROOT = (candidate if candidate.is_absolute() else Path.cwd() / candidate).resolve()
     stages = selected_stages(args.stage)
-    data_root = project_path(args.data_root, "data")
-    out_dir = project_path(args.out_dir, "output")
+    if args.bundle and "verify" not in stages:
+        raise SystemExit("--bundle requires the verify stage")
+    try:
+        data_root = reject_symlink_root(
+            project_path(args.data_root, "data"),
+            label="data directory",
+        )
+        out_dir = reject_symlink_root(project_path(args.out_dir, "output"))
+        reject_symlink_tree(data_root, label="data directory")
+        reject_symlink_tree(out_dir, label="output directory")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     pbf = project_path(args.pbf, "data/raw/ireland-latest.osm.pbf")
+    bundle_archive = default_bundle_archive(out_dir, args.bundle_archive)
+    if args.bundle:
+        try:
+            bundle_archive.resolve().relative_to(out_dir.resolve())
+        except ValueError:
+            pass
+        else:
+            raise SystemExit("--bundle-archive must be outside the output directory")
     if not args.dry_run:
         data_root.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -710,6 +901,8 @@ def main(argv: list[str] | None = None) -> None:
             atomic_write_json(cache_path, cache, indent=2)
     if args.dry_run:
         post_validation_operations: list[dict[str, object]] = []
+        bundle_operation: dict[str, object] | None = None
+        bundle_verification_operation: dict[str, object] | None = None
         if verify_requested:
             verify_command = build_stage_command("verify", args, data_root, out_dir, pbf)
             plan_rows.append(
@@ -773,6 +966,48 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"[dry-run]   command: {' '.join(report_command)}", flush=True)
                 print("[dry-run] verify (post-validation refresh): always-run", flush=True)
                 print(f"[dry-run]   command: {' '.join(verify_command)}", flush=True)
+        if args.bundle:
+            bundle_command = build_bundle_command(out_dir, bundle_archive)
+            bundle_verify_command = build_bundle_verify_command(bundle_archive)
+            bundle_operation = {
+                "name": "bundle",
+                "phase": "post_validation_bundle",
+                "status": "always-run",
+                "cacheable": False,
+                "cache": {
+                    "cacheable": False,
+                    "reusable": False,
+                    "reason": "post_validation_bundle",
+                },
+                "command": bundle_command,
+                "inputs": [
+                    str(out_dir / "manifest.json"),
+                    str(out_dir / "verification.json"),
+                    str(out_dir / "schema_validation.json"),
+                    str(out_dir / "reproducibility.json"),
+                ],
+                "outputs": [str(bundle_archive)],
+            }
+            bundle_verification_operation = {
+                "name": "bundle-verify",
+                "phase": "post_validation_bundle",
+                "status": "always-run",
+                "cacheable": False,
+                "cache": {
+                    "cacheable": False,
+                    "reusable": False,
+                    "reason": "post_validation_bundle_verify",
+                },
+                "command": bundle_verify_command,
+                "inputs": [str(bundle_archive)],
+                "outputs": [],
+            }
+            plan_rows.extend([bundle_operation, bundle_verification_operation])
+            if not args.dry_run_json:
+                print("[dry-run] bundle: always-run", flush=True)
+                print(f"[dry-run]   command: {' '.join(bundle_command)}", flush=True)
+                print("[dry-run] bundle-verify: always-run", flush=True)
+                print(f"[dry-run]   command: {' '.join(bundle_verify_command)}", flush=True)
         if args.dry_run_json:
             print(
                 json.dumps(
@@ -793,6 +1028,17 @@ def main(argv: list[str] | None = None) -> None:
                         "post_validation_refresh": {
                             "enabled": post_validation_refresh,
                             "operations": post_validation_operations,
+                        },
+                        "post_validation_bundle": {
+                            "enabled": args.bundle,
+                            "archive": str(bundle_archive) if args.bundle else None,
+                            "operation": bundle_operation,
+                            "verification": bundle_verification_operation,
+                            "operations": (
+                                [bundle_operation, bundle_verification_operation]
+                                if args.bundle
+                                else []
+                            ),
                         },
                         "stage_count": len(plan_rows),
                         "stages": plan_rows,
@@ -842,6 +1088,8 @@ def main(argv: list[str] | None = None) -> None:
             pbf,
             preserve_context=preserve_manifest_context,
         )
+        if args.bundle:
+            run_bundle(out_dir, bundle_archive, env)
     print("\nDone. Open output/report.html (or the served URL) to explore.")
 
 

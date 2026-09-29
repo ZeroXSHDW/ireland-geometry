@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any, TextIO
 
 try:
-    from runtime import package_version, project_path
+    from runtime import package_version, project_output_tree_path
 except ImportError:
-    from scripts.runtime import package_version, project_path
+    from scripts.runtime import package_version, project_output_tree_path
 
 
 BACKEND_FILES = {
@@ -579,7 +579,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--format", choices=("json", "jsonl", "csv"), default="json")
     args = parser.parse_args(argv)
     control_value = {"target": "0", "control": "1"}.get(args.is_control)
-    out_dir = project_path(args.out_dir, "output")
+    out_dir = project_output_tree_path(args.out_dir)
     backend_errors: list[str] = []
     try:
         backend, rows = query_rows(

@@ -19,10 +19,13 @@ ireland-geometry = "run_pipeline:main"
 ireland-geometry-doctor = "scripts.doctor:main"
 ireland-geometry-serve = "scripts.serve_report:main"
 ireland-geometry-route = "scripts.route_query:main"
+ireland-geometry-route-matrix = "scripts.route_matrix:main"
+ireland-geometry-route-compare = "scripts.route_compare:main"
 ireland-geometry-query = "scripts.query_data:main"
 ireland-geometry-bundle = "scripts.bundle:main"
 ireland-geometry-schema-audit = "scripts.schema_audit:main"
 ireland-geometry-repro = "scripts.repro_check:main"
+ireland-geometry-release-check = "scripts.release_check:main"
 
 [project.optional-dependencies]
 dev = [
@@ -52,3 +55,6 @@ py-modules = ["run_pipeline"]
 
 [tool.setuptools.package-data]
 schemas = ["*.json"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "*.pyc", "*.pyo"]
