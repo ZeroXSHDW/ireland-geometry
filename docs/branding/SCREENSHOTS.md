@@ -1,10 +1,12 @@
-# Branding screenshots placeholder
+# Branding screenshots — Ireland Geometry
 
-Add product screenshots for **Ireland Geometry** here, then embed them in the root `README.md`.
+Product images checked in here are **real captures** of the interactive Field Atlas
+shipped in this repository (`docs/index.html`), not mockups.
 
-Suggested filenames:
-- `hero.png` — primary product shot
-- `ui-1.png` / `ui-2.png` — key flows
+| File | What it shows | How captured |
+| --- | --- | --- |
+| `hero.jpg` | Cruth Field Atlas V8 opening splash | Headless Chrome screenshot of local `docs/index.html` |
+| `ui-map.jpg` | Satellite fieldwork map + panels after Skip opening | Same page via Chrome DevTools Protocol |
 
 Brand site: https://ZeroDevLLC.com  ·  Store: https://zerodevllc.store
 
