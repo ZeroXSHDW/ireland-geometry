@@ -5,16 +5,20 @@
   / /|  __/ | | (_) | |_| |  __/\ V / | |___| |__| |___
  /____\___|_|  \___/|____/ \___| \_/  |_____|_____\____|
                     ZeroDev LLC
-             https://ZeroDevLLC.com
+                       Ireland Geometry
+    https://ZeroDevLLC.com  ·  https://zerodevllc.store
 ```
 
 # Ireland Geometry
 
+> **Private repository.** Owner: [ZeroXSHDW](https://github.com/ZeroXSHDW).
+
 **[Ireland Geometry](https://ZeroDevLLC.com)** by [ZeroDev LLC](https://ZeroDevLLC.com) · GitHub: [ZeroXSHDW/ireland-geometry](https://github.com/ZeroXSHDW/ireland-geometry)
 
-> Store / brand: **[https://ZeroDevLLC.com](https://ZeroDevLLC.com)**  
-> Production releases are published on the public-bound repo `ireland-geometry`.  
-> Active development uses the private twin [`ireland-geometry-dev`](https://github.com/ZeroXSHDW/ireland-geometry-dev).
+> Brand: **[https://ZeroDevLLC.com](https://ZeroDevLLC.com)** · Store: **[https://zerodevllc.store](https://zerodevllc.store)**  
+> Production releases → public-bound `ireland-geometry`.  
+> Active development → private twin [`ireland-geometry-dev`](https://github.com/ZeroXSHDW/ireland-geometry-dev).
+
 
 ## Screenshots
 

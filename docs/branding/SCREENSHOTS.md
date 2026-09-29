@@ -6,6 +6,6 @@ Suggested filenames:
 - `hero.png` — primary product shot
 - `ui-1.png` / `ui-2.png` — key flows
 
-Brand site: https://ZeroDevLLC.com
+Brand site: https://ZeroDevLLC.com  ·  Store: https://zerodevllc.store
 
 Development twin: https://github.com/ZeroXSHDW/ireland-geometry-dev
