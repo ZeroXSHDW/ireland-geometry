@@ -11,8 +11,6 @@
 
 # Ireland Geometry
 
-> **Private repository.** Owner: [ZeroXSHDW](https://github.com/ZeroXSHDW).
-
 **[Ireland Geometry](https://ZeroDevLLC.com)** by [ZeroDev LLC](https://ZeroDevLLC.com) · GitHub: [ZeroXSHDW/ireland-geometry](https://github.com/ZeroXSHDW/ireland-geometry)
 
 > Brand: **[https://ZeroDevLLC.com](https://ZeroDevLLC.com)** · Store: **[https://zerodevllc.store](https://zerodevllc.store)**  
@@ -1492,7 +1490,6 @@ It reports the release gate’s explicit validation-record requirement under
   respective terms for optional visual/reference layers.
 
 
-
 ## Security notes
 
 - Keep this repository **private** unless it is intentionally public.
@@ -1500,7 +1497,6 @@ It reports the release gate’s explicit validation-record requirement under
 - Prefer `.env.example` (or documented placeholders) for required configuration.
 - Rotate any credential that may have been pasted into chat, tickets, or screenshots.
 - Treat model / automation output as unverified until a human reviews it.
-
 
 
 ## Troubleshooting
