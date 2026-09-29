@@ -1,7 +1,30 @@
-# Ireland Geometric Pattern Scan
+```
+  ______             ____              _     _     ____
+ |__  /___ _ __ ___ |  _ \  _____   __| |   | |   / ___|
+   / // _ \ '__/ _ \| | | |/ _ \ \ / /| |   | |  | |
+  / /|  __/ | | (_) | |_| |  __/\ V / | |___| |__| |___
+ /____\___|_|  \___/|____/ \___| \_/  |_____|_____\____|
+                    ZeroDev LLC
+                       Ireland Geometry
+    https://ZeroDevLLC.com  ·  https://zerodevllc.store
+```
 
-**Private repository.** Owner: [ZeroXSHDW](https://github.com/ZeroXSHDW).
+# Ireland Geometry
 
+> **Private repository.** Owner: [ZeroXSHDW](https://github.com/ZeroXSHDW).
+
+**[Ireland Geometry](https://ZeroDevLLC.com)** by [ZeroDev LLC](https://ZeroDevLLC.com) · GitHub: [ZeroXSHDW/ireland-geometry](https://github.com/ZeroXSHDW/ireland-geometry)
+
+> Brand: **[https://ZeroDevLLC.com](https://ZeroDevLLC.com)** · Store: **[https://zerodevllc.store](https://zerodevllc.store)**  
+> Production releases → public-bound `ireland-geometry`.  
+> Active development → private twin [`ireland-geometry-dev`](https://github.com/ZeroXSHDW/ireland-geometry-dev).
+
+
+## Screenshots
+
+_No product screenshots are checked in yet. Add images under `docs/branding/` (see placeholder note in this PR) and embed them here._
+
+---
 Live dashboard: <https://zeroxshdw.github.io/ireland-geometry/>
 
 Reproducible geospatial analysis of Irish building footprints. The pipeline
