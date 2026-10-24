@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/ZeroXSHDW/ZeroXSHDW/main/assets/zerodev-banner.svg" alt="ZeroDevLLC 3D cyber theme" width="100%"/></p>
+
 <!-- zerodevllc-theme -->
 [![ZeroDevLLC](https://img.shields.io/badge/ZeroDevLLC-cyber--deck-00ff88?style=for-the-badge&labelColor=050a08)](https://ZeroDevLLC.com)
 [![Theme](https://img.shields.io/badge/theme-3D%20cyber-00f0ff?style=flat-square&labelColor=050a08)](https://ZeroDevLLC.com)
