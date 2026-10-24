@@ -17,9 +17,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -127,12 +137,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out-dir", default=None, help="output directory; defaults to project output/")
     parser.add_argument("--history", default=None, help="optional normalized OSM history CSV/JSON")
     args = parser.parse_args(argv)
-    data = project_path(args.data_root, "data")
-    out = project_path(args.out_dir, "output")
+    data = project_data_tree_path(args.data_root)
+    out = project_output_tree_path(args.out_dir)
     analysis_path = out / "analysis_results.csv"
     if not analysis_path.exists():
         raise SystemExit(f"Missing {analysis_path}. Run analyze.py first.")
-    history_path = project_path(args.history, str(data / "history" / "osm_history.csv")) if args.history else data / "history" / "osm_history.csv"
+    history_path = (
+        project_input_path(
+            args.history,
+            str(data / "history" / "osm_history.csv"),
+            label="OSM history input",
+        )
+        if args.history
+        else data / "history" / "osm_history.csv"
+    )
     analysis = read_csv(analysis_path)
     history_rows = read_history(history_path if history_path.exists() else None)
     source = str(history_path) if history_rows else "unavailable"

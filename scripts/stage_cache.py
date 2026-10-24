@@ -379,7 +379,14 @@ def input_paths(
     if stage == "road-routing":
         graph = getattr(args, "road_graph", None)
         if graph:
-            paths[stage].append(_configured_path(args, "road_graph", data_root / "roads", root))
+            configured_graph = _configured_path(args, "road_graph", data_root / "roads", root)
+            paths[stage].append(configured_graph)
+            if configured_graph.suffix.lower() in {".sqlite", ".db"}:
+                paths[stage].append(configured_graph.parent / "ferry_schedules.json")
+                paths[stage].append(configured_graph.parent / "public_holidays.json")
+            elif configured_graph.suffix.lower() != ".json":
+                paths[stage].append(configured_graph / "ferry_schedules.json")
+                paths[stage].append(configured_graph / "public_holidays.json")
         else:
             paths[stage].extend(
                 (
@@ -387,6 +394,8 @@ def input_paths(
                     data_root / "roads" / "road_edges.csv",
                     data_root / "roads" / "road_graph.sqlite",
                     data_root / "roads" / "road_graph_metadata.json",
+                    data_root / "roads" / "ferry_schedules.json",
+                    data_root / "roads" / "public_holidays.json",
                 )
             )
     selected = list(paths.get(stage, []))

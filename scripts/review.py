@@ -18,10 +18,22 @@ from pathlib import Path
 
 try:
     from review_ui import build_html as build_review_html
-    from runtime import atomic_write_csv, atomic_write_text, project_path
+    from runtime import (
+        atomic_write_csv,
+        atomic_write_text,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
     from scripts.review_ui import build_html as build_review_html
-    from scripts.runtime import atomic_write_csv, atomic_write_text, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        atomic_write_text,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 LABELS = {"supportive", "ambiguous", "not_supportive", "not_reviewed"}
@@ -221,10 +233,18 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.top_n < 1:
         parser.error("--top-n must be positive")
-    data = project_path(args.data_root, "data")
-    out = project_path(args.out_dir, "output")
+    data = project_data_tree_path(args.data_root)
+    out = project_output_tree_path(args.out_dir)
     dossiers = read_csv(out / "candidate_dossiers.csv") or read_csv(out / "historical_validation.csv")
-    label_path = project_path(args.labels, str(data / "review" / "labels.csv")) if args.labels else data / "review" / "labels.csv"
+    label_path = (
+        project_input_path(
+            args.labels,
+            str(data / "review" / "labels.csv"),
+            label="review labels",
+        )
+        if args.labels
+        else data / "review" / "labels.csv"
+    )
     labels = read_csv(label_path if label_path.exists() else Path("/does/not/exist"))
     try:
         queue = load_queue(dossiers, labels, args.top_n)

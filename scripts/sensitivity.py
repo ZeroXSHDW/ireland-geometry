@@ -35,10 +35,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import atomic_write_csv, project_output_tree_path
     from stats import apply_holm, p_format
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import atomic_write_csv, project_output_tree_path
     from scripts.stats import apply_holm, p_format
 
 
@@ -518,7 +518,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--grid-deg", type=float, default=GRID_DEG)
     parser.add_argument("--max-distance-m", type=float, default=DEFAULT_MAX_DISTANCE_M)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     results_path = out / "analysis_results.csv"
     if not results_path.exists():
         raise SystemExit(f"Missing {results_path}. Run analyze.py first.")

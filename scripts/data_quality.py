@@ -15,9 +15,9 @@ from collections import Counter
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, atomic_write_json, project_path
+    from runtime import atomic_write_csv, atomic_write_json, project_output_tree_path
 except ImportError:
-    from scripts.runtime import atomic_write_csv, atomic_write_json, project_path
+    from scripts.runtime import atomic_write_csv, atomic_write_json, project_output_tree_path
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", default=None)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     audit, summary = build_audit(out)
     atomic_write_csv(
         out / "data_quality.csv",

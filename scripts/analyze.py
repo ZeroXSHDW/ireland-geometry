@@ -643,15 +643,23 @@ def main() -> None:
     args = ap.parse_args()
 
     try:
-        from runtime import project_path
+        from runtime import project_input_path, project_output_tree_path
     except ImportError:
-        from scripts.runtime import project_path
-    data_path = project_path(args.data, "data/combined.json")
+        from scripts.runtime import project_input_path, project_output_tree_path
+    data_path = project_input_path(
+        args.data,
+        "data/combined.json",
+        label="analysis input",
+    )
     if not data_path.exists():
         sys.exit(f"Missing {data_path}. Run scripts/fetch_geofabrik.py first.")
-    out_dir = project_path(args.out, "output")
+    out_dir = project_output_tree_path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    plan_path = project_path(args.plan, "analysis_plan.json") if args.plan else default_analysis_plan_path()
+    plan_path = (
+        project_input_path(args.plan, "analysis_plan.json", label="analysis plan")
+        if args.plan
+        else default_analysis_plan_path()
+    )
     if not plan_path.exists():
         sys.exit(f"Missing analysis plan {plan_path}.")
     scoring = load_scoring_config(plan_path)

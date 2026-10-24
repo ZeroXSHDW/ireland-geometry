@@ -28,9 +28,19 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -186,8 +196,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--references", default=None, help="optional curated historical CSV")
     parser.add_argument("--top-n", type=int, default=1000)
     args = parser.parse_args(argv)
-    data = project_path(args.data_root, "data")
-    out_dir = project_path(args.out_dir, "output")
+    data = project_data_tree_path(args.data_root)
+    out_dir = project_output_tree_path(args.out_dir)
     combined = data / "combined.json"
     results = out_dir / "analysis_results.csv"
     if not combined.exists() or not results.exists():
@@ -196,7 +206,15 @@ def main(argv: list[str] | None = None) -> None:
     analysis = read_csv(results)
     joins = read_csv(out_dir / "niah_join.csv")
     evidence = read_csv(out_dir / "architects_evidence.csv")
-    reference_path = project_path(args.references, "data/historical/references.csv") if args.references else data / "historical" / "references.csv"
+    reference_path = (
+        project_input_path(
+            args.references,
+            "data/historical/references.csv",
+            label="historical references",
+        )
+        if args.references
+        else data / "historical" / "references.csv"
+    )
     validation = build_validation(analysis, elements, joins, evidence, read_references(reference_path))
     fields = list(validation[0]) if validation else ["osm_id", "validation_status"]
     atomic_write_csv(out_dir / "historical_validation.csv", fields, validation)

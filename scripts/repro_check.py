@@ -114,11 +114,41 @@ def context_differences(current: dict[str, Any], reference: dict[str, Any]) -> l
 
 
 def hashes(out: Path) -> dict[str, str]:
-    return {
-        path.name: digest
-        for path in sorted(out.iterdir())
-        if path.is_file() and path.name not in VOLATILE and (digest := sha256_file(path))
-    }
+    """Return recursive stable artifact hashes, treating symlinks as non-artifacts."""
+    if not out.is_dir() or out.is_symlink():
+        return {}
+    result: dict[str, str] = {}
+    for path in sorted(out.rglob("*")):
+        if not path.is_file() or path.is_symlink() or path.name in VOLATILE:
+            continue
+        digest = sha256_file(path)
+        if digest:
+            result[path.relative_to(out).as_posix()] = digest
+    return result
+
+
+def symlink_paths(out: Path) -> list[str]:
+    """Return portable paths for symlinks inside an output directory."""
+    if not out.is_dir() or out.is_symlink():
+        return []
+    return sorted(
+        path.relative_to(out).as_posix()
+        for path in out.rglob("*")
+        if path.is_symlink()
+    )
+
+
+def output_directory_status(path: Path) -> dict[str, Any]:
+    """Describe whether a diagnostic directory can be inspected."""
+    if path.is_symlink():
+        status = "symlink"
+    elif path.is_dir():
+        status = "available"
+    elif path.exists():
+        status = "not_a_directory"
+    else:
+        status = "missing"
+    return {"path": str(path), "status": status, "available": status == "available"}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -139,13 +169,28 @@ def main(argv: list[str] | None = None) -> None:
     out = project_path(args.out_dir, "output")
     current = hashes(out)
     errors = []
+    current_directory = output_directory_status(out)
+    current_symlinks = symlink_paths(out)
+    if not current_directory["available"]:
+        errors.append(f"output directory is unavailable: {out}")
+    errors.extend(f"output contains a symlink: {relative}" for relative in current_symlinks)
     reference = None
     current_context = provenance_context(out)
     reference_context = None
+    reference_directory = None
+    reference_symlinks: list[str] | None = None
     context_errors: list[str] = []
     if args.reference_out_dir:
-        reference = hashes(project_path(args.reference_out_dir, "output"))
-        reference_context = provenance_context(project_path(args.reference_out_dir, "output"))
+        reference_out = project_path(args.reference_out_dir, "output")
+        reference_directory = output_directory_status(reference_out)
+        reference_symlinks = symlink_paths(reference_out)
+        if not reference_directory["available"]:
+            errors.append(f"reference output directory is unavailable: {reference_out}")
+        errors.extend(
+            f"reference output contains a symlink: {relative}" for relative in reference_symlinks
+        )
+        reference = hashes(reference_out)
+        reference_context = provenance_context(reference_out)
         for field in context_differences(current_context, reference_context):
             context_errors.append(f"reproducibility context differs: {field}")
         names = sorted(set(current) | set(reference))
@@ -160,12 +205,20 @@ def main(argv: list[str] | None = None) -> None:
         "artifact_count": len(current),
         "artifacts": current,
         "reference_comparison": bool(reference is not None),
+        "output_directory": current_directory,
+        "symlinks": current_symlinks,
+        "reference_output_directory": reference_directory,
+        "reference_symlinks": reference_symlinks,
         "context": current_context,
         "reference_context": reference_context,
         "context_differences": context_errors,
         "notes": "Time-stamped manifests, verification, diagnostic, and HTML report files are excluded from byte-for-byte comparison; normalized provenance context is compared when a reference run is supplied.",
     }
-    atomic_write_json(out / "reproducibility.json", result, indent=2)
+    # A missing directory can be created for its diagnostic record, but a path
+    # that is an existing file cannot accept one; keep that failure on stdout
+    # rather than leaking a NotADirectoryError traceback.
+    if current_directory["status"] in {"available", "missing"}:
+        atomic_write_json(out / "reproducibility.json", result, indent=2)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         if errors:

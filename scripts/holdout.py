@@ -15,7 +15,8 @@ try:
         atomic_write_csv,
         atomic_write_json,
         default_analysis_plan_path,
-        project_path,
+        project_input_path,
+        project_output_tree_path,
         sha256_file,
     )
 except ImportError:
@@ -23,7 +24,8 @@ except ImportError:
         atomic_write_csv,
         atomic_write_json,
         default_analysis_plan_path,
-        project_path,
+        project_input_path,
+        project_output_tree_path,
         sha256_file,
     )
 
@@ -74,9 +76,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int, default=20260816)
     parser.add_argument("--fraction", type=float, default=None)
     args = parser.parse_args(argv)
-    out = project_path(args.out_dir, "output")
+    out = project_output_tree_path(args.out_dir)
     plan_path = (
-        project_path(args.plan, "analysis_plan.json")
+        project_input_path(args.plan, "analysis_plan.json", label="analysis plan")
         if args.plan
         else default_analysis_plan_path()
     )

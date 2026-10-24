@@ -24,9 +24,19 @@ from pathlib import Path
 from shapely.geometry import Point, shape
 
 try:
-    from runtime import atomic_write_csv, project_path
+    from runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 except ImportError:
-    from scripts.runtime import atomic_write_csv, project_path
+    from scripts.runtime import (
+        atomic_write_csv,
+        project_data_tree_path,
+        project_input_path,
+        project_output_tree_path,
+    )
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -213,15 +223,31 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--settlements", default=None, help="optional settlement GeoJSON")
     parser.add_argument("--grid-deg", type=float, default=0.05)
     args = parser.parse_args(argv)
-    data = project_path(args.data_root, "data")
-    out = project_path(args.out_dir, "output")
+    data = project_data_tree_path(args.data_root)
+    out = project_output_tree_path(args.out_dir)
     analysis_path = out / "analysis_results.csv"
     if not analysis_path.exists():
         raise SystemExit(f"Missing {analysis_path}. Run analyze.py first.")
     analysis = read_csv(analysis_path)
     niah = read_csv(out / "niah_join.csv")
-    boundary_path = project_path(args.boundaries, str(data / "boundaries" / "admin.geojson")) if args.boundaries else data / "boundaries" / "admin.geojson"
-    settlement_path = project_path(args.settlements, str(data / "boundaries" / "settlements.geojson")) if args.settlements else data / "boundaries" / "settlements.geojson"
+    boundary_path = (
+        project_input_path(
+            args.boundaries,
+            str(data / "boundaries" / "admin.geojson"),
+            label="administrative boundary input",
+        )
+        if args.boundaries
+        else data / "boundaries" / "admin.geojson"
+    )
+    settlement_path = (
+        project_input_path(
+            args.settlements,
+            str(data / "boundaries" / "settlements.geojson"),
+            label="settlement boundary input",
+        )
+        if args.settlements
+        else data / "boundaries" / "settlements.geojson"
+    )
     boundaries = load_features(boundary_path if boundary_path.exists() else None)
     settlements = load_features(settlement_path if settlement_path.exists() else None)
     rows = build_covariates(

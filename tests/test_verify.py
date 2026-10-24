@@ -2,14 +2,18 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from scripts.holdout import holdout
-from scripts.runtime import SOURCE_FRESHNESS_CONTRACT, sha256_file
+from scripts.runtime import SOURCE_FRESHNESS_CONTRACT, path_modified_at, sha256_file
 from scripts.verify import (
+    _resolve_manifest_source_path,
     check_columnar_contract,
     check_dashboard_review_contract,
     check_holdout_contract,
     check_holm_contract,
     check_interpretation_artifact,
+    check_manifest_cache_contract,
     check_manifest_contract,
     check_manifest_freshness_contract,
     check_manifest_path_contract,
@@ -19,6 +23,7 @@ from scripts.verify import (
     check_review_page_contract,
     check_review_queue_contract,
 )
+from scripts.verify import main as verify_main
 
 
 def test_holm_contract_rejects_tampered_adjusted_value():
@@ -74,6 +79,122 @@ def test_holdout_contract_rejects_changed_split(tmp_path):
         errors,
     )
     assert any("has split" in error for error in errors)
+
+
+def test_verifier_source_resolution_prefers_relocated_portable_path(tmp_path):
+    original = tmp_path / "original"
+    relocated = tmp_path / "relocated"
+    old_source = original / "data" / "source.bin"
+    current_source = relocated / "data" / "source.bin"
+    output = relocated / "output"
+    old_source.parent.mkdir(parents=True)
+    current_source.parent.mkdir(parents=True)
+    output.mkdir()
+    old_source.write_bytes(b"old\n")
+    current_source.write_bytes(b"new\n")
+
+    resolved = _resolve_manifest_source_path(
+        {
+            "path": str(old_source),
+            "path_base": "project_root",
+            "relative_path": "data/source.bin",
+        },
+        {"project_root": str(original)},
+        relocated / "data",
+        output,
+    )
+
+    assert resolved == current_source
+
+
+def test_verifier_source_resolution_honors_explicit_project_root_with_custom_layout(tmp_path):
+    original = tmp_path / "original"
+    relocated = tmp_path / "relocated"
+    old_source = original / "data" / "source.bin"
+    current_source = relocated / "data" / "source.bin"
+    data_root = tmp_path / "isolated-data"
+    output = tmp_path / "artifacts" / "output"
+    old_source.parent.mkdir(parents=True)
+    current_source.parent.mkdir(parents=True)
+    data_root.mkdir()
+    output.mkdir(parents=True)
+    old_source.write_bytes(b"old\n")
+    current_source.write_bytes(b"new\n")
+
+    resolved = _resolve_manifest_source_path(
+        {
+            "path": str(old_source),
+            "path_base": "project_root",
+            "relative_path": "data/source.bin",
+        },
+        {"project_root": str(original)},
+        data_root,
+        output,
+        project_root=relocated,
+    )
+
+    assert resolved == current_source
+
+
+def test_manifest_freshness_uses_explicit_project_root_with_custom_layout(tmp_path):
+    original = tmp_path / "original"
+    relocated = tmp_path / "relocated"
+    old_source = original / "data" / "combined.json"
+    current_source = relocated / "data" / "combined.json"
+    data_root = tmp_path / "isolated-data"
+    output = tmp_path / "artifacts" / "output"
+    old_source.parent.mkdir(parents=True)
+    current_source.parent.mkdir(parents=True)
+    data_root.mkdir()
+    output.mkdir(parents=True)
+    old_source.write_text('{"old": true}', encoding="utf-8")
+    current_source.write_text('{"current": true}', encoding="utf-8")
+    fixed_mtime = 1_600_000_000
+    os.utime(current_source, (fixed_mtime, fixed_mtime))
+    modified_at = path_modified_at(current_source)
+    assert modified_at is not None
+
+    manifest = {
+        "schema_version": 3,
+        "project_root": str(original),
+        "sources": [
+            {
+                "source_kind": "combined_osm_json",
+                "path": str(old_source),
+                "path_base": "project_root",
+                "relative_path": "data/combined.json",
+                "modified_at": modified_at,
+            }
+        ],
+        "source_freshness": {
+            "contract": SOURCE_FRESHNESS_CONTRACT,
+            "observed_at": "2020-09-13T12:27:40+00:00",
+            "sources": [
+                {
+                    "source_kind": "combined_osm_json",
+                    "path": str(old_source),
+                    "path_base": "project_root",
+                    "relative_path": "data/combined.json",
+                    "modified_at": modified_at,
+                    "age_seconds": 60.0,
+                }
+            ],
+        },
+    }
+    errors = []
+    warnings = []
+
+    check_manifest_freshness_contract(
+        manifest,
+        data_root,
+        output,
+        errors,
+        warnings,
+        project_root=relocated,
+    )
+
+    assert errors == []
+    assert warnings == []
 
 
 def test_probability_contract_rejects_literal_zero():
@@ -140,6 +261,112 @@ def test_manifest_contract_rejects_unlisted_output(tmp_path):
     check_manifest_contract({"counts": {}, "artifacts": []}, tmp_path, errors)
     assert any("does not list output artifact" in error for error in errors)
     assert not any("doctor.json" in error for error in errors)
+
+
+def test_manifest_contract_checks_nested_output_files(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    unlisted = nested / "unlisted.csv"
+    unlisted.write_text("x\n", encoding="utf-8")
+
+    errors = []
+    check_manifest_contract({"counts": {}, "artifacts": []}, tmp_path, errors)
+
+    assert any(str(unlisted) in error for error in errors)
+
+
+def test_manifest_contract_accepts_a_listed_nested_output_file(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    artifact = nested / "listed.csv"
+    artifact.write_text("x\n", encoding="utf-8")
+    manifest = {
+        "counts": {},
+        "artifacts": [
+            {
+                "path": str(artifact),
+                "relative_path": "nested/listed.csv",
+                "path_base": "output_dir",
+                "sha256": sha256_file(artifact),
+                "bytes": artifact.stat().st_size,
+            }
+        ],
+    }
+
+    errors = []
+    check_manifest_contract(manifest, tmp_path, errors)
+
+    assert errors == []
+
+
+def test_manifest_contract_rejects_output_symlink(tmp_path):
+    target = tmp_path / "target.csv"
+    target.write_text("x\n", encoding="utf-8")
+    link = tmp_path / "linked.csv"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    errors = []
+    check_manifest_contract({"counts": {}, "artifacts": []}, tmp_path, errors)
+
+    assert any("output contains a symlink" in error for error in errors)
+
+
+def test_verify_rejects_symlinked_output_root(tmp_path):
+    target = tmp_path / "target-output"
+    target.mkdir()
+    linked = tmp_path / "linked-output"
+    try:
+        linked.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(SystemExit, match="output directory must not be a symlink"):
+        verify_main(["--out-dir", str(linked)])
+
+
+def test_verify_rejects_file_output_root(tmp_path):
+    output = tmp_path / "output"
+    output.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="output directory must be a directory"):
+        verify_main(["--out-dir", str(output)])
+
+
+def test_verify_rejects_nested_data_symlink_before_reading(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    target = tmp_path / "external.json"
+    target.write_text("{}", encoding="utf-8")
+    link = data / "combined.json"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(ValueError, match="data directory contains symlink"):
+        from scripts.verify import verify_outputs
+
+        verify_outputs(data, tmp_path / "output")
+
+
+def test_verify_rejects_nested_output_symlink_before_reading(tmp_path):
+    output = tmp_path / "output"
+    output.mkdir()
+    target = tmp_path / "external.csv"
+    target.write_text("x\n", encoding="utf-8")
+    link = output / "analysis_results.csv"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are unavailable in this test environment")
+
+    with pytest.raises(ValueError, match="output directory contains symlink"):
+        from scripts.verify import verify_outputs
+
+        verify_outputs(tmp_path / "data", output)
 
 
 def test_manifest_contract_rejects_artifact_outside_output(tmp_path):
@@ -214,6 +441,89 @@ def test_manifest_runtime_contract_warns_for_legacy_shape():
     check_manifest_runtime_contract({}, errors, warnings)
     assert errors == []
     assert len(warnings) == 2
+
+
+def _manifest_cache_fixture(tmp_path, *, routing_max_pairs: int = 100):
+    plan = tmp_path / "custom-plan.json"
+    plan.write_text("{}", encoding="utf-8")
+    parameters = {
+        "stage": "all",
+        "refresh": False,
+        "no_network": True,
+        "boundaries": None,
+        "settlements": None,
+        "osm_history": None,
+        "lidar": None,
+        "historical_references": None,
+        "review_labels": None,
+        "analysis_plan": plan.name,
+        "seed": 42,
+        "mc": 7,
+        "bootstrap_iterations": 11,
+        "holdout_fraction": None,
+        "road_graph": None,
+        "road_from_pbf": False,
+        "routing_include_restricted": False,
+        "routing_include_ferries": False,
+        "routing_max_ways": 100000,
+        "routing_max_pairs": routing_max_pairs,
+        "routing_departure": None,
+        "routing_speed_kmh": 40.0,
+        "routing_weight_t": None,
+        "routing_vehicle_class": "general",
+    }
+    commands = {
+        "fetch": ["--no-download"],
+        "fetch-niah": ["--no-network"],
+        "analyze": ["--plan", str(plan)],
+        "spatial-covariates": [],
+        "osm-history": [],
+        "building-parts": [],
+        "historical": [],
+        "review": [],
+        "point-pattern": ["--seed", "42", "--mc", "7"],
+        "spatial-stats": ["--seed", "42", "--mc", "7"],
+        "spatial-bootstrap": ["--seed", "42", "--iterations", "11"],
+        "road-proximity": ["--seed", "42"],
+        "road-routing": ["--max-pairs", "100", "--speed-kmh", "40.0", "--vehicle-class", "general"],
+        "holdout": ["--seed", "42", "--plan", str(plan)],
+    }
+    cache = {
+        "stages": {
+            stage: {"fingerprint_inputs": {"command": command}}
+            for stage, command in commands.items()
+        }
+    }
+    return {"project_root": str(tmp_path), "parameters": parameters}, cache
+
+
+def test_manifest_cache_contract_accepts_aligned_commands_and_ignores_diagnostic_invocation(
+    tmp_path,
+):
+    manifest, cache = _manifest_cache_fixture(tmp_path)
+    manifest["last_invocation"] = {"routing_max_pairs": 5000, "seed": 999}
+    errors = []
+    warnings = []
+
+    result = check_manifest_cache_contract(manifest, cache, tmp_path / "output", errors, warnings)
+
+    assert result["contract"] == "ireland-geometry.manifest-cache.v1"
+    assert result["status"] == "pass"
+    assert result["mismatches"] == []
+    assert errors == []
+    assert warnings == []
+
+
+def test_manifest_cache_contract_rejects_changed_routing_limit(tmp_path):
+    manifest, cache = _manifest_cache_fixture(tmp_path, routing_max_pairs=5000)
+    errors = []
+    warnings = []
+
+    result = check_manifest_cache_contract(manifest, cache, tmp_path / "output", errors, warnings)
+
+    assert result["status"] == "fail"
+    assert any("road-routing.routing_max_pairs" in error for error in errors)
+    assert result["mismatches"][0]["expected"] == 5000
 
 
 def test_manifest_freshness_contract_accepts_aligned_current_source(tmp_path):

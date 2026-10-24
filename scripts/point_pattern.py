@@ -207,10 +207,10 @@ def main() -> None:
     ap.add_argument("--mc", type=int, default=300, help="Monte Carlo iterations (default: 300)")
     args = ap.parse_args()
     try:
-        from runtime import atomic_write_csv, project_path
+        from runtime import atomic_write_csv, project_output_tree_path
     except ImportError:
-        from scripts.runtime import atomic_write_csv, project_path
-    OUT = project_path(args.out_dir, "output")
+        from scripts.runtime import atomic_write_csv, project_output_tree_path
+    OUT = project_output_tree_path(args.out_dir)
     RESULTS = OUT / "analysis_results.csv"
     N_MC = max(50, args.mc)
     RNG = random.Random(args.seed)
